@@ -13,10 +13,11 @@ param(
 $ErrorActionPreference = "Stop"
 Push-Location $PSScriptRoot
 try {
-    if (-not $env:ANDROID_NDK_HOME) {
-        # NDK 26: the prebuilt Skia is built with it.
-        $ndk = Get-ChildItem (Join-Path $env:ANDROID_HOME "ndk") -Directory | Where-Object Name -like "26.*" | Select-Object -Last 1
-        if (-not $ndk) { throw "NDK 26 not found: install it with the SDK Manager or set ANDROID_NDK_HOME" }
+    # NDK 26: the prebuilt Skia is built with it, and the app links Skia's C++ library from it.
+    # ANDROID_NDK_HOME is used when it is a 26, else the SDK's NDK 26.
+    if (-not $env:ANDROID_NDK_HOME -or (Split-Path -Leaf $env:ANDROID_NDK_HOME) -notlike "26.*") {
+        $ndk = Get-ChildItem (Join-Path $env:ANDROID_HOME "ndk") -Directory -ErrorAction SilentlyContinue | Where-Object Name -like "26.*" | Select-Object -Last 1
+        if (-not $ndk) { throw "NDK 26 not found: install it with the SDK Manager (ndk;26.1.10909125)" }
         $env:ANDROID_NDK_HOME = $ndk.FullName
     }
     if (-not $env:JAVA_HOME) { $env:JAVA_HOME = Join-Path $env:ProgramFiles "Android\Android Studio\jbr" }

@@ -16,12 +16,16 @@ for arg in "$@"; do
         *) abi=$arg ;;
     esac
 done
-if [ -z "${ANDROID_NDK_HOME:-}" ]; then
-    # NDK 26: the prebuilt Skia is built with it.
-    ANDROID_NDK_HOME=$(ls -d "$ANDROID_HOME"/ndk/26.* 2>/dev/null | tail -1)
-    [ -n "$ANDROID_NDK_HOME" ] || { echo "NDK 26 not found: install it with the SDK Manager or set ANDROID_NDK_HOME" >&2; exit 1; }
-    export ANDROID_NDK_HOME
-fi
+# NDK 26: the prebuilt Skia is built with it, and the app links Skia's C++ library from it.
+# ANDROID_NDK_HOME is used when it is a 26, else the SDK's NDK 26.
+case "$(basename "${ANDROID_NDK_HOME:-none}")" in
+    26.*) ;;
+    *)
+        ANDROID_NDK_HOME=$(ls -d "$ANDROID_HOME"/ndk/26.* 2>/dev/null | tail -1)
+        [ -n "$ANDROID_NDK_HOME" ] || { echo "NDK 26 not found: install it with the SDK Manager (ndk;26.1.10909125)" >&2; exit 1; }
+        export ANDROID_NDK_HOME
+        ;;
+esac
 if [ "$abi" = all ]; then abis="arm64-v8a armeabi-v7a x86_64 x86"; else abis=$abi; fi
 targets=()
 for a in $abis; do targets+=(-t "$a"); done
