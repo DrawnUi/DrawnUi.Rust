@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The Apple Skia archives of a release, on the Mac (dev\release.ps1 makes the rest on Windows):
 #   dev/release-apple.sh
-# Copies target/skia-bin's macOS, iOS and iOS simulator archives to target/release-apple/ and
+# Copies target/skia-bin's macOS (Apple silicon, Intel), iOS and iOS simulator archives to target/release-apple/ and
 # prints their SHA-256, for `gh release upload`. They must be keyed by the commit the pinned
 # drawnui-skia-bindings was published from: the sibling ../rust-skia is checked out there (branch
 # `drawnui-crates` of DrawnUi/rust-skia) when they are built.
@@ -24,7 +24,7 @@ features=ganesh-gl-jpegd-jpege-metal-pdf-svg-textlayout
 out="$root/target/release-apple"
 rm -rf "$out" && mkdir -p "$out"
 missing=0
-for target in aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim; do
+for target in aarch64-apple-darwin x86_64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim; do
     from="$root/target/skia-bin/skia-binaries-$key-$target-$features.tar.gz"
     if [ -f "$from" ]; then
         cp "$from" "$out/"
