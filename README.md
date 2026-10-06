@@ -7,6 +7,7 @@ rules with DrawnUI for .NET and DrawnUI for React, so one design runs the same i
 
 - **Try it in your browser:** https://hellorust.drawnui.net (the DrawnUI Hello app, 20 pages)
 - **Play a game made with it:** https://run.drawnui.net (Dungeon Run, a 3D runner drawn with SkMesh)
+- **Build with AI:** a ready AI skill teaches your coding agent DrawnUI for Rust, see [AI skills](#ai-skills)
 - Crate: [`drawnui`](https://crates.io/crates/drawnui) · API docs: https://docs.rs/drawnui
 - Release notes: [`CHANGELOG.md`](CHANGELOG.md) · Accessibility: [`ACCESSIBILITY.md`](ACCESSIBILITY.md)
   · What it shares with DrawnUI for .NET: [`PARITY.md`](PARITY.md)
@@ -47,6 +48,8 @@ fn main() {
   state, handle a tap in one line.
 - **Accessible.** Screen readers on every platform, keyboard navigation with a focus ring, values a
   screen reader reads and changes.
+- **AI-ready.** A ready-made AI skill teaches Claude Code, Codex, Cursor and other coding agents to
+  build DrawnUI apps the right way, from the first `cargo new` to the browser and Android builds.
 - **Nothing to set up.** Add one dependency. Skia comes prebuilt for your platform.
 
 ## Platforms
@@ -159,6 +162,21 @@ Per platform:
 - **iOS:** [`dev/ios`](dev/ios) builds an `.app` bundle for the simulator, or a signed one for a
   device.
 
+## AI skills
+
+Building with an AI coding agent? Give it the DrawnUI for Rust skill and it writes DrawnUI code the
+way the engine expects: adding drawnui, fluent builders, controls and layouts, caching, the browser
+build with its link flags and web page, Android, icons, accessibility.
+
+- **Skill file:** [`skills/drawnui-rust/SKILL.md`](skills/drawnui-rust/SKILL.md), also at
+  https://hellorust.drawnui.net/skills/drawnui-rust/SKILL.md
+- **Install for Claude Code:** save it as `~/.claude/skills/drawnui-rust/SKILL.md` (or in your
+  agent's skill or rules folder).
+- **For any LLM:** https://hellorust.drawnui.net/llms.txt and
+  https://hellorust.drawnui.net/llms-full.txt (every skill in one file).
+- **The DrawnUI framework skill** (controls, layouts, caching across all DrawnUI engines):
+  https://drawnui.net/llms.txt
+
 ## Benchmarks
 
 The same draw list, N rounded rectangles per frame, 1609x1163 canvas, Chrome on Windows, WebGL2:
@@ -198,14 +216,6 @@ heavy scenes Vulkan draws 21 to 35 % more frames; where both keep up with the pa
 | HelloRust: Shaders | 91.6 FPS, CPU 1.60 ms | 91.6 FPS, CPU 2.75 ms | -42 % CPU |
 
 OpenGL ES stays available as the fallback and as an option (`Ui::gpu_backend`).
-
-## For AI agents
-
-[`skills/drawnui-rust/SKILL.md`](skills/drawnui-rust/SKILL.md) teaches an agent to build apps with
-DrawnUI for Rust: adding drawnui, the browser build, the web page, Android, icons, cache types,
-accessibility. It is also served at https://hellorust.drawnui.net/skills/drawnui-rust/SKILL.md, with
-`llms.txt` / `llms-full.txt` at the site root. Pair it with the DrawnUI framework skill from
-https://drawnui.net/llms.txt.
 
 ## Building this repository
 
