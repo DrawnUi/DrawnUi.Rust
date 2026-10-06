@@ -9,12 +9,16 @@
 #   dev\skia-binaries.ps1 -Android x86_64-linux-android
 #                                -> one Android ABI (aarch64, armv7, x86_64, i686), through cargo-ndk
 #                                   and the NDK in ANDROID_NDK_HOME, API level 26 (rust-skia's).
+#   dev\skia-binaries.ps1 -Target aarch64-pc-windows-msvc
+#                                -> another desktop target, cross-compiled (Windows on ARM needs
+#                                   Visual Studio's MSVC ARM64 build tools).
 #
 # Run it again after every commit in ..\rust-skia (the archive name carries its commit hash) or when
 # the Skia features of drawnui change.
 param(
     [switch]$Web,
     [string]$Android,
+    [string]$Target,
     [string]$Emsdk = $(if ($env:EMSDK) { $env:EMSDK } else { "C:\Dev\Tools\emsdk" })
 )
 
@@ -35,8 +39,9 @@ try {
     # fails on long paths.
     $env:BUILD_ARTIFACTSTAGINGDIRECTORY = $stage
     $env:FORCE_SKIA_BUILD = "1"
-    $env:CARGO_TARGET_DIR = Join-Path $repo $(if ($Web) { "target\a\skiaweb" } elseif ($Android) { "target\a\sk-" + $Android.Split("-")[0] } else { "target\a\skia" })
+    $env:CARGO_TARGET_DIR = Join-Path $repo $(if ($Web) { "target\a\skiaweb" } elseif ($Android) { "target\a\sk-" + $Android.Split("-")[0] } elseif ($Target) { "target\a\skt-" + $Target.Split("-")[0] } else { "target\a\skia" })
     $cargo = @("build", "-p", "drawnui")
+    if ($Target) { $cargo += @("--target", $Target) }
     if ($Android) {
         # NDK 26: with NDK 29 ICU does not compile (umapfile.cpp: posix_madvise undeclared).
         $ndk = Get-ChildItem (Join-Path $env:ANDROID_HOME "ndk") -Directory | Where-Object Name -like "26.*" | Select-Object -Last 1

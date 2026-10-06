@@ -1,0 +1,116 @@
+# Prebuilt Skia on every platform, run by hand:
+#   gh workflow run skia-binaries.yml -f archive=true    # Linux ARM64 archive, built and tested natively
+#   gh workflow run skia-binaries.yml -f template=true   # the starter app from crates.io on every runner
+# The archive job builds Skia from DrawnUi/rust-skia at the tag of the pinned Skia crates (the
+# commit their archives are keyed by), runs the engine tests on it and leaves the archive as a run
+# artifact for the maintainer to upload to that DrawnUi/rust-skia release. The template job proves
+# that an app with no Skia setup downloads Skia (never compiles it) on each platform.
+name: skia-binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      archive:
+        description: Build the Linux ARM64 Skia archive
+        type: boolean
+        default: false
+      template:
+        description: Build the starter app from crates.io on every runner
+        type: boolean
+        default: false
+
+jobs:
+  linux-arm64-archive:
+    if: inputs.archive
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: DrawnUi.Rust
+      - name: Packages
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q clang libclang-dev ninja-build python3 libfontconfig1-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libx11-dev libxkbcommon-dev libwayland-dev
+      - name: Rust
+        run: |
+          command -v rustup || curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Sibling checkouts (README "Building this repository")
+        run: |
+          version=$(sed -n 's/.*package = "drawnui-skia-safe", version = "=\([0-9.]*\)".*/\1/p' DrawnUi.Rust/Cargo.toml)
+          git clone -q --depth 1 -b "$version" https://github.com/DrawnUi/rust-skia.git rust-skia
+          git -c advice.detachedHead=false -C rust-skia log --oneline -1
+          clone() {
+            git init -q "$1" && cd "$1"
+            git fetch -q --depth 1 "$2" "$3" && git checkout -q -b "$4" FETCH_HEAD
+            git -c user.name=ci -c user.email=ci@localhost am -q ../DrawnUi.Rust/dev/"$5"/*.patch
+            cd ..
+          }
+          clone winit https://github.com/rust-windowing/winit.git e9809ef54b18499bb4f2cac945719ecc2a61061b drawnui-android winit-android
+          clone android-activity https://github.com/rust-mobile/android-activity.git b4ddf059b77be12cdb955d394e65a92e7568d936 drawnui-null-text android-activity-null-text
+      - name: Build Skia and export the archive
+        working-directory: DrawnUi.Rust
+        env:
+          FORCE_SKIA_BUILD: "1"
+          RUSTFLAGS: -Awarnings
+        run: |
+          stage=$(mktemp -d)
+          BUILD_ARTIFACTSTAGINGDIRECTORY="$stage" cargo build -p drawnui --release
+          key=$(tr -d '[:space:]' < "$stage/skia-binaries/key.txt")
+          echo "key $key"
+          mkdir -p "$RUNNER_TEMP/out"
+          tar -czf "$RUNNER_TEMP/out/skia-binaries-$key.tar.gz" -C "$stage" skia-binaries
+          ls -l "$RUNNER_TEMP/out"
+      - name: Engine tests on the archive (a fresh target dir unpacks it)
+        working-directory: DrawnUi.Rust
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/t2
+          RUSTFLAGS: -Awarnings
+        run: |
+          export SKIA_BINARIES_URL="file://$RUNNER_TEMP/out/skia-binaries-{key}.tar.gz"
+          cargo test -p drawnui --release --no-fail-fast
+          grep -h "DOWNLOAD AND INSTALL SUCCEEDED" "$CARGO_TARGET_DIR"/release/build/drawnui-skia-bindings-*/output
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skia-binaries-aarch64-unknown-linux-gnu
+          path: ${{ runner.temp }}/out/*.tar.gz
+
+  template:
+    if: inputs.template
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm, ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -q && sudo apt-get install -y -q libfontconfig1-dev
+      - name: Rust
+        run: |
+          if ! command -v rustup; then
+            if [ "$RUNNER_OS" = Windows ]; then
+              arch=$([ "$RUNNER_ARCH" = ARM64 ] && echo aarch64 || echo x86_64)
+              curl -sSfLo "$RUNNER_TEMP/rustup-init.exe" "https://static.rust-lang.org/rustup/dist/$arch-pc-windows-msvc/rustup-init.exe"
+              "$RUNNER_TEMP/rustup-init.exe" -y --profile minimal
+              echo "$USERPROFILE/.cargo/bin" >> "$GITHUB_PATH"
+            else
+              curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+              echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            fi
+          fi
+      - name: The starter app, outside the repo, Skia from crates.io with no setup
+        env:
+          RUSTFLAGS: -Awarnings
+        run: |
+          cp -r templates/app "$RUNNER_TEMP/app"
+          cd "$RUNNER_TEMP/app"
+          cargo build --release
+          output=$(cat target/release/build/drawnui-skia-bindings-*/output)
+          echo "$output" | grep -E "DOWNLOADING|DOWNLOAD AND INSTALL|STARTING A FULL BUILD"
+          echo "$output" | grep -q "DOWNLOAD AND INSTALL SUCCEEDED"
