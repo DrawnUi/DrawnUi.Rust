@@ -101,3 +101,12 @@ how they were fixed. Short, for anyone porting a Rust + Skia library to Windows.
 
 Open, not solved yet: frame interval p99 of 25 to 33 ms at 20,000 draw calls on Ganesh GL
 (phase 0 bench).
+
+17. **Windows on ARM (aarch64-pc-windows-msvc), cross-built on x64.** Two traps. clang-cl resolves
+    Skia's relative source paths with `GetFullPathNameA`, limited to 260 characters; the target
+    triple adds a folder level to the build dir and Skia's deepest zlib sources pass the limit
+    ("The filename or extension is too long"): build in a short folder at the drive root. Then the
+    bindings' C++ (the cc crate) looks for the x64-hosted ARM64 `cl.exe`, which a Visual Studio
+    with only the ARM64 libraries does not have: point `CC_aarch64_pc_windows_msvc` /
+    `CXX_aarch64_pc_windows_msvc` at LLVM's clang-cl, which built Skia already.
+    `dev\skia-binaries.ps1 -Target aarch64-pc-windows-msvc` does both.

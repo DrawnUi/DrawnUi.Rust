@@ -39,9 +39,22 @@ try {
     # fails on long paths.
     $env:BUILD_ARTIFACTSTAGINGDIRECTORY = $stage
     $env:FORCE_SKIA_BUILD = "1"
-    $env:CARGO_TARGET_DIR = Join-Path $repo $(if ($Web) { "target\a\skiaweb" } elseif ($Android) { "target\a\sk-" + $Android.Split("-")[0] } elseif ($Target) { "target\a\skt-" + $Target.Split("-")[0] } else { "target\a\skia" })
+    # A cross target adds a folder level: clang-cl then passes MAX_PATH (GetFullPathNameA) on Skia's
+    # deepest sources under the repo, so it builds in a folder at the drive root.
+    $env:CARGO_TARGET_DIR = if ($Target) { "$env:SystemDrive\skt-" + $Target.Split("-")[0] } else {
+        Join-Path $repo $(if ($Web) { "target\a\skiaweb" } elseif ($Android) { "target\a\sk-" + $Android.Split("-")[0] } else { "target\a\skia" }) }
     $cargo = @("build", "-p", "drawnui")
     if ($Target) { $cargo += @("--target", $Target) }
+    if ($Target -like "*-windows-msvc") {
+        # The bindings' C++ with LLVM's clang-cl, as Skia: Visual Studio may have the target's
+        # libraries but not its x64-hosted compiler (cc then finds no cl.exe).
+        $clang = (Get-Command clang-cl -ErrorAction SilentlyContinue).Source
+        if (-not $clang) { $clang = "$env:ProgramFiles\LLVM\bin\clang-cl.exe" }
+        foreach ($name in "CC_$($Target -replace '-', '_')", "CXX_$($Target -replace '-', '_')") {
+            $saved[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+            if (-not $saved[$name]) { [Environment]::SetEnvironmentVariable($name, $clang, "Process") }
+        }
+    }
     if ($Android) {
         # NDK 26: with NDK 29 ICU does not compile (umapfile.cpp: posix_madvise undeclared).
         $ndk = Get-ChildItem (Join-Path $env:ANDROID_HOME "ndk") -Directory | Where-Object Name -like "26.*" | Select-Object -Last 1

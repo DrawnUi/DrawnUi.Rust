@@ -57,10 +57,12 @@ anyone porting a Rust + Skia library to Android. Add every new one.
     expression is unwrapped to a string; `cargo ndk ... @release` then passed "-", "-", "r"...
     ("unexpected argument '-'"). Type it `[string[]]`. And `$profile` is PowerShell's own variable.
 
-12. **x86 (32-bit) does not compile skia-bindings.** The bindings in the i686-linux-android
-    archive assert struct sizes rustc does not agree with (`100 - 104 would overflow`): a layout
-    mismatch between bindgen's view of the target and rustc's. Skia itself builds; the app does
-    not. 32-bit x86 Android devices are practically gone: the APK carries arm64, armv7 and x86_64.
+12. **x86 (32-bit): the bindings' layout tests failed** (`100 - 104 would overflow` on
+    `GrBackendFormat`, `GrBackendTexture`, ...). bindgen backs 8-aligned opaque C++ storage
+    (`SkAnySubclass`, `alignas(8)`) with `__BindgenOpaqueArray<u64, N>`, but `u64` is 4-aligned in
+    Rust on 32-bit x86, so the Rust types came out 4 bytes short. Fixed where the bindings are made
+    (DrawnUi/rust-skia ed7ffc4, skia-bindings 0.153.5): on 32-bit x86 those arrays become an
+    8-aligned `__BindgenOpaqueArrayU64`; every other target's bindings stay the same.
 
 13. **Frames from Choreographer: the callback must reach winit as a user event.** Paced by
     eglSwapBuffers alone, with the CPU time at frame start as the animation clock, Pong's ball

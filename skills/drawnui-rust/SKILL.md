@@ -20,7 +20,7 @@ browser need no `[patch]`.
 
 ```toml
 [dependencies]
-drawnui = "0.1.0-preview.2"
+drawnui = "0.1.0-preview.3"
 
 [profile.release]
 lto = "thin"
@@ -28,8 +28,9 @@ panic = "abort"
 ```
 
 **Skia needs no setup.** drawnui-skia-bindings downloads it prebuilt for the target from
-https://github.com/DrawnUi/rust-skia/releases (Windows x64, Linux x64, macOS and iOS on Apple
-silicon and the simulator, Android arm64 / armv7 / x86_64, the browser). `SKIA_BINARIES_URL` only
+https://github.com/DrawnUi/rust-skia/releases: Windows x64 and ARM64, macOS (Apple silicon, Intel),
+Linux x64 and ARM64, iOS (devices, simulator on Apple silicon and Intel), Android arm64 / armv7 /
+x86_64 / x86, the browser. `SKIA_BINARIES_URL` only
 points the download at a mirror (`file://` works, absolute paths only).
 
 - **Never set `FORCE_SKIA_BINARIES_DOWNLOAD`.** Inside a crate it makes skia-bindings key the
@@ -215,11 +216,8 @@ fn android_main(app: drawnui::AndroidApp) {
   `[target.'cfg(target_os = "android")'] rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]`.
   Gradle (AGP 8.5.1 or newer) aligns the uncompressed libraries in the APK; check with
   `zipalign -c -P 16 -v 4 app.apk`.
-- **ABIs:** arm64-v8a, armeabi-v7a, x86_64 (emulators). 32-bit x86 does not build: skia-bindings'
-  generated layouts do not match rustc's for i686-linux-android.
-- **Skia:** the release archives cover arm64-v8a, armeabi-v7a and x86_64 (with `vulkan`). x86 compiles
-  Skia from source: NDK 26 (NDK 29 does not compile Skia's ICU), the same NDK for the app link (its
-  libc++ comes with Skia), `python3` on PATH.
+- **ABIs:** arm64-v8a, armeabi-v7a, x86_64 and x86, all with prebuilt Skia (`vulkan`). Link the
+  app with NDK 26 (Skia's libc++ comes from it; NDK 29 does not compile Skia's ICU).
 - **One crate for desktop and Android:** keep the app a library with `run()` plus `android_main`
   and a thin `main.rs`; `cargo ndk -t arm64-v8a -t x86_64 --platform 26 -o <jniLibs> rustc --lib
   --release --crate-type cdylib` builds the activity's library without a `cdylib` crate type in

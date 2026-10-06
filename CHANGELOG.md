@@ -4,6 +4,22 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## 0.1.0-preview.3 (crates.io, 2026-10-06)
+
+### Added
+
+- Skia prebuilt for every platform: Windows x64 and ARM64, macOS on Apple silicon and Intel, Linux
+  x64 and ARM64, iOS devices and the simulator on Apple silicon and Intel, Android arm64, armv7,
+  x86_64 and x86, the browser. `drawnui-skia-bindings` / `drawnui-skia-safe` 0.153.5 download them
+  from https://github.com/DrawnUi/rust-skia/releases/tag/0.153.5 (key prefix `ed7ffc41299b2c46319a`).
+- 32-bit x86 Android (i686-linux-android) builds: the Skia bindings keep C++'s 8-byte alignment of
+  opaque Skia storage there (DrawnUi/rust-skia ed7ffc4).
+
+### Toolchain
+
+The same as 0.1.0-preview.2, with the Skia crates at 0.153.5 (DrawnUi/rust-skia `drawnui-crates`,
+ed7ffc4).
+
 ## 0.1.0-preview.2 (crates.io, 2026-10-06)
 
 ### Changed
