@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 # The engine; Skia comes with it (drawnui-skia-safe), used as drawnui::skia. Do not add skia-safe.
-drawnui = "0.1.0-preview.3"
+drawnui = "0.1.0-preview.4"
 
 [build-dependencies]
 embed-resource = "3"

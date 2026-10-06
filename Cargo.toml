@@ -9,9 +9,9 @@ license = "MIT"
 [workspace.dependencies]
 # skia-safe 0.153.3 plus SkMesh and fixes that are not upstream yet, published from DrawnUi/rust-skia
 # (branch `drawnui-crates`) as drawnui-skia-safe / drawnui-skia-bindings; the code says skia_safe.
-# The prebuilt Skia archives are keyed by the commit they were published from (ed7ffc41...) and
+# The prebuilt Skia archives are keyed by the commit they were published from (3c86a742...) and
 # served by DrawnUi/rust-skia's release of the crate version, the crate's default address.
-skia-safe = { package = "drawnui-skia-safe", version = "=0.153.5", features = ["gl"] }
+skia-safe = { package = "drawnui-skia-safe", version = "=0.153.6", features = ["gl"] }
 
 [profile.release]
 opt-level = 3

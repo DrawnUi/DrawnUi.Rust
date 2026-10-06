@@ -4,6 +4,19 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## 0.1.0-preview.4 (crates.io, 2026-10-06)
+
+### Added
+
+- API docs on docs.rs for `drawnui` and the Skia crates (`drawnui-skia-bindings` /
+  `drawnui-skia-safe` 0.153.6 ship the bindings docs.rs builds with, offline).
+
+### Toolchain
+
+The same as 0.1.0-preview.3, with the Skia crates at 0.153.6 (DrawnUi/rust-skia `drawnui-crates`,
+3c86a74; Skia unchanged, archives at https://github.com/DrawnUi/rust-skia/releases/tag/0.153.6, key
+prefix `3c86a74286ccd80ee10e`).
+
 ## 0.1.0-preview.3 (crates.io, 2026-10-06)
 
 ### Added

@@ -711,7 +711,7 @@ version = "0.1.1"
 
 [[package]]
 name = "drawnui"
-version = "0.1.0-preview.3"
+version = "0.1.0-preview.4"
 dependencies = [
  "accesskit",
  "accesskit_winit",
@@ -736,7 +736,7 @@ dependencies = [
 
 [[package]]
 name = "drawnui-skia-bindings"
-version = "0.153.5"
+version = "0.153.6"
 dependencies = [
  "bindgen",
  "cc",
@@ -751,7 +751,7 @@ dependencies = [
 
 [[package]]
 name = "drawnui-skia-safe"
-version = "0.153.5"
+version = "0.153.6"
 dependencies = [
  "base64",
  "bitflags 2.13.2",

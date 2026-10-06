@@ -84,9 +84,9 @@ fn main() {
 
 | Crate | What it is | Version |
 |---|---|---|
-| [`drawnui`](https://crates.io/crates/drawnui) | the engine: controls, layouts, caches, gestures, animations, accessibility, the desktop, mobile and browser hosts | 0.1.0-preview.3 |
-| [`drawnui-skia-safe`](https://crates.io/crates/drawnui-skia-safe) | Skia for Rust: rust-skia's skia-safe plus SkMesh; drawnui re-exports it as `drawnui::skia` | 0.153.5 |
-| [`drawnui-skia-bindings`](https://crates.io/crates/drawnui-skia-bindings) | the native Skia under drawnui-skia-safe, downloaded prebuilt from [DrawnUi/rust-skia](https://github.com/DrawnUi/rust-skia/releases) | 0.153.5 |
+| [`drawnui`](https://crates.io/crates/drawnui) | the engine: controls, layouts, caches, gestures, animations, accessibility, the desktop, mobile and browser hosts | 0.1.0-preview.4 |
+| [`drawnui-skia-safe`](https://crates.io/crates/drawnui-skia-safe) | Skia for Rust: rust-skia's skia-safe plus SkMesh; drawnui re-exports it as `drawnui::skia` | 0.153.6 |
+| [`drawnui-skia-bindings`](https://crates.io/crates/drawnui-skia-bindings) | the native Skia under drawnui-skia-safe, downloaded prebuilt from [DrawnUi/rust-skia](https://github.com/DrawnUi/rust-skia/releases) | 0.153.6 |
 
 An app depends on `drawnui` only; the Skia crates come with it. Use Skia's API through
 `drawnui::skia` (the same as `skia_safe`, SkMesh included) and do not add skia-safe or skia-bindings
@@ -101,7 +101,7 @@ Or by hand, in a new project (`cargo new myapp`), `Cargo.toml`:
 
 ```toml
 [dependencies]
-drawnui = "0.1.0-preview.3"
+drawnui = "0.1.0-preview.4"
 
 [profile.release]
 lto = "thin"
