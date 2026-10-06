@@ -32,6 +32,9 @@ fn main() {
 
 ## Why DrawnUI for Rust
 
+- **A complete UI engine, ready to use.** Rendering, layouts, gestures, a full set of UI controls
+  and the building blocks to make your own: everything you need to create pixel-perfect apps, out
+  of the box.
 - **The same pixels everywhere.** Every control is drawn by Skia, so your app looks the same on a
   phone, a desktop and a web page. No native widgets to fight.
 - **Smooth by design.** No garbage collector, so there are no collection pauses in the middle of a
