@@ -122,7 +122,12 @@ if [ "$mode" = simulator ]; then
     # A simulator app needs no signing; the simulator accepts an ad-hoc signature.
     codesign --force --sign - --timestamp=none "$app" >/dev/null 2>&1 || true
     sim_type="${IOS_SIMULATOR:-iPhone 17 Pro}"
-    udid=$(xcrun simctl list devices available | grep -F "    $sim_type (" | head -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
+    # That device type on the newest runtime that still has its data: a simulator whose folder was
+    # cleaned away (~/Library/Developer/CoreSimulator) is still listed but cannot boot.
+    udid=
+    for id in $(xcrun simctl list devices available | grep -F "    $sim_type (" | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/'); do
+        if [ -d "$HOME/Library/Developer/CoreSimulator/Devices/$id/data" ]; then udid=$id; fi
+    done
     if [ -z "$udid" ]; then
         runtime=$(xcrun simctl list runtimes available | grep '^iOS' | tail -1 | sed -E 's/.* - (com\.apple\.[^ ]+).*/\1/')
         udid=$(xcrun simctl create "$sim_type" "$sim_type" "$runtime")
