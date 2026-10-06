@@ -1,0 +1,23 @@
+# Skia needs nothing here: drawnui-skia-bindings downloads it prebuilt for your target. Do not set
+# FORCE_SKIA_BINARIES_DOWNLOAD (inside a crate it makes skia-bindings compile Skia from source).
+
+# The browser (wasm32-unknown-emscripten): emsdk's tools on PATH (emsdk_env), em++ links.
+[target.wasm32-unknown-emscripten]
+linker = "em++"
+rustflags = [
+    "-C", "link-arg=-sMAX_WEBGL_VERSION=2",
+    "-C", "link-arg=-sMODULARIZE=1",
+    "-C", "link-arg=-sEXPORT_NAME=createDrawnUi",
+    "-C", "link-arg=-sEXPORTED_RUNTIME_METHODS=GL,HEAPU8,UTF8ToString",
+    "-C", "link-arg=-sALLOW_MEMORY_GROWTH=1",
+    # A 1 MB main-thread stack (emscripten's default 64 KB overflows on deep pages) and the check that
+    # turns an overflow into a clear abort instead of silent memory corruption. Keep both.
+    "-C", "link-arg=-sSTACK_SIZE=1048576",
+    "-C", "link-arg=-sSTACK_OVERFLOW_CHECK=1",
+    # Skia references __gxx_personality_v0, which emscripten no longer stubs.
+    "-C", "link-arg=-sERROR_ON_UNDEFINED_SYMBOLS=0",
+]
+
+# Android: native libraries aligned for 16 KB pages (Android 15+ refuses 4 KB-aligned ones).
+[target.'cfg(target_os = "android")']
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]

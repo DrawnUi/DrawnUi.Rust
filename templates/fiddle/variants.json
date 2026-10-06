@@ -1,0 +1,55 @@
+{
+  "about": "DrawFiddle's Rust export. Each variant is a list of [source, destination] pairs; a source ending in / is a folder, copied whole. Then: the fiddle code replaces src/app.rs, src/configure.rs calls `configure(ui)` when the code defines `fn configure`, the placeholders are replaced in the text files.",
+  "snippet": "src/app.rs",
+  "configure": {
+    "file": "src/configure.rs",
+    "without": "fn configure_ui(ui: drawnui::Ui<App>) -> drawnui::Ui<App> {\n    ui\n}",
+    "with": "fn configure_ui(ui: drawnui::Ui<App>) -> drawnui::Ui<App> {\n    configure(ui)\n}"
+  },
+  "placeholders": {
+    "myapp": "the crate and file name: lowercase letters, digits and _ (a Rust identifier), e.g. pong",
+    "My App": "the name people see: window title, web page title, under the Android and iOS icons",
+    "121218": "the background as RRGGBB, written 0x121218 in src/lib.rs, #121218 in web/index.html, launch_color=121218 in ios/ios.sh"
+  },
+  "text_files": ["Cargo.toml", "src/lib.rs", "src/main.rs", "web/index.html", "web.ps1", "web.sh", "android.ps1", "android.sh", "android/build.gradle", "android/settings.gradle", "android/AndroidManifest.xml", "ios/ios.sh", "README.md"],
+  "executable": ["web.sh", "android.sh", "android/gradlew", "ios/ios.sh"],
+  "common": [
+    ["Cargo.toml", "Cargo.toml"],
+    [".cargo/", ".cargo/"],
+    [".gitignore", ".gitignore"],
+    ["build.rs", "build.rs"],
+    ["app.rc", "app.rc"],
+    ["icon.ico", "icon.ico"],
+    ["src/", "src/"],
+    ["assets/", "assets/"]
+  ],
+  "variants": {
+    "Web": [
+      ["web/", "web/"], ["web.ps1", "web.ps1"], ["web.sh", "web.sh"],
+      ["readme/web.md", "README.md"]
+    ],
+    "Windows": [
+      ["readme/windows.md", "README.md"]
+    ],
+    "Linux": [
+      ["readme/linux.md", "README.md"]
+    ],
+    "Android": [
+      ["Cargo.android.toml", "Cargo.toml"],
+      ["android/", "android/"], ["android.ps1", "android.ps1"], ["android.sh", "android.sh"],
+      ["readme/android.md", "README.md"]
+    ],
+    "iOS": [
+      ["ios/", "ios/"],
+      ["readme/ios.md", "README.md"]
+    ],
+    "All platforms": [
+      ["Cargo.android.toml", "Cargo.toml"],
+      ["web/", "web/"], ["web.ps1", "web.ps1"], ["web.sh", "web.sh"],
+      ["android/", "android/"], ["android.ps1", "android.ps1"], ["android.sh", "android.sh"],
+      ["ios/", "ios/"],
+      ["readme/all.md", "README.md"]
+    ]
+  },
+  "note": "A variant's pairs come after the common ones and win on the same destination (Cargo.android.toml over Cargo.toml)."
+}

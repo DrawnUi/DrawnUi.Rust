@@ -156,9 +156,14 @@ Per platform:
   the template's `web.ps1` / `web.sh`; serve `dist/` over http.
 - **Android:** cargo-ndk and NDK 26; `cargo ndk ... rustc --lib --release --crate-type cdylib` makes
   the activity's library (`android_main` in the template's `src/lib.rs`), packed by Gradle with a
-  GameActivity. Add the winit and android-activity fixes from
-  [`dev/winit-android`](dev/winit-android) and
-  [`dev/android-activity-null-text`](dev/android-activity-null-text) with `[patch.crates-io]`.
+  GameActivity ([`templates/fiddle`](templates/fiddle) has the Gradle project and build scripts).
+  Add the winit and android-activity fixes to your `Cargo.toml`:
+
+  ```toml
+  [patch.crates-io]
+  winit = { git = "https://github.com/DrawnUi/winit", rev = "f1603c5c70f39e93e95839136d1d70c37fbd71f6" }
+  android-activity = { git = "https://github.com/DrawnUi/android-activity", rev = "d45520c015edc340c16770c2266d711327ce01f1" }
+  ```
 - **iOS:** [`dev/ios`](dev/ios) builds an `.app` bundle for the simulator, or a signed one for a
   device.
 

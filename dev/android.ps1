@@ -4,7 +4,7 @@
 #   dev\android.ps1                       -> HelloRust, x86_64 (the emulator), build + pack + install + start
 #   dev\android.ps1 -Example dungeon      -> Dungeon Run
 #   dev\android.ps1 -Abi arm64-v8a        -> a phone
-#   dev\android.ps1 -Abi all -NoInstall   -> one APK with arm64, armv7 and x86_64, not installed
+#   dev\android.ps1 -Abi all -NoInstall   -> one APK with arm64, armv7, x86_64 and x86, not installed
 #   dev\android.ps1 -Debug                -> a debug build (the FPS label), optimized
 # Needs: cargo-ndk, rustup targets for Android, NDK 26 and platform 36 in ANDROID_HOME, a JDK 17+
 # (JAVA_HOME, else Android Studio's), the Android Skia archives (dev\skia-binaries.ps1 -Android
@@ -25,9 +25,8 @@ $out = if ($Example -eq "hellorust") { Join-Path $repo "target\android" } else {
 $sdk = $env:ANDROID_HOME
 # NDK 26: the Skia archives were built with it (NDK 29 does not compile Skia's ICU).
 $ndk = Get-ChildItem (Join-Path $sdk "ndk") -Directory | Where-Object Name -like "26.*" | Select-Object -Last 1
-# "all" leaves x86 (32-bit) out: skia-bindings' generated layouts do not match rustc's for
-# i686-linux-android (100 vs 104 bytes), and such devices are practically gone. Its Skia archive exists.
-$abis = if ($Abi -eq "all") { "arm64-v8a", "armeabi-v7a", "x86_64" } else { @($Abi) }
+# "all": every ABI, 32-bit x86 included (it builds since the Skia crates 0.153.5).
+$abis = if ($Abi -eq "all") { "arm64-v8a", "armeabi-v7a", "x86_64", "x86" } else { @($Abi) }
 
 $saved = @{}
 foreach ($name in "ANDROID_NDK", "ANDROID_NDK_HOME", "ANDROID_NDK_ROOT", "CARGO_TARGET_DIR", "JAVA_HOME") {

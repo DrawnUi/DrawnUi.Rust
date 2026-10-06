@@ -1,0 +1,45 @@
+// The APK: libmyapp.so (built by ../android.ps1 or ../android.sh with cargo-ndk) under GameActivity,
+// which brings the soft keyboard (GameTextInput) and the view TalkBack reads. GameActivity is an
+// AppCompatActivity: AppCompat and core are its dependencies (its POM lists none).
+plugins {
+    id 'com.android.application' version '8.5.2'
+}
+
+def root = file('..')
+// Build output and the inputs the build script prepares, all under the project's target folder.
+layout.buildDirectory = new File(root, 'target/android/gradle')
+
+android {
+    namespace 'com.example.myapp'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'com.example.myapp'
+        minSdk 26
+        targetSdk 36
+        versionCode 1
+        versionName '0.1'
+    }
+    sourceSets.main {
+        manifest.srcFile 'AndroidManifest.xml'
+        res.srcDirs = ['res']
+        java.srcDirs = []
+        // lib/<abi>/libmyapp.so from cargo-ndk; the app's files as assets/assets/...
+        jniLibs.srcDirs = [new File(root, 'target/android/lib')]
+        assets.srcDirs = [new File(root, 'target/android/stage')]
+    }
+    buildTypes {
+        // Signed with the debug key so it installs right away. Use your own key to publish.
+        release {
+            signingConfig signingConfigs.debug
+            minifyEnabled false
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.games:games-activity:4.4.0'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.core:core:1.13.0'
+    // AppCompat pulls kotlin-stdlib 1.8 and the old jdk7 / jdk8 parts, which duplicate its classes.
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
+}

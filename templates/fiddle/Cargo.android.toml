@@ -1,0 +1,27 @@
+[package]
+name = "myapp"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+# The engine; Skia comes with it, prebuilt for your platform, used as drawnui::skia.
+drawnui = "0.1.0-preview.4"
+
+[build-dependencies]
+embed-resource = "3"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+panic = "abort"
+
+# Its own workspace: the app builds the same inside or outside another one.
+[workspace]
+
+# Android: winit and android-activity with one fix each, until the fixes are released upstream.
+# winit: a relaunched activity (navigation mode, font size, locale) no longer stays black.
+# android-activity: no crash when the soft keyboard's text is read before it has any.
+[patch.crates-io]
+winit = { git = "https://github.com/DrawnUi/winit", rev = "f1603c5c70f39e93e95839136d1d70c37fbd71f6" }
+android-activity = { git = "https://github.com/DrawnUi/android-activity", rev = "d45520c015edc340c16770c2266d711327ce01f1" }
