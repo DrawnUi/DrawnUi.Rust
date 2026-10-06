@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+    <title>Dungeon Run: a 3D runner drawn with DrawnUI for Rust</title>
+    <meta
+      name="description"
+      content="Dungeon Run is a first-person runner you play in your browser. It is drawn with Skia 2D: one SkMesh and SkSL shaders, no 3D API used. A DrawnUI for Rust sample."
+    />
+    <meta name="keywords" content="DrawnUI, Rust, Skia, SkMesh, SkSL, shader, WebAssembly, browser game, runner, pseudo 3D" />
+    <meta name="author" content="DrawnUI" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="theme-color" content="#000000" />
+    <link rel="canonical" href="https://run.drawnui.net/" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Dungeon Run" />
+    <meta property="og:url" content="https://run.drawnui.net/" />
+    <meta property="og:title" content="3D runner game made with DrawnUI for Rust" />
+    <meta
+      property="og:description"
+      content="A first-person dungeon runner in your browser, rendered with Skia 2D only: one SkMesh and SkSL shaders, no 3D API used. A DrawnUI for Rust sample."
+    />
+    <meta property="og:image" content="https://run.drawnui.net/og.jpg" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Dungeon Run: a torch-lit brick corridor with glowing orbs, a red beam and a lava pit" />
+    <meta property="og:locale" content="en_US" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Dungeon Run: a 3D runner drawn with DrawnUI for Rust" />
+    <meta
+      name="twitter:description"
+      content="A first-person dungeon runner in your browser, drawn with Skia 2D only: one SkMesh and SkSL shaders, no 3D engine. A DrawnUI for Rust sample."
+    />
+    <meta name="twitter:image" content="https://run.drawnui.net/og.jpg" />
+    <meta name="twitter:image:alt" content="Dungeon Run: a torch-lit brick corridor with glowing orbs, a red beam and a lava pit" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "VideoGame",
+        "name": "Dungeon Run",
+        "url": "https://run.drawnui.net/",
+        "image": "https://run.drawnui.net/og.jpg",
+        "description": "A first-person dungeon runner you play in your browser. It is drawn with Skia 2D only: one SkMesh and SkSL shaders, no 3D engine. A DrawnUI for Rust sample.",
+        "genre": "Endless runner",
+        "gamePlatform": "Web browser",
+        "applicationCategory": "Game",
+        "operatingSystem": "Any",
+        "playMode": "SinglePlayer",
+        "inLanguage": "en",
+        "author": { "@type": "Organization", "name": "DrawnUI", "url": "https://drawnui.net/" }
+      }
+    </script>
+
+    <link rel="icon" href="favicon.ico" />
+    <style>
+      html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+      /* 100dvh: the part of the screen the browser's own bars leave free. With 100vh, Safari on an
+         iPhone puts the bottom of the canvas under its toolbar. */
+      canvas { width: 100vw; height: 100vh; height: 100dvh; display: block; touch-action: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <noscript>
+      <h1>Dungeon Run</h1>
+      <p>
+        A first-person dungeon runner drawn with DrawnUI for Rust: Skia 2D only, one SkMesh and SkSL shaders, no 3D
+        engine. The game needs JavaScript and WebGL 2 to run.
+      </p>
+      <p><a href="https://drawnui.net/">DrawnUI</a> · <a href="https://hellorust.drawnui.net/">DrawnUI for Rust demo</a></p>
+    </noscript>
+    <script src="dungeon.js"></script>
+    <script src="drawnui_host.js"></script>
+    <script>
+      DrawnUi.start({
+        canvas: document.getElementById("canvas"),
+        create: createDrawnUi,
+        history: false,
+      });
+    </script>
+  </body>
+</html>

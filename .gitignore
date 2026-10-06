@@ -1,0 +1,4 @@
+target/
+# Gradle's local cache (the Android builds)
+.gradle/
+.wrangler/

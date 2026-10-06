@@ -1,0 +1,83 @@
+From f1603c5c70f39e93e95839136d1d70c37fbd71f6 Mon Sep 17 00:00:00 2001
+From: AppoMobi <taublast@gmail.com>
+Date: Sun, 4 Oct 2026 09:16:40 +0200
+Subject: [PATCH] Android: end the loop on Destroy, allow a new loop, report
+ insets changes
+
+Android destroys an activity and starts a new one in the same process for
+configuration changes the manifest does not take (navigation mode, wallpaper
+colors, locale, font scale). The loop ignored Destroy, so android_main never
+returned and GameActivity's onDestroy waited for it forever on the Java main
+thread: the new activity never started. The loop now exits on Destroy, and a
+dropped EventLoop lets the next activity's android_main build its own.
+
+InsetsChanged is reported as a Resized of the current size (iOS reports a
+safe-area change as Resized too), once the native window exists.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/event_loop.rs                |  2 +-
+ src/platform_impl/android/mod.rs | 25 ++++++++++++++++++++-----
+ 2 files changed, 21 insertions(+), 6 deletions(-)
+
+diff --git a/src/event_loop.rs b/src/event_loop.rs
+index 233374be..c75becee 100644
+--- a/src/event_loop.rs
++++ b/src/event_loop.rs
+@@ -127,7 +127,7 @@ impl<T> EventLoopBuilder<T> {
+         })
+     }
+ 
+-    #[cfg(web_platform)]
++    #[cfg(any(web_platform, android_platform))]
+     pub(crate) fn allow_event_loop_recreation() {
+         EVENT_LOOP_CREATED.store(false, Ordering::Relaxed);
+     }
+diff --git a/src/platform_impl/android/mod.rs b/src/platform_impl/android/mod.rs
+index c6a7416f..dd84052d 100644
+--- a/src/platform_impl/android/mod.rs
++++ b/src/platform_impl/android/mod.rs
+@@ -157,6 +157,13 @@ impl Default for PlatformSpecificEventLoopAttributes {
+     }
+ }
+ 
++impl<T: 'static> Drop for EventLoop<T> {
++    fn drop(&mut self) {
++        // One activity, one loop: the next activity of this process builds its own.
++        crate::event_loop::EventLoopBuilder::<()>::allow_event_loop_recreation();
++    }
++}
++
+ impl<T: 'static> EventLoop<T> {
+     pub(crate) fn new(
+         attributes: &PlatformSpecificEventLoopAttributes,
+@@ -287,13 +294,21 @@ impl<T: 'static> EventLoop<T> {
+                     warn!("TODO: forward onStop notification to application");
+                 },
+                 MainEvent::Destroy => {
+-                    // XXX: maybe exit mainloop to drop things before being
+-                    // killed by the OS?
+-                    warn!("TODO: forward onDestroy notification to application");
++                    // The activity is gone: end the loop so `android_main` returns. The glue's
++                    // `onDestroy` waits for that on the Java main thread, and a new activity of
++                    // the same process (a configuration change Android relaunches for) gets its
++                    // own `android_main`, which builds a new event loop.
++                    debug!("App Destroyed - exiting the event loop");
++                    self.window_target.p.exit();
+                 },
+                 MainEvent::InsetsChanged { .. } => {
+-                    // XXX: how to forward this state to applications?
+-                    warn!("TODO: handle Android InsetsChanged notification");
++                    // The safe area changed (system bars, display cutout, keyboard). There is no
++                    // event for it; iOS reports a safe-area change as `Resized` too, so the app
++                    // hears of it the same way (the size may stay the same). Not before the
++                    // window exists: its size would be zero.
++                    if self.android_app.native_window().is_some() {
++                        resized = true;
++                    }
+                 },
+                 unknown => {
+                     trace!("Unknown MainEvent {unknown:?} (ignored)");
+-- 
+2.49.0.windows.1
+

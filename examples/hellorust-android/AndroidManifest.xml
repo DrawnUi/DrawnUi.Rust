@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- HelloRust on Android: GameActivity running libhellorust_android.so. GameActivity gives the
+     soft keyboard a real text field (GameTextInput) and TalkBack a view to read (AccessKit).
+     dev\android.ps1 builds it with Gradle; targetSdk 37: edge to edge, the app reads the insets.
+     enableOnBackInvokedCallback false: Back reaches the app as a key (the shell goes back);
+     with predictive back the Activity's own callback would close it. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-feature android:glEsVersion="0x00030000" android:required="true" />
+    <application
+        android:label="HelloRust"
+        android:icon="@mipmap/ic_launcher"
+        android:enableOnBackInvokedCallback="false"
+        android:theme="@style/Theme.AppCompat.NoActionBar">
+        <activity
+            android:name="com.google.androidgamesdk.GameActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|density|uiMode">
+            <meta-data android:name="android.app.lib_name" android:value="hellorust_android" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

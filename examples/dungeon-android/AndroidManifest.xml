@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dungeon Run on Android: GameActivity running libdungeon_android.so (see hellorust-android for
+     why GameActivity). enableOnBackInvokedCallback false: Back reaches the game as a key. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-feature android:glEsVersion="0x00030000" android:required="true" />
+    <application
+        android:label="Dungeon Run"
+        android:icon="@mipmap/ic_launcher"
+        android:enableOnBackInvokedCallback="false"
+        android:theme="@style/Theme.AppCompat.NoActionBar">
+        <activity
+            android:name="com.google.androidgamesdk.GameActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|density|uiMode">
+            <meta-data android:name="android.app.lib_name" android:value="dungeon_android" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

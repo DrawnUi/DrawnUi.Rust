@@ -1,0 +1,16 @@
+[package]
+name = "hellorust-android"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+
+# HelloRust as the native library of an Android activity (GameActivity); `dev\android.ps1`
+# builds it with cargo-ndk, then Gradle packs the APK (build.gradle here).
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+drawnui = { path = "../../drawnui" }
+hellorust = { path = "../hellorust" }
+# The bench scene for measurements on a device (`debug.drawnui.bench`).
+bench = { path = "../bench" }

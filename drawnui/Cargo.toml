@@ -1,0 +1,75 @@
+[package]
+name = "drawnui"
+version = "0.1.0-preview.2"
+edition.workspace = true
+license.workspace = true
+description = "DrawnUI for Rust: a Skia-drawn UI engine, the same controls and contract as DrawnUI for .NET and React, on the desktop, mobile and the web."
+repository = "https://github.com/DrawnUi/DrawnUi.Rust"
+homepage = "https://hellorust.drawnui.net"
+readme = "../README.md"
+keywords = ["ui", "gui", "skia", "drawnui", "wasm"]
+categories = ["gui", "graphics", "rendering"]
+# The crate is its code and the browser page script; tests and examples read files of the repository.
+include = ["Cargo.toml", "src/**", "web/**"]
+
+[features]
+default = ["svg"]
+# SkiaSvg: Skia's SVG module.
+svg = ["skia-safe/svg"]
+# Payload measurement: ICU + HarfBuzz text layout on top.
+full = ["skia-safe/textlayout", "svg"]
+
+[dependencies]
+skia-safe = { workspace = true }
+# SkiaLottie: the JSON as a `Value`; `preserve_order` keeps document order for the color tint.
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[target.'cfg(not(target_os = "emscripten"))'.dependencies]
+winit = "0.30"
+raw-window-handle = "0.6"
+# The accessibility snapshot for screen readers: UI Automation (Windows), NSAccessibility (macOS,
+# iOS), AT-SPI (Linux). The browser has its ARIA overlay instead.
+accesskit = "0.25"
+accesskit_winit = { version = "0.34", default-features = false, features = ["rwh_06", "accesskit_unix", "async-io"] }
+
+# Windows and Linux: OpenGL through glutin.
+[target.'cfg(not(any(target_os = "emscripten", target_os = "macos", target_os = "ios")))'.dependencies]
+glutin = "0.32"
+glutin-winit = "0.5"
+
+# Android: the activity through winit's GameActivity (the soft keyboard's text field: GameTextInput;
+# the view TalkBack reads through AccessKit), OpenGL ES through glutin (EGL), the APK's assets
+# through the NDK's AssetManager. The app's APK depends on androidx.games:games-activity 4.4.0.
+[target.'cfg(target_os = "android")'.dependencies]
+winit = { version = "0.30", features = ["android-game-activity"] }
+accesskit_winit = { version = "0.34", default-features = false, features = ["rwh_06", "accesskit_android"] }
+ndk = "0.9"
+# The system bar insets from the activity's decor view (edge to edge: the content rect is the
+# whole window).
+jni-sys = "0.3"
+# Vulkan (the default on Android; OpenGL ES stays as the fallback and an option): Skia's Vulkan
+# backend, and ash for the instance, device and swapchain on the activity's window.
+skia-safe = { workspace = true, features = ["vulkan"] }
+ash = "0.38"
+
+# Linux: the clipboard through X11 selections (arboard; on a Wayland desktop XWayland keeps the
+# X11 and Wayland clipboards in step).
+[target.'cfg(target_os = "linux")'.dependencies]
+arboard = { version = "3.6", default-features = false }
+
+# macOS and iOS: Metal only, a CAMetalLayer on the winit view (versions as rust-skia's metal-window example).
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+skia-safe = { workspace = true, features = ["metal"] }
+objc2 = { version = "0.6.3", default-features = false, features = ["std"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFCGTypes"] }
+objc2-metal = { version = "0.3.2", default-features = false, features = ["std", "MTLDevice", "MTLCommandBuffer", "MTLCommandQueue", "MTLDrawable", "MTLPixelFormat"] }
+objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "objc2-metal", "CALayer", "CAMetalLayer", "CADisplayLink", "CAFrameRateRange"] }
+# The display link's run loop (macOS 14+, iOS).
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSRunLoop", "NSString", "NSObject"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-quartz-core", "NSView", "NSResponder", "NSWindow", "NSScreen"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "objc2-quartz-core", "UIView", "UIResponder", "UIScreen", "UIGeometry", "UIColor", "UIWindow"] }
+# The display link that paces iOS frames (C# Super.iOS).

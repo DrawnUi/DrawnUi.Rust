@@ -1,0 +1,8 @@
+[package]
+name = "drawnui_spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Standalone: keeps this spike out of the parent workspace.
+[workspace]

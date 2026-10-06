@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DrawnUi.Rust bench</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #121218; overflow: hidden; }
+      canvas { width: 100vw; height: 100vh; height: 100dvh; display: block; touch-action: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <script src="bench.js"></script>
+    <script src="drawnui_host.js"></script>
+    <script>
+      // ?n=20000&g0=1 runs the G0 workload: n draw calls per frame, nothing else.
+      // ?n=200&mesh=1 draws n animated SkMesh waves.
+      const query = new URLSearchParams(location.search);
+      DrawnUi.start({
+        canvas: document.getElementById("canvas"),
+        create: createDrawnUi,
+        configure: (module) => {
+          if (query.has("n")) module._bench_config(Number(query.get("n")), query.has("mesh") ? 2 : query.has("g0") ? 1 : 0);
+        },
+      });
+    </script>
+  </body>
+</html>

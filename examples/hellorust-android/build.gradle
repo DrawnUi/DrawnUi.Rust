@@ -1,0 +1,45 @@
+// HelloRust's APK: libhellorust_android.so (cargo-ndk, dev\android.ps1) under GameActivity, which
+// brings the soft keyboard (GameTextInput) and the view TalkBack reads (AccessKit). GameActivity
+// is an AppCompatActivity: AppCompat and core are its dependencies (its POM lists none).
+plugins {
+    id 'com.android.application' version '8.5.2'
+}
+
+def repo = file('../..')
+// Build output and the inputs dev\android.ps1 prepares, all under the repo's target dir.
+layout.buildDirectory = new File(repo, 'target/android/gradle')
+
+android {
+    namespace 'net.drawnui.hellorust'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'net.drawnui.hellorust'
+        minSdk 26
+        targetSdk 37
+        versionCode 1
+        versionName '0.1'
+    }
+    sourceSets.main {
+        manifest.srcFile 'AndroidManifest.xml'
+        res.srcDirs = ['res']
+        java.srcDirs = []
+        // lib/<abi>/libhellorust_android.so from cargo-ndk; the app's files as assets/assets/...
+        jniLibs.srcDirs = [new File(repo, 'target/android/lib')]
+        assets.srcDirs = [new File(repo, 'target/android/stage/assets')]
+    }
+    buildTypes {
+        // Not debuggable, signed with the debug key: what runs on devices for tests and numbers.
+        release {
+            signingConfig signingConfigs.debug
+            minifyEnabled false
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.games:games-activity:4.4.0'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.core:core:1.13.0'
+    // AppCompat pulls kotlin-stdlib 1.8 and the old jdk7 / jdk8 parts, which duplicate its classes.
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
+}

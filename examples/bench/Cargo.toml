@@ -1,0 +1,12 @@
+[package]
+name = "bench"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+drawnui = { path = "../../drawnui" }
+
+[features]
+# Payload measurement only: links ICU, HarfBuzz and the SVG module.
+full = ["drawnui/full"]

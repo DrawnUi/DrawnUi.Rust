@@ -1,0 +1,44 @@
+# A UI-test runner that drives HelloRust on a connected iPhone: taps, swipes, screenshots
+# (see drive.sh). The stub app only hosts the test bundle; the test drives
+# net.drawnui.hellorust by its bundle id.
+name: Drive
+options:
+  bundleIdPrefix: net.drawnui.drive
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  base:
+    # Automatic: Xcode picks the team's wildcard profile (no new App ID for these ids). The team
+    # comes from drive.sh (DEVELOPMENT_TEAM), not from the repo.
+    CODE_SIGN_STYLE: Automatic
+targets:
+  Stub:
+    type: application
+    platform: iOS
+    sources: [Stub]
+    info:
+      path: Stub/Info.plist
+      properties:
+        UILaunchScreen: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.drawnui.drive.stub
+  Drive:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Drive]
+    dependencies:
+      - target: Stub
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.drawnui.drive.tests
+        TEST_TARGET_NAME: Stub
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Drive:
+    build:
+      targets:
+        Stub: all
+        Drive: [test]
+    test:
+      targets: [Drive]

@@ -1,0 +1,32 @@
+# Android: native libraries aligned for 16 KB pages (Android 15+ devices and the API 37 ps16k
+# emulator refuse to load 4 KB-aligned ones; NDK 26 links 4 KB by default).
+[target.'cfg(target_os = "android")']
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+# Link settings for the browser target. Exports come from #[unsafe(no_mangle)] functions in host_web.rs.
+[target.wasm32-unknown-emscripten]
+# em++ links the C++ standard library that Skia needs. (rustc's default on Windows is emcc.bat,
+# which emsdk 6 no longer ships.)
+linker = "em++"
+rustflags = [
+    "-C", "link-arg=-sMAX_WEBGL_VERSION=2",
+    "-C", "link-arg=-sMODULARIZE=1",
+    "-C", "link-arg=-sEXPORT_NAME=createDrawnUi",
+    "-C", "link-arg=-sEXPORTED_RUNTIME_METHODS=GL,HEAPU8,UTF8ToString",
+    "-C", "link-arg=-sALLOW_MEMORY_GROWTH=1",
+    # The main thread's stack: emscripten's default is 64 KB, which deep pages overflow (layout and
+    # paint recurse down the tree); 1 MB as the desktop main thread on Windows. The cookie check turns
+    # an overflow into a clear abort instead of silent memory corruption.
+    "-C", "link-arg=-sSTACK_SIZE=1048576",
+    "-C", "link-arg=-sSTACK_OVERFLOW_CHECK=1",
+    # Skia references __gxx_personality_v0, which emscripten no longer stubs.
+    "-C", "link-arg=-sERROR_ON_UNDEFINED_SYMBOLS=0",
+]
+
+# Skia comes prebuilt from DrawnUi/rust-skia's release of the Skia crates' version (their default
+# address), keyed by the commit of the ../rust-skia checkout: from a checkout skia-bindings downloads
+# only when forced. A Skia commit that is not released yet: build its archives with
+# dev/skia-binaries.ps1 and set SKIA_BINARIES_URL to file://<this repo>/target/skia-bin/skia-binaries-{key}.tar.gz.
+[env]
+FORCE_SKIA_BINARIES_DOWNLOAD = "1"
+

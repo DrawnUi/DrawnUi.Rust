@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DrawnUI images</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #121218; overflow: hidden; }
+      canvas { width: 100vw; height: 100vh; height: 100dvh; display: block; touch-action: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <script src="images.js"></script>
+    <script src="drawnui_host.js"></script>
+    <script>
+      DrawnUi.start({
+        canvas: document.getElementById("canvas"),
+        create: createDrawnUi,
+        // index.html?main reads the pixels back on the main thread, to compare with the worker.
+        imageWorker: !location.search.includes("main"),
+      });
+    </script>
+  </body>
+</html>

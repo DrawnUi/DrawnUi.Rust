@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DrawnUI for Rust</title>
+    <meta
+      name="description"
+      content="DrawnUI for Rust draws the whole UI with Skia: layouts, controls, gestures, effects and animations, with the same engine and API as DrawnUI for .NET and React. Windows, macOS and the browser, MIT."
+    />
+    <link rel="canonical" href="https://hellorust.drawnui.net/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="DrawnUI for Rust" />
+    <meta property="og:url" content="https://hellorust.drawnui.net/" />
+    <meta property="og:title" content="DrawnUI for Rust" />
+    <meta
+      property="og:description"
+      content="DrawnUI for Rust draws the whole UI with Skia: layouts, controls, gestures, effects and animations, with the same engine and API as DrawnUI for .NET and React. Windows, macOS and the browser, MIT."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="DrawnUI for Rust" />
+    <meta
+      name="twitter:description"
+      content="DrawnUI for Rust draws the whole UI with Skia: layouts, controls, gestures, effects and animations, with the same engine and API as DrawnUI for .NET and React. Windows, macOS and the browser, MIT."
+    />
+    <link rel="icon" href="favicon.ico" />
+    <style>
+      html, body { margin: 0; height: 100%; background: #212529; overflow: hidden; }
+      canvas { width: 100vw; height: 100vh; height: 100dvh; display: block; touch-action: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <script src="hellorust.js"></script>
+    <script src="drawnui_host.js"></script>
+    <script>
+      DrawnUi.start({
+        canvas: document.getElementById("canvas"),
+        create: createDrawnUi,
+      });
+    </script>
+  </body>
+</html>

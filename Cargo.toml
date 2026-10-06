@@ -1,0 +1,50 @@
+[workspace]
+resolver = "3"
+members = ["drawnui", "examples/bench", "examples/dungeon", "examples/dungeon-android", "examples/hello", "examples/hellorust", "examples/hellorust-android", "examples/images"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+# skia-safe 0.153.3 plus SkMesh and fixes that are not upstream yet, published from DrawnUi/rust-skia
+# (branch `drawnui-crates`) as drawnui-skia-safe / drawnui-skia-bindings; the code says skia_safe.
+# The prebuilt Skia archives are keyed by the commit they were published from (0c5b9b74...) and
+# served by DrawnUi/rust-skia's release of the crate version, the crate's default address.
+skia-safe = { package = "drawnui-skia-safe", version = "=0.153.4", features = ["gl"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+panic = "abort"
+
+# A debug build that runs at release speed: debug_assertions on (the apps show their debug FPS
+# label), optimized. `dev\android.ps1 -Debug` (an unoptimized build stutters on its own).
+[profile.devrel]
+inherits = "release"
+debug-assertions = true
+
+# rust-skia passes the profile's OPT_LEVEL to clang as -O<n> on every non-Windows target, so a
+# source build of Skia in the dev profile was -O0 (M1 bench: 5.8 us per shape; Windows: 0.4).
+[profile.dev.package.drawnui-skia-bindings]
+opt-level = 3
+
+# Here the Skia crates come from the sibling checkout of DrawnUi/rust-skia (`../rust-skia`,
+# branch `drawnui-crates`, at the published commit), so they can be changed and Skia built from
+# source (keep target dirs on short paths: Skia's build fails on long ones).
+[patch.crates-io]
+drawnui-skia-safe = { path = "../rust-skia/skia-safe" }
+drawnui-skia-bindings = { path = "../rust-skia/skia-bindings" }
+
+# android-activity 0.6.1 with a null check (sibling checkout `../android-activity`,
+# branch `drawnui-null-text`): reading GameActivity's text state before it has one sliced a null
+# pointer (undefined behavior; a panic with debug assertions). Until the fix is upstream. A machine
+# without the checkout makes it from dev/android-activity-null-text (README there).
+android-activity = { path = "../android-activity/android-activity" }
+# winit 0.30.13 that ends its Android event loop when the activity is destroyed and lets the next
+# activity of the process build a new one (sibling checkout `../winit`, branch
+# `drawnui-android`). Without it a relaunched activity (navigation mode, wallpaper colors, locale)
+# stayed black: `onDestroy` waits on the Java main thread for `android_main` to return. It also
+# reports Android insets changes as a same-size `Resized` (solved-android.md 21, 22). A machine
+# without the checkout makes it from dev/winit-android (README there).
+winit = { path = "../winit" }

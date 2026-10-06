@@ -1,0 +1,20 @@
+[package]
+name = "myapp"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+# The engine; Skia comes with it (drawnui-skia-safe), used as drawnui::skia. Do not add skia-safe.
+drawnui = "0.1.0-preview.2"
+
+[build-dependencies]
+embed-resource = "3"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+panic = "abort"
+
+# Its own workspace: the app builds the same inside or outside another one.
+[workspace]

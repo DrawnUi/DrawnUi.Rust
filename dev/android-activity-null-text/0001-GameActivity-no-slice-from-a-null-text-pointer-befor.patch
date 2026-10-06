@@ -1,0 +1,40 @@
+From d45520c015edc340c16770c2266d711327ce01f1 Mon Sep 17 00:00:00 2001
+From: taublast <taublast@gmail.com>
+Date: Sat, 3 Oct 2026 23:16:12 +0200
+Subject: [PATCH] GameActivity: no slice from a null text pointer before the
+ first text state
+
+GameTextInput's state has a null text_UTF8 until a state is first set (by the app or
+the IME). AndroidApp::text_input_state() called before that passed the null pointer
+to slice::from_raw_parts, which is undefined behavior even for length 0 (a panic with
+debug assertions: 'unsafe precondition(s) violated: slice::from_raw_parts requires the
+pointer to be aligned and non-null'). An empty slice is used instead.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ android-activity/src/game_activity/mod.rs | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/android-activity/src/game_activity/mod.rs b/android-activity/src/game_activity/mod.rs
+index 6233335..12f4feb 100644
+--- a/android-activity/src/game_activity/mod.rs
++++ b/android-activity/src/game_activity/mod.rs
+@@ -713,8 +713,13 @@ impl AndroidAppInner {
+         // Java uses a modified UTF-8 format, which is a modified cesu8 format
+         let out_ptr: *mut TextInputState = context.cast();
+         let text_modified_utf8: *const u8 = (*state).text_UTF8.cast();
+-        let text_modified_utf8 =
+-            std::slice::from_raw_parts(text_modified_utf8, (*state).text_length as usize);
++        // GameTextInput has no text buffer until a state was first set (by the app or the IME):
++        // its text pointer is null then, which `from_raw_parts` must never get (even for 0 bytes).
++        let text_modified_utf8 = if text_modified_utf8.is_null() {
++            &[]
++        } else {
++            std::slice::from_raw_parts(text_modified_utf8, (*state).text_length as usize)
++        };
+         match simd_cesu8::mutf8::decode(text_modified_utf8) {
+             Ok(str) => {
+                 let len = str.len();
+-- 
+2.49.0.windows.1
+

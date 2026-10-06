@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>My app</title>
+    <link rel="icon" href="favicon.ico" />
+    <style>
+      html, body { margin: 0; height: 100%; background: #121218; overflow: hidden; }
+      canvas { width: 100vw; height: 100vh; height: 100dvh; display: block; touch-action: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <!-- myapp.js and myapp.wasm: the build; drawnui_host.js: the drawnui release the app depends on. -->
+    <script src="myapp.js"></script>
+    <script src="drawnui_host.js"></script>
+    <script>
+      DrawnUi.start({
+        canvas: document.getElementById("canvas"),
+        create: createDrawnUi,
+      });
+    </script>
+  </body>
+</html>

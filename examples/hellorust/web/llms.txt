@@ -1,0 +1,22 @@
+# DrawnUI for Rust
+
+> The DrawnUI drawn-UI engine (originally .NET / SkiaSharp) in Rust on Skia (skia-safe). Same controls and public contract as DrawnUI for .NET and React: layouts, recycled cells, every DrawnUI cache type, gestures, animations, shaders, shell navigation, accessibility. Windows, Linux, macOS, iOS, Android and the browser (wasm32-unknown-emscripten) from one source. Crate `drawnui`, MIT.
+
+## Skills (for AI Agents)
+
+Save under `~/.claude/skills/<name>/SKILL.md` (or your agent's skill folder) to teach your agent DrawnUI for Rust.
+
+- [DrawnUI Rust skill](https://hellorust.drawnui.net/skills/drawnui-rust/SKILL.md): the browser build every app must copy (link flags, the 1 MB wasm stack and its overflow check), the web host page and version stamps, Windows build, app icon, assets next to the exe, cache types, no console window in release
+- [DrawnUI framework skill](https://drawnui.net/skills/drawnui/SKILL.md): the engine itself — controls, layouts, caching, gestures, virtualization (the Rust engine keeps the same public contract)
+- Everything inlined: https://hellorust.drawnui.net/llms-full.txt
+
+## Demo
+
+- https://hellorust.drawnui.net — the DrawnUI Hello app: root menu with one page per feature area: recycled cells, uneven cells, images, SVG, shapes, text, layouts, common controls, carousel & drawer, Lottie & GIF, shell (pages, popups, modals, toasts, tabs), editor, keyboard input, SkiaScroll, shaders, sprites, transforms, drag to reorder, Pong, accessibility.
+- The same 20 pages ship in DrawnUI for React (https://helloreact.drawnui.net) and the .NET heads, from the same catalog.
+
+## Docs
+
+- API docs of the `drawnui` crate: https://hellorust.drawnui.net/docs/drawnui/
+- Getting started, releases and the starter app (templates/app: Cargo.toml, .cargo/config.toml with the prebuilt Skia download and the browser link flags, icon, web page): https://github.com/DrawnUi/DrawnUi.Rust (README "Getting started", CHANGELOG.md, releases: https://github.com/DrawnUi/DrawnUi.Rust/releases)
+- DrawnUI (.NET) documentation, same concepts: https://drawnui.net

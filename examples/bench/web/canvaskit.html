@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CanvasKit from JS: G0 reference</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #121218; overflow: hidden; }
+      canvas { width: 100vw; height: 100vh; height: 100dvh; display: block; }
+      #fps { position: fixed; top: 8px; right: 8px; padding: 4px 12px; border-radius: 8px;
+             background: rgba(0, 0, 0, 0.86); color: #50ff78; font: 20px sans-serif; }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <div id="fps">FPS</div>
+    <script src="https://unpkg.com/canvaskit-wasm@0.42.0/bin/canvaskit.js"></script>
+    <script>
+      // The G0 workload of index.html?n=N&g0=1, drawn through CanvasKit from JavaScript in its
+      // cheapest form: one Paint, one reused Float32Array, no per-shape allocation.
+      const n = Number(new URLSearchParams(location.search).get("n") || 2000);
+      const stats = (window.duiStats = { cpuMs: [], intervalMs: [], frames: 0, firstFrameMs: 0 });
+      CanvasKitInit({ locateFile: (f) => "https://unpkg.com/canvaskit-wasm@0.42.0/bin/" + f }).then((CK) => {
+        const el = document.getElementById("canvas");
+        const scale = window.devicePixelRatio || 1;
+        el.width = Math.round(el.clientWidth * scale);
+        el.height = Math.round(el.clientHeight * scale);
+        const surface = CK.MakeWebGLCanvasSurface(el);
+        const canvas = surface.getCanvas();
+        const paint = new CK.Paint();
+        paint.setAntiAlias(true);
+        const rrect = new Float32Array(12).fill(4);
+        const background = CK.Color(18, 18, 24, 1);
+        const w = el.width, h = el.height;
+        let last = 0;
+        const fps = document.getElementById("fps");
+        let fpsFrames = 0, fpsSince = 0;
+        const frame = (time) => {
+          const start = performance.now();
+          fpsFrames++;
+          if (time - fpsSince >= 500) {
+            fps.textContent = "FPS " + Math.round((fpsFrames * 1000) / (time - fpsSince));
+            fpsFrames = 0;
+            fpsSince = time;
+          }
+          const t = time * 0.001;
+          canvas.clear(background);
+          for (let i = 0; i < n; i++) {
+            const x = (0.5 + 0.45 * Math.sin(t * 0.7 + i * 0.37)) * w;
+            const y = (0.5 + 0.45 * Math.cos(t * 0.9 + i * 0.53)) * h;
+            paint.setColorComponents(((i * 37) % 256) / 255, ((i * 73) % 256) / 255, ((i * 151) % 256) / 255, 1);
+            rrect[0] = x; rrect[1] = y; rrect[2] = x + 24; rrect[3] = y + 16;
+            canvas.drawRRect(rrect, paint);
+          }
+          surface.flush();
+          const end = performance.now();
+          if (stats.frames++ === 0) stats.firstFrameMs = end;
+          stats.cpuMs.push(end - start);
+          if (last) stats.intervalMs.push(time - last);
+          last = time;
+          requestAnimationFrame(frame);
+        };
+        requestAnimationFrame(frame);
+      });
+    </script>
+  </body>
+</html>
