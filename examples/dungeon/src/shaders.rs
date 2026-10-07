@@ -87,6 +87,44 @@ float2 main(const Varyings v, out half4 color) {
             float flick = 0.75 + 0.25 * sin(t * 23.0 + uv.x * 40.0) * sin(t * 7.0 - uv.x * 9.0);
             e = float3(1.0, 0.16, 0.1) * exp(-y * y * 5.0) * 0.9 * flick + float3(1.0, 0.85, 0.75) * exp(-y * y * 90.0) * 1.4;
             e *= 1.0 - smoothstep(0.7, 1.0, y);
+        } else if (mat > 9.5) {
+            // The dungeon ghost, a spectre: a pointed hood over a dark hollow with two burning eyes,
+            // a tattered robe trailing into mist; it sways and breathes. Additive, so the dungeon
+            // shows through it. `glow` is how far it leans over the fallen runner: the hollow opens
+            // and the eyes burn.
+            float loom = max(glow - 1.0, 0.0);
+            float open = smoothstep(0.08, 0.5, min(glow, 1.0));
+            // Far it is barely there: a shimmer that comes and goes.
+            float shimmer = 0.1 + 0.12 * smoothstep(0.3, 0.7, vnoise(float2(t * 2.3 + seed * 30.0, seed * 7.0)));
+            float sway = 0.08 * sin(t * 1.7 + seed * 20.0);
+            float breath = 1.0 + 0.03 * sin(t * 2.3 + seed * 9.0);
+            float2 g = float2(c.x - sway * (0.5 - c.y * 0.5), c.y) / breath;
+            // The hood: a point at the top, round at the shoulders.
+            float hood = 0.5 * pow(clamp((0.92 - g.y) / 0.72, 0.0, 1.0), 0.55) * step(0.2, g.y);
+            // The robe: a little wider going down, torn at a hem that waves.
+            float robe = (0.5 + 0.12 * (0.2 - g.y)) * step(g.y, 0.2);
+            float hem = -0.5 + 0.08 * sin(g.x * 13.0 + t * 4.0 + seed * 7.0) + 0.05 * sin(g.x * 29.0 - t * 6.0 + seed * 3.0);
+            float width = max(hood, robe);
+            float sheet = (1.0 - smoothstep(width - 0.07, width + 0.01, abs(g.x))) * smoothstep(hem - 0.12, hem + 0.02, g.y) * step(g.y, 0.92);
+            // The hollow of the hood, and the eyes in it.
+            float2 hollow = (g - float2(0.0, 0.42)) / float2(0.26 + 0.1 * loom, 0.2 + 0.12 * loom);
+            float dark = 1.0 - smoothstep(0.8, 1.0, dot(hollow, hollow));
+            float2 le = (g - float2(-0.1, 0.46)) * float2(1.0, 1.6);
+            float2 re = (g - float2(0.1, 0.46)) * float2(1.0, 1.6);
+            float flare = 0.8 + 0.2 * sin(t * 9.0 + seed * 40.0) * sin(t * 3.1);
+            // The eyes burn from far away, through the fog, bigger while the body is still a shimmer.
+            float sharp = mix(160.0, 400.0, open);
+            float eyes = (exp(-dot(le, le) * sharp) + exp(-dot(re, re) * sharp)) * (1.4 + 1.8 * loom) * flare * (0.55 + 0.45 * open) / max(1.0 - fog, 0.2);
+            float halo = (exp(-dot(le, le) * 60.0) + exp(-dot(re, re) * 60.0)) * (0.25 + 0.5 * loom) * open;
+            // Folds down the robe, and the mist its hem trails into.
+            float folds = 0.8 + 0.2 * sin(g.x * 16.0 + g.y * 4.0 + seed * 5.0);
+            float mist = vnoise(float2(g.x * 4.0 + seed * 9.0, g.y * 3.0 - t * 1.2)) * smoothstep(-1.0, hem - 0.2, g.y) * (1.0 - smoothstep(hem - 0.15, hem + 0.1, g.y)) * (1.0 - smoothstep(0.5, 0.75, abs(g.x)));
+            float inner = exp(-dot(g - float2(0.0, 0.1), g - float2(0.0, 0.1)) * 1.6);
+            float3 pale = float3(0.72, 0.84, 1.0);
+            e = pale * (sheet * (1.0 - dark) * (0.26 + 0.24 * inner) * folds + mist * 0.22) * flare * mix(shimmer, 1.0, open);
+            e += float3(1.0, 0.28, 0.08) * (eyes + halo) * sheet;
+            e += float3(0.5, 0.6, 1.0) * exp(-r2 * 2.0) * 0.1 * edge;
+            e *= edge;
         } else {
             // A power-up: a ring around its sign, a cross (health, green) or chevrons (surge, cyan).
             float3 pc = mat < 8.5 ? float3(0.3, 1.0, 0.4) : float3(0.3, 0.9, 1.0);
@@ -172,7 +210,7 @@ float2 main(const Varyings v, out half4 color) {
 
 /// Over the whole scene: chromatic aberration growing to the edges, a vignette, grain, the
 /// ripple of a portal and the red of a hit. `uFx`: aberration, warp, flash, time. `uFx2`: z = an orb
-/// just taken (a short violet pulse), x = a
+/// just taken (a short violet pulse), w = the ghost's kill (a pale flash), x = a
 /// health pickup (a green aura flowing upward), y = a surge (soft rays of light flying outward, in the color `uRay`). Both
 /// stay at the borders of the screen: the middle, where the run is read, is left alone.
 pub const POST: &str = "
@@ -203,6 +241,16 @@ half4 main(float2 fragCoord) {
     col.b = float(iImage1.eval((0.5 + d * (1.0 - ab)) * iImageResolution).b);
     col *= max(1.0 - r2 * 0.9, 0.0);
     col = mix(col, float3(1.0, 0.12, 0.05), uFx.z * min(0.1 + r2 * 0.9, 0.75));
+    // The ghost took the run: everything goes black, the ghost comes out of the dark, then the
+    // color drains and a blood-red vignette beats at the borders while the runner lies under it
+    // (haunt = 2 added to the fading blackout).
+    float haunt = step(1.5, uFx2.w);
+    float cold = uFx2.w - 2.0 * haunt;
+    col *= 1.0 - smoothstep(0.3, 0.7, cold) * 0.97;
+    // Drained while the blackout fades (a bell over it); for good when the ghost took the run.
+    float drain = haunt * max(4.0 * cold * (1.0 - cold), step(uFx2.w, 2.0));
+    col = mix(col, float3(dot(col, float3(0.33))) * float3(1.0, 0.55, 0.5), drain * 0.65);
+    col = mix(col, float3(0.42, 0.0, 0.06), drain * min(r2 * 1.1, 0.85) * (0.75 + 0.25 * sin(uFx.w * 7.0)));
     col += float3(0.5, 0.8, 1.0) * uFx.y * 0.12;
     float g = fract(sin(dot(fragCoord + uFx.w * 60.0, float2(12.9898, 78.233))) * 43758.5453);
     col += (g - 0.5) * 0.035;

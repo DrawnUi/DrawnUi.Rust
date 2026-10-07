@@ -29,7 +29,7 @@ pub struct App {
     title: Handle<SkiaLayout>,
     score: Handle<SkiaLabel>,
     hud: Handle<SkiaLayout>,
-    /// The frame rate, top left, on the title only (the score is there during a run).
+    /// The frame rate, top left, on the title only (the distance is there during a run).
     fps: Handle<SkiaLabelFps>,
     /// Help and pause, top right.
     buttons: Handle<SkiaLayout>,
@@ -47,7 +47,6 @@ pub struct App {
     /// The ten cells of the health, one per tenth.
     cells: [Handle<SkiaShape>; 10],
     score_box: Handle<SkiaLayout>,
-    distance: Handle<SkiaLabel>,
     shown_distance: u32,
     /// 1 when points were just won, fading: the score jumps.
     pop: f32,
@@ -85,8 +84,9 @@ pub struct App {
     curtain: Handle<SkiaLayout>,
     curtain_on: bool,
     shown_burn: f32,
-    /// The health flash, the surge and the color of its rays the post effect was last given.
-    shown_fx2: [f32; 6],
+    /// The health flash, the surge, the color of its rays, the orb pulse and the ghost's flash
+    /// the post effect was last given.
+    shown_fx2: [f32; 7],
     /// The mark of a row of orbs (x2, x3) by the score, and the seconds it still shows.
     streak: Handle<SkiaLabel>,
     streak_time: f32,
@@ -94,6 +94,8 @@ pub struct App {
     notice: f32,
     /// How often the jump and the lane prompts were shown; three times teach it.
     taught: [u8; 2],
+    /// The ghost has the run: no prompt over it.
+    ghosted: bool,
     /// Seconds run without a hit, and how many times that was praised.
     clean: f32,
     cheers: u32,
@@ -308,20 +310,23 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
     let world = &mut scene.control_mut().world;
     // A frame that came late (a hidden tab) is not a jump through the walls.
     world.step(delta.min(0.05), &mut app.input);
-    let (phase, score, health, hint, young) = (world.phase, world.score(), world.health, world.hint(), world.young());
+    let (phase, orbs, health, hint, young) = (world.phase, world.orbs(), world.health, world.hint(), world.young());
+    let world_killer = world.killer;
     let meters = world.distance() / 10 * 10;
     let count = world.count();
     let (burn, closing) = (world.burn, world.closing());
     let pickup = world.take_pickup();
     let fx = [world.rush(), world.warp, world.flash, world.time];
     let light = world.light();
-    let fx2 = [world.heal, world.surge_glow, light[0], light[1], light[2], world.orb_pulse];
+    // The ghost's blackout, plus 2 while its touch is felt (the post effect's haunt).
+    let haunt = if world.ghost > 0.0 || world.killer.is_some() { 2.0 } else { 0.0 };
+    let fx2 = [world.heal, world.surge_glow, light[0], light[1], light[2], world.orb_pulse, world.ghost + haunt];
     let streak = world.streak;
     if let Some(effect) = scene.effect_mut::<SkiaShaderEffect>() {
         effect.set_uniform("uFx", &fx);
         if fx2 != app.shown_fx2 {
             app.shown_fx2 = fx2;
-            effect.set_uniform("uFx2", &[fx2[0], fx2[1], fx2[5], 0.0]);
+            effect.set_uniform("uFx2", &[fx2[0], fx2[1], fx2[5], fx2[6]]);
             effect.set_uniform("uRay", &fx2[2..5]);
         }
     }
@@ -336,9 +341,6 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
             (app.shown_score, app.shown_distance) = (0, 0);
             app.clean = 0.0;
             if let Some(mut label) = cx.get_mut(app.score) {
-                label.set_text("0");
-            }
-            if let Some(mut label) = cx.get_mut(app.distance) {
                 label.set_text("0 M");
             }
         }
@@ -356,9 +358,6 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
         }
         if let Some(mut score) = cx.get_mut(app.score_box) {
             score.set_opacity(opacity);
-        }
-        if let Some(mut distance) = cx.get_mut(app.distance) {
-            distance.set_opacity(opacity);
         }
     }
     // The curtain: shown a moment before GAME OVER ends, it keeps that picture (its shader takes
@@ -431,13 +430,10 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
             }
         }
     }
-    if phase == Phase::Playing && score != app.shown_score {
-        let won = score > app.shown_score;
-        app.shown_score = score;
-        if let Some(mut label) = cx.get_mut(app.score) {
-            label.set_text(score.to_string());
-            label.set_accessibility_label(format!("Score {score}"));
-        }
+    // An orb taken: the distance jumps in a violet flash.
+    if phase == Phase::Playing && orbs != app.shown_score {
+        let won = orbs > app.shown_score;
+        app.shown_score = orbs;
         if won {
             flash_score(app, cx);
             // The second and third orb of a row say so.
@@ -455,8 +451,9 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
     }
     if phase == Phase::Playing && meters != app.shown_distance {
         app.shown_distance = meters;
-        if let Some(mut label) = cx.get_mut(app.distance) {
+        if let Some(mut label) = cx.get_mut(app.score) {
             label.set_text(format!("{meters} M"));
+            label.set_accessibility_label(format!("Distance {meters} meters"));
         }
     }
     if app.streak_time > 0.0 {
@@ -484,7 +481,14 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
     if phase == Phase::Playing {
         app.clean += delta;
     }
-    // A power-up says its name for a moment; the lessons wait for it.
+    // The ghost's kill takes the prompt away; a power-up says its name for a moment; the lessons wait.
+    if world_killer.is_some() != app.ghosted {
+        app.ghosted = world_killer.is_some();
+        if app.ghosted {
+            (app.notice, app.hint) = (0.0, Hint::None);
+            show_prompt(app, cx, None);
+        }
+    }
     if let Some(power) = pickup.filter(|_| phase == Phase::Playing) {
         (app.notice, app.hint) = (1.3, Hint::None);
         show_prompt(app, cx, Some(if power == HEALTH { Prompt::Health } else { Prompt::Surge }));
@@ -498,7 +502,7 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
         app.clean = 0.0;
         app.cheers += 1;
         app.notice = 1.3;
-        show_prompt(app, cx, Some(Prompt::Cheer(CHEERS[(app.cheers.wrapping_mul(7).wrapping_add(score)) as usize % CHEERS.len()])));
+        show_prompt(app, cx, Some(Prompt::Cheer(CHEERS[(app.cheers.wrapping_mul(7).wrapping_add(meters)) as usize % CHEERS.len()])));
     } else if hint != app.hint {
         app.hint = hint;
         let (prompt, lesson) = match hint {
@@ -706,7 +710,7 @@ fn help_dialog(app: &mut App) -> Build<SkiaLayout> {
                     section("YOUR GOAL", GOOD).margin(0),
                     line("RUN AS FAR AS YOU CAN. THE RUN NEVER STOPS.", 11, 0xD9FF_FFFF),
                     line("COLLECT WHAT GLOWS ON YOUR WAY.", 11, 0xD9FF_FFFF),
-                    thing(narrow, swatch(14, 14, 0xFFC0_60FF, true).shape_type(ShapeType::Circle), "ORB", "+25 POINTS", GOOD),
+                    thing(narrow, swatch(14, 14, 0xFFC0_60FF, true).shape_type(ShapeType::Circle), "ORB", "A LITTLE HEALTH", GOOD),
                     thing(narrow, swatch(14, 14, 0xFF4D_FF66, true).shape_type(ShapeType::Circle), "GREEN CROSS", "RESTORES HEALTH", GOOD),
                     thing(narrow, swatch(14, 14, 0xFF4D_E6FF, true).shape_type(ShapeType::Circle), "SURGE", "FAST, NOTHING HURTS", GOOD),
                 ),
@@ -716,6 +720,7 @@ fn help_dialog(app: &mut App) -> Build<SkiaLayout> {
                     thing(narrow, swatch(10, 18, 0xFF3A_3D4A, false).stroke_color(Color::new(0xFFFF_8A30)).stroke_width(1.55), "PILLAR", "MOVE TO A FREE LANE", HOT),
                     thing(narrow, swatch(22, 4, 0xFFFF_4030, true), "RED BEAM", "JUMP OVER IT", HOT),
                     thing(narrow, swatch(22, 9, 0xFFE8_3A0A, true), "LAVA", "JUMP OVER IT", HOT),
+                    thing(narrow, swatch(14, 18, 0xFFC8_D8FF, true), "GHOST", "CHANGE LANE. IT HURTS MOST", HOT),
                 ),
                 controls(),
             ))),
@@ -829,9 +834,8 @@ fn build(app: &mut App) -> Build<SkiaShell> {
         .accessibility_live("polite")
         .assign(&mut app.hud)
         .children(SkiaRow::new().spacing(5).children(cells));
-    // The score, top left: quiet (soft white, no glow) so it does not pull the eye from the run;
-    // a pickup makes it jump in a violet flash (`flash_score`). Under it the distance, dim, in
-    // steps of ten meters.
+    // The distance, top left, in steps of ten meters: quiet (soft white, no glow) so it does not
+    // pull the eye from the run; an orb makes it jump in a violet flash (`flash_score`).
     let score = SkiaLayer::new()
         .width_request(260)
         .height_request(60)
@@ -842,7 +846,7 @@ fn build(app: &mut App) -> Build<SkiaShell> {
         .use_cache(CacheType::Image)
         .assign(&mut app.score_box)
         .children(
-            SkiaLabel::new("0")
+            SkiaLabel::new("0 M")
                 .font_family("FontScore")
                 .font_size(30)
                 .text_color(Color::new(0xCCFF_FFFF))
@@ -857,17 +861,10 @@ fn build(app: &mut App) -> Build<SkiaShell> {
         .font_family("FontScore")
         .font_size(16)
         .text_color(Color::new(0xFFC9_8BFF))
-        .margin((90, 48, 0, 0))
-        .opacity(0.0)
-        .input_transparent(true)
-        .assign(&mut app.streak);
-    let distance = SkiaLabel::new("0 M")
-        .font_size(12)
-        .text_color(Color::new(0x99FF_FFFF))
         .margin((23, 52, 0, 0))
         .opacity(0.0)
         .input_transparent(true)
-        .assign(&mut app.distance);
+        .assign(&mut app.streak);
     // The countdown and GAME OVER, in the middle: heavy letters, yellow to red, in a red glow.
     let count = SkiaLayer::new()
         .width_request(760)
@@ -1006,7 +1003,6 @@ fn build(app: &mut App) -> Build<SkiaShell> {
             hud,
             fps,
             score,
-            distance,
             streak,
             buttons,
             prompt,

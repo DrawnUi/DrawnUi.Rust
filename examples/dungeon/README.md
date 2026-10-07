@@ -17,14 +17,19 @@ You run forward by yourself. Stay alive as long as you can.
 
 - **Rune pillars**: change lane.
 - **Red beam** and **lava**: jump.
-- **Orbs**: 25 points each; they are the score. They come in rows of three: the third of a row
-  taken without a miss counts double. The distance is counted next to it. The orbs lead to the lane the next pillars leave free.
+- **Orbs**: a little health each (three fill one cell). They come in rows of three: the third of a
+  row taken without a miss counts double. The orbs lead to the lane the next pillars leave free.
+- **The distance is the score**: how far you got, top left, in meters.
+- **Ghost**: hangs in the orbs' lane. Far away only its eyes burn; as you come near the torches dim,
+  the fog thickens, then it reveals itself and lunges. It takes three tenths of your health in a
+  blackout; the one that takes the last of it stays over you while you lie there. Change lane.
 - **Green cross**: gives a fifth of your health back, in a green aura.
 - **Surge** (cyan arrows): four seconds much faster, and nothing hurts you; rays of light fly
   past along the borders of the screen and fade as the time runs out.
 - A pillar takes two tenths of your health, a beam or lava one tenth. The run ends at zero. After
   a hit nothing hurts you for a moment.
-- The run gets faster with distance, and the colors change every 400 units.
+- The run gets faster with distance, and the colors change every 400 units; each run starts in a
+  color drawn at random.
 
 A run starts calm: few hazards, pillars before the first jumps, the full share after about 40
 seconds. In that start every hazard comes with a prompt, JUMP or CHANGE LANE; after it, the first
@@ -58,7 +63,7 @@ DrawnUI's own accessibility layer; the game only names things and gives them rol
 - Buttons are buttons with names: Help, Pause, and the captions of the dialog buttons.
 - Every text on the screen is read as text. A dialog is a dialog.
 - The health is one value, "Health 70 percent", said again when it changes.
-- The score is "Score 125".
+- The distance is "Distance 120 meters".
 - The countdown, GAME OVER, the JUMP and CHANGE LANE prompts and the names of power-ups are said at
   once when they appear.
 - In the browser this is an ARIA layer over the canvas. DrawnUI gives the same tree to desktop

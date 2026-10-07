@@ -38,8 +38,8 @@ const ZONE: f64 = 400.0;
 
 /// Torch, accent (lava, runes) and fog colors per zone.
 const PALETTES: [[[f32; 3]; 3]; 3] = [
-    [[1.0, 0.55, 0.22], [1.0, 0.33, 0.04], [0.045, 0.02, 0.03]],
     [[0.35, 0.65, 1.0], [0.15, 0.85, 1.0], [0.012, 0.03, 0.07]],
+    [[1.0, 0.55, 0.22], [1.0, 0.33, 0.04], [0.045, 0.02, 0.03]],
     [[0.55, 1.0, 0.3], [0.7, 1.0, 0.08], [0.02, 0.05, 0.022]],
 ];
 
@@ -74,8 +74,12 @@ enum Row {
 
 /// Gives a fifth of the health back.
 pub const HEALTH: u8 = 0;
+/// What one orb gives back: three orbs fill one cell of the health (the green cross fills two).
+const ORB_HEALTH: f32 = 0.1 / 3.0;
 /// Four seconds much faster, through everything unhurt.
 pub const SURGE: u8 = 1;
+/// The dungeon ghost: it hangs in the orbs' lane like a power-up and takes a third of the health.
+pub const GHOST: u8 = 2;
 
 /// The lane the orbs of a group of five rows hang in; the pillars after them leave it free.
 fn orb_lane(group: i64) -> i32 {
@@ -126,10 +130,13 @@ fn row(i: i64) -> Row {
                 _ => Row::Empty,
             }
         }
-        // Now and then the middle orb of a group is a power-up.
-        3 => match hash(group, 6) % 12 {
-            0 => Row::Power(orb_lane(group), HEALTH),
-            1 => Row::Power(orb_lane(group), SURGE),
+        // Now and then the middle orb of a group is a power-up: health in one group of twelve, a
+        // surge in one of twenty-four (it goes through everything: more made the run too easy),
+        // the ghost in every other group after the first thirty rows.
+        3 => match hash(group, 6) % 24 {
+            _ if i > 30 && hash(group, 9) % 2 == 0 => Row::Power(orb_lane(group), GHOST),
+            0 | 1 => Row::Power(orb_lane(group), HEALTH),
+            2 => Row::Power(orb_lane(group), SURGE),
             _ => Row::Orb(orb_lane(group)),
         },
         2 | 4 => Row::Orb(orb_lane(group)),
@@ -195,7 +202,7 @@ pub struct World {
     pub health: f32,
     /// Seconds left in which nothing hurts, after a hit.
     invulnerable: f32,
-    /// The score of the last run and the best one.
+    /// The distance of the last run and the best one.
     pub last: u32,
     pub last_distance: u32,
     pub best: u32,
@@ -222,6 +229,15 @@ pub struct World {
     fall: f32,
     /// 1 when health was just picked up, fading: the green flash and its sparks.
     pub heal: f32,
+    /// 1 when the ghost just took the run, fading: the pale flash.
+    pub ghost: f32,
+    /// The row of the ghost that took the run: it stays, over the fallen runner.
+    pub killer: Option<i64>,
+    /// Which palette the run starts in: drawn at random, so every run looks new.
+    first_palette: usize,
+    /// 0..1: a ghost is near ahead: the dungeon darkens. `revealed`: the ghost that lunged last.
+    pub dread: f32,
+    revealed: Option<i64>,
     /// 0 to 1, eased: how strong the rays of a surge are (full at first, fading with its time left).
     pub surge_glow: f32,
     /// 1 to 0 after GAME OVER: how much of its frozen picture still covers the title's run.
@@ -266,6 +282,11 @@ impl Default for World {
             fall: 0.0,
             burn: 0.0,
             heal: 0.0,
+            ghost: 0.0,
+            killer: None,
+            first_palette: 0,
+            dread: 0.0,
+            revealed: None,
             surge_glow: 0.0,
             pace: 1.0,
             surge: 0.0,
@@ -275,9 +296,9 @@ impl Default for World {
 }
 
 impl World {
-    /// The score: what was collected.
-    pub fn score(&self) -> u32 {
-        self.orbs * 25
+    /// How many orbs were taken (the third of a row counts double).
+    pub fn orbs(&self) -> u32 {
+        self.orbs
     }
 
     /// How far the run got, in units of the dungeon (shown as meters).
@@ -303,13 +324,13 @@ impl World {
             return Hint::None;
         }
         let lead = self.speed * if self.young() { HINT_LEAD * 1.3 } else { HINT_LEAD };
-        let first = ((self.z / 2.0).floor() as i64 + 4).div_euclid(5) * 5;
-        for event in (first..).step_by(5).take(6) {
-            let distance = (event as f64 * 2.0 + 1.0 - self.z) as f32;
+        let first = (self.z / 2.0).floor() as i64;
+        for i in first..first + 40 {
+            let distance = (i as f64 * 2.0 + 1.0 - self.z) as f32;
             if distance > lead {
                 return Hint::None;
             }
-            let hint = match row(event) {
+            let hint = match row(i) {
                 Row::Beam | Row::Lava if self.y <= 0.0 => Hint::Jump,
                 Row::Pillars(mask) if mask & lane_bit(self.lane) != 0 => Hint::Lane,
                 _ => Hint::None,
@@ -321,12 +342,14 @@ impl World {
         Hint::None
     }
 
-    /// An orb is taken: the borders pulse, stronger for every next orb of a row; the third orb of
-    /// a row counts double.
+    /// An orb is taken: a little health back (a tenth of what the green cross gives), the borders
+    /// pulse, stronger for every next orb of a row; the third orb of a row counts double.
     fn take_orb(&mut self, row: i64) {
         self.streak = if row == self.last_orb + 1 { self.streak + 1 } else { 1 };
         self.last_orb = row;
-        self.orbs += if self.streak == 3 { 2 } else { 1 };
+        let count = if self.streak == 3 { 2 } else { 1 };
+        self.orbs += count;
+        self.health = (self.health + ORB_HEALTH * count as f32).min(1.0);
         let power = 1.0 + 0.3 * (self.streak.min(3) - 1) as f32;
         self.orb_pulse = 0.55 * power;
     }
@@ -340,6 +363,8 @@ impl World {
         (self.z, self.x, self.y, self.vy, self.lane, self.orbs, self.zone) = (0.0, 0.0, 0.0, 0.0, 0, 0, 0);
         (self.health, self.invulnerable, self.surge, self.pace, self.fall) = (1.0, 0.0, 0.0, 1.0, 0.0);
         self.collected.clear();
+        (self.ghost, self.killer, self.dread, self.revealed) = (0.0, None, 0.0, None);
+        self.first_palette = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos() as usize % PALETTES.len());
         (self.streak, self.last_orb, self.orb_pulse) = (0, -10, 0.0);
         self.phase = phase;
     }
@@ -373,6 +398,29 @@ impl World {
         self.shake = (self.shake - dt * 2.5).max(0.0);
         self.invulnerable = (self.invulnerable - dt).max(0.0);
         self.heal = (self.heal - dt * 1.1).max(0.0);
+        self.ghost = (self.ghost - dt * 0.7).max(0.0);
+        // The nearest ghost ahead: dread grows over the last three seconds to it, and when it is
+        // less than a second away it reveals itself with a jolt.
+        let mut dread: f32 = 0.0;
+        if self.phase == Phase::Playing {
+            let first = (self.z / 2.0).floor() as i64;
+            for i in first..first + 60 {
+                if let Row::Power(_, GHOST) = row(i) {
+                    let distance = (i as f64 * 2.0 + 1.0 - self.z) as f32;
+                    if distance > 0.0 {
+                        dread = (1.0 - distance / (self.speed * 3.0)).clamp(0.0, 1.0);
+                        if distance < self.speed * 0.9 && self.revealed != Some(i) {
+                            self.revealed = Some(i);
+                            (self.shake, self.warp) = (self.shake.max(0.6), self.warp.max(0.7));
+                        }
+                    }
+                    break;
+                }
+            }
+        } else if self.killer.is_some() {
+            dread = 1.0;
+        }
+        self.dread += (dread - self.dread) * (1.0 - (-dt * 6.0).exp());
         self.orb_pulse = (self.orb_pulse - dt * 4.5).max(0.0);
 
         // Full for the first second of a surge, then fading with the time left: faint rays say it is almost over.
@@ -459,6 +507,9 @@ impl World {
                     Row::Pillars(mask) if hits(0.4, 1.6) && (-1..=1).any(|lane| mask & lane_bit(lane) != 0 && near(lane, 1.0)) => 0.2,
                     Row::Beam if hits(0.85, 1.15) && self.y < 0.75 => 0.1,
                     Row::Lava if hits(0.15, 1.85) && self.y < 0.05 => 0.1,
+                    // The ghost is not collected: a surge or the grace after a hit passes through it,
+                    // and the one that takes the run stays over the fallen runner.
+                    Row::Power(lane, GHOST) if hits(0.5, 1.5) && near(lane, 0.9) && self.y < 1.7 => 0.3,
                     Row::Orb(lane) | Row::Power(lane, _) if hits(0.5, 1.5) && near(lane, 0.9) && self.y < 1.7 && !self.collected.contains(&i) => {
                         if self.collected.len() >= 64 {
                             self.collected.remove(0);
@@ -480,7 +531,17 @@ impl World {
                 if damage > 0.0 && self.phase == Phase::Playing && self.invulnerable <= 0.0 && self.surge <= 0.0 {
                     self.health -= damage;
                     (self.flash, self.shake, self.invulnerable) = (0.4 + damage * 2.0, 0.5 + damage * 2.5, 0.8);
-                    if let Row::Pillars(mask) = kind {
+                    if let Row::Power(lane, GHOST) = kind {
+                        // The ghost: a blackout, no red flash. When it takes the last of the health it
+                        // stays in front of the camera, over the runner going down.
+                        (self.ghost, self.flash, self.shake, self.warp) = (1.0, 0.0, 1.2, 1.0);
+                        if self.health < 0.005 {
+                            self.killer = Some(i);
+                            (self.z, self.lane, self.x, self.pace) = (z0 - 2.2, lane, lane as f32 * LANE, 0.0);
+                        } else {
+                            self.pace = 0.6;
+                        }
+                    } else if let Row::Pillars(mask) = kind {
                         // A pillar stops the run: thrown back in front of it and aside into the
                         // nearest free lane, then up to speed again.
                         self.pace = 0.0;
@@ -494,8 +555,9 @@ impl World {
                     if self.health < 0.005 {
                         self.health = 0.0;
                         self.phase = Phase::Dead;
-                        self.dead_timer = 1.6;
-                        (self.last, self.last_distance) = (self.score(), self.distance());
+                        // Under the ghost the runner lies a while longer.
+                        self.dead_timer = if self.killer.is_some() { 2.6 } else { 1.6 };
+                        (self.last, self.last_distance) = (self.distance(), self.distance());
                         self.best = self.best.max(self.last);
                     }
                     if self.pace == 0.0 {
@@ -523,7 +585,12 @@ impl World {
         if matches!(row(event), Row::Beam | Row::Lava) && distance > 0.0 && distance < self.speed * 0.36 + 0.3 {
             input.jump = true;
         }
-        let want = orb_lane(group);
+        let mut want = orb_lane(group);
+        // The ghost hangs in the orbs' lane: the next lane over until it is passed.
+        let ghost = group * 5 + 3;
+        if matches!(row(ghost), Row::Power(_, GHOST)) && self.z < ghost as f64 * 2.0 + 1.5 {
+            want = if want == 1 { 0 } else { want + 1 };
+        }
         if want != self.lane && self.pilot_wait <= 0.0 {
             (input.left, input.right) = (want < self.lane, want > self.lane);
             self.pilot_wait = 0.16;
@@ -541,7 +608,7 @@ impl World {
         let at = self.z / ZONE;
         let zone = at.floor();
         let t = (((at - zone) as f32 - 0.9) / 0.1).clamp(0.0, 1.0);
-        let (a, b) = (PALETTES[zone as usize % 3], PALETTES[(zone as usize + 1) % 3]);
+        let (a, b) = (PALETTES[(zone as usize + self.first_palette) % PALETTES.len()], PALETTES[(zone as usize + self.first_palette + 1) % PALETTES.len()]);
         std::array::from_fn(|i| std::array::from_fn(|j| a[i][j] + (b[i][j] - a[i][j]) * t))
     }
 }
@@ -627,11 +694,13 @@ impl Control for Scene {
             return;
         }
         let Some(buffer) = meshes::make_vertex_buffer(bytes(&vertices)) else { return };
+        // A ghost near: the torches dim, the fog thickens and darkens.
+        let dim = 1.0 - 0.55 * world.dread;
         let uniforms = [
             world.time, camera[0], camera[1], camera[2],
-            torch[0], torch[1], torch[2], 0.0,
+            torch[0] * dim, torch[1] * dim, torch[2] * dim, 0.0,
             accent[0], accent[1], accent[2], 0.0,
-            fog[0], fog[1], fog[2], 0.028,
+            fog[0] * dim, fog[1] * dim, fog[2] * dim, 0.028 + 0.08 * world.dread,
         ];
         let mesh = Mesh::make(spec.clone(), Mode::Triangles, buffer, count, 0, Data::new_copy(bytes(&uniforms)), &[], bounds);
         let mesh = match mesh {
@@ -758,6 +827,19 @@ impl Builder<'_> {
                     }
                 }
                 Row::Beam => self.sprite(0.0, (0.1, 1.0), z0 + 1.0, W, 7.0, 0.0),
+                Row::Power(lane, GHOST) => {
+                    // Far: a faint shimmer. Under a second away it reveals itself (`reveal`, 0 to 1:
+                    // eyes open, it swells and lunges at the camera). The one that took the run
+                    // leans in over the fallen camera (1 + `fall`). The glow slot carries the value.
+                    let distance = (i as f64 * 2.0 + 1.0 - world.z) as f32;
+                    let reveal = (1.0 - distance / (world.speed.max(8.0) * 0.9)).clamp(0.0, 1.0);
+                    let (state, lunge, loom) = if world.killer == Some(i) { (1.0 + world.fall, 0.0, world.fall) } else { (reveal, reveal * reveal, 0.0) };
+                    let y = 1.35 + 0.1 * (world.time * 1.3 + i as f32).sin() - 0.3 * lunge - 0.75 * loom;
+                    let half = 1.0 + 0.5 * lunge + 0.2 * loom;
+                    let (x0, x1) = (lane as f32 * LANE - half, lane as f32 * LANE + half);
+                    let z = z0 + 1.0 - 0.6 * lunge;
+                    self.quad([[x0, y - half, z], [x1, y - half, z], [x1, y + half, z], [x0, y + half, z]], 10.0, [state; 4], [0.0, 0.0, -1.0], hash01(i, 5));
+                }
                 Row::Power(lane, power) if !world.collected.contains(&i) => {
                     let y = 1.05 + 0.12 * (world.time * 3.0 + i as f32).sin();
                     self.sprite(lane as f32 * LANE, (y - 0.75, y + 0.75), z0 + 1.0, 0.75, 8.0 + power as f32, hash01(i, 5));
