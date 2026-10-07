@@ -26,7 +26,9 @@ You run forward by yourself. Stay alive as long as you can.
   a hit nothing hurts you for a moment.
 - The run gets faster with distance, and the colors change every 400 units.
 
-The first beams, lava pits and pillars of a session come with a prompt: JUMP or CHANGE LANE.
+A run starts calm: few hazards, pillars before the first jumps, the full share after about 40
+seconds. In that start every hazard comes with a prompt, JUMP or CHANGE LANE; after it, the first
+three of each kind in a session. Every twelve seconds without a hit a word of praise shows instead.
 
 A run starts with a countdown. When the health is gone, GAME OVER stays a few seconds (any key
 or tap skips it), then its picture burns away over the title's run.

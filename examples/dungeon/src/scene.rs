@@ -86,28 +86,41 @@ fn lane_bit(lane: i32) -> u8 {
     1 << (lane + 1)
 }
 
+/// The run gets its full share of hazards (seven event rows in eight) from this row on; before it
+/// the share climbs from a third, and the first jumps come at `JUMPS_FROM` (about 13 seconds in).
+const RAMP_UNTIL: i64 = 304;
+const JUMPS_FROM: i64 = 90;
+/// Seconds before a hazard its prompt shows (longer while the run is young).
+const HINT_LEAD: f32 = 1.2;
+
 /// The run is a function of the row number: an event every fifth row, orbs in between.
 fn row(i: i64) -> Row {
-    if i < 14 {
+    if i < 24 {
         return Row::Empty;
     }
     let group = i.div_euclid(5);
     match i.rem_euclid(5) {
         0 => {
+            // A calm start: few hazards, lane changes before jumps, the full share after a while.
+            let ramp = ((i - 24) as f32 / (RAMP_UNTIL - 24) as f32).clamp(0.0, 1.0);
+            if hash01(group, 7) > 0.3 + 0.7 * ramp {
+                return Row::Empty;
+            }
             let h = hash(group, 2);
-            match h % 8 {
-                0..=2 => {
-                    let others = match orb_lane(group - 1) {
-                        -1 => [0, 1],
-                        0 => [-1, 1],
-                        _ => [-1, 0],
-                    };
-                    Row::Pillars(match (h >> 8) % 3 {
-                        0 => lane_bit(others[0]),
-                        1 => lane_bit(others[1]),
-                        _ => lane_bit(others[0]) | lane_bit(others[1]),
-                    })
-                }
+            let kind = h % 8;
+            if kind < 3 || (kind < 7 && i < JUMPS_FROM) {
+                let others = match orb_lane(group - 1) {
+                    -1 => [0, 1],
+                    0 => [-1, 1],
+                    _ => [-1, 0],
+                };
+                return Row::Pillars(match (h >> 8) % 3 {
+                    0 => lane_bit(others[0]),
+                    1 => lane_bit(others[1]),
+                    _ => lane_bit(others[0]) | lane_bit(others[1]),
+                });
+            }
+            match kind {
                 3 | 4 => Row::Beam,
                 5 | 6 => Row::Lava,
                 _ => Row::Empty,
@@ -272,26 +285,40 @@ impl World {
         self.z as u32
     }
 
+    /// The run is still in its calm start: every hazard comes with its prompt.
+    pub fn young(&self) -> bool {
+        self.z < RAMP_UNTIL as f64 * 2.0
+    }
+
     /// 0..1: how fast the run is, for the effects.
     pub fn rush(&self) -> f32 {
         if self.surge > 0.0 { 1.0 } else { ((self.speed - 12.0) / 15.0).clamp(0.0, 1.0) }
     }
 
-    /// The move the next event row asks for, from a little over a second before it.
+    /// The move the nearest hazard ahead asks for, from `HINT_LEAD` seconds before it (more while
+    /// the run is young). Event rows are ten units apart, so several are looked at: the lead is
+    /// longer than the way to the next one.
     pub fn hint(&self) -> Hint {
         if self.phase != Phase::Playing {
             return Hint::None;
         }
-        let event = ((self.z / 2.0).floor() as i64 + 4).div_euclid(5) * 5;
-        let distance = (event as f64 * 2.0 + 1.0 - self.z) as f32;
-        if distance < 0.0 || distance > self.speed * 1.3 {
-            return Hint::None;
+        let lead = self.speed * if self.young() { HINT_LEAD * 1.3 } else { HINT_LEAD };
+        let first = ((self.z / 2.0).floor() as i64 + 4).div_euclid(5) * 5;
+        for event in (first..).step_by(5).take(6) {
+            let distance = (event as f64 * 2.0 + 1.0 - self.z) as f32;
+            if distance > lead {
+                return Hint::None;
+            }
+            let hint = match row(event) {
+                Row::Beam | Row::Lava if self.y <= 0.0 => Hint::Jump,
+                Row::Pillars(mask) if mask & lane_bit(self.lane) != 0 => Hint::Lane,
+                _ => Hint::None,
+            };
+            if hint != Hint::None && distance >= 0.0 {
+                return hint;
+            }
         }
-        match row(event) {
-            Row::Beam | Row::Lava if self.y <= 0.0 => Hint::Jump,
-            Row::Pillars(mask) if mask & lane_bit(self.lane) != 0 => Hint::Lane,
-            _ => Hint::None,
-        }
+        Hint::None
     }
 
     /// An orb is taken: the borders pulse, stronger for every next orb of a row; the third orb of

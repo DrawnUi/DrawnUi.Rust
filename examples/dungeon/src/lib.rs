@@ -33,7 +33,12 @@ pub struct App {
     fps: Handle<SkiaLabelFps>,
     /// Help and pause, top right.
     buttons: Handle<SkiaLayout>,
+    /// The prompt (JUMP, CHANGE LANE, a power-up's name): its glow layer, its label, its jump in
+    /// and the seconds it has been pulsing.
+    prompt_box: Handle<SkiaLayout>,
     prompt: Handle<SkiaLabel>,
+    prompt_pop: f32,
+    prompt_time: f32,
     /// The light dim and blur under a dialog.
     veil: Handle<SkiaBackdrop>,
     /// The shader panel of the open dialog, and what keeps its time running.
@@ -87,7 +92,15 @@ pub struct App {
     notice: f32,
     /// How often the jump and the lane prompts were shown; three times teach it.
     taught: [u8; 2],
+    /// Seconds run without a hit, and how many times that was praised.
+    clean: f32,
+    cheers: u32,
 }
+
+/// Said after every stretch of running without a hit.
+const CHEERS: [&str; 8] = ["WELL DONE", "NICE RUN", "YOU ARE KILLING IT", "UNSTOPPABLE", "ON FIRE", "FLAWLESS", "KEEP GOING", "SMOOTH"];
+/// Seconds of clean running between two cheers.
+const CHEER_EVERY: f32 = 12.0;
 
 /// Points of sideways drag per lane.
 const PAN_STEP: f32 = 44.0;
@@ -293,7 +306,7 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
     let world = &mut scene.control_mut().world;
     // A frame that came late (a hidden tab) is not a jump through the walls.
     world.step(delta.min(0.05), &mut app.input);
-    let (phase, score, health, hint) = (world.phase, world.score(), world.health, world.hint());
+    let (phase, score, health, hint, young) = (world.phase, world.score(), world.health, world.hint(), world.young());
     let meters = world.distance() / 10 * 10;
     let count = world.count();
     let (burn, closing) = (world.burn, world.closing());
@@ -319,6 +332,7 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
         if phase == Phase::Countdown {
             // A new run: the readouts start over.
             (app.shown_score, app.shown_distance) = (0, 0);
+            app.clean = 0.0;
             if let Some(mut label) = cx.get_mut(app.score) {
                 label.set_text("0");
             }
@@ -397,6 +411,9 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
         }
     }
     if health != app.shown_health {
+        if health < app.shown_health {
+            app.clean = 0.0;
+        }
         app.shown_health = health;
         // Green, amber, red; a cell per tenth, lit from the left.
         let color = Color::new(if health > 0.6 { GOOD } else if health > 0.3 { 0xFFFF_B030 } else { 0xFFFF_3B30 });
@@ -462,36 +479,97 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
             }
         }
     }
+    if phase == Phase::Playing {
+        app.clean += delta;
+    }
     // A power-up says its name for a moment; the lessons wait for it.
     if let Some(power) = pickup.filter(|_| phase == Phase::Playing) {
         (app.notice, app.hint) = (1.3, Hint::None);
-        if let Some(mut prompt) = cx.get_mut(app.prompt) {
-            prompt.set_text(if power == HEALTH { "HEALTH UP" } else { "SURGE" });
-            prompt.set_opacity(1.0);
-        }
+        show_prompt(app, cx, Some(if power == HEALTH { Prompt::Health } else { Prompt::Surge }));
     } else if app.notice > 0.0 {
         app.notice -= delta;
-        if app.notice <= 0.0 && let Some(mut prompt) = cx.get_mut(app.prompt) {
-            prompt.set_opacity(0.0);
+        if app.notice <= 0.0 {
+            show_prompt(app, cx, None);
         }
+    } else if phase == Phase::Playing && app.clean >= CHEER_EVERY && hint == Hint::None {
+        // A stretch without a hit: a word of praise, in the prompt's slot while no lesson needs it.
+        app.clean = 0.0;
+        app.cheers += 1;
+        app.notice = 1.3;
+        show_prompt(app, cx, Some(Prompt::Cheer(CHEERS[(app.cheers.wrapping_mul(7).wrapping_add(score)) as usize % CHEERS.len()])));
     } else if hint != app.hint {
         app.hint = hint;
-        let (text, lesson) = match hint {
-            Hint::Jump => ("JUMP", Some(0)),
-            Hint::Lane => ("CHANGE LANE", Some(1)),
-            Hint::None => ("", None),
+        let (prompt, lesson) = match hint {
+            Hint::Jump => (Prompt::Jump, Some(0)),
+            Hint::Lane => (Prompt::Lane, Some(1)),
+            Hint::None => (Prompt::Jump, None),
         };
+        // Every hazard of a young run is announced; later the first three of each kind teach it.
         let show = lesson.is_some_and(|i| {
             app.taught[i] += u8::from(app.taught[i] < 4);
-            app.taught[i] <= 3
+            young || app.taught[i] <= 3
         });
-        if let Some(mut prompt) = cx.get_mut(app.prompt) {
-            if show {
-                prompt.set_text(text);
+        show_prompt(app, cx, show.then_some(prompt));
+    }
+    // The prompt jumps in like the countdown, then its glow beats.
+    if app.prompt_pop > 0.0 || app.prompt_time > 0.0 {
+        app.prompt_pop = (app.prompt_pop - delta * 2.4).max(0.0);
+        app.prompt_time += delta;
+        if let Some(mut layer) = cx.get_mut(app.prompt_box) {
+            let scale = 1.0 + 0.7 * app.prompt_pop * app.prompt_pop;
+            layer.set_scale_x(scale);
+            layer.set_scale_y(scale);
+            if let Some(effect) = layer.effect_mut::<SkiaShaderEffect>() {
+                effect.set_uniform("uGlow", &[0.55 + 0.45 * app.prompt_pop + 0.3 * (app.prompt_time * 9.0).sin()]);
             }
-            prompt.set_opacity(if show { 1.0 } else { 0.0 });
         }
     }
+}
+
+/// What the big prompt says, in its own color: a lesson or a power-up's name.
+#[derive(Clone, Copy)]
+enum Prompt {
+    Jump,
+    Lane,
+    Health,
+    Surge,
+    Cheer(&'static str),
+}
+
+/// Shows the prompt (text, gradient and glow of its kind, jumping in) or hides it.
+fn show_prompt(app: &mut App, cx: &mut Cx, prompt: Option<Prompt>) {
+    if let Some(prompt) = prompt {
+        let (text, colors, tint) = match prompt {
+            Prompt::Jump => ("JUMP", [0xFFF4_E8FF, 0xFFB0_70FF, 0xFF70_20E0], [0.62, 0.22, 1.0]),
+            Prompt::Lane => ("CHANGE LANE", [0xFFE8_FFFF, 0xFF40_E0FF, 0xFF10_90E0], [0.15, 0.85, 1.0]),
+            // Health shows during its own green flash: white letters with a green glow stay readable in it.
+            Prompt::Health => ("HEALTH UP", [0xFFFF_FFFF, 0xFFF0_FFE8, 0xFFA0_E890], [0.42, 1.0, 0.35]),
+            Prompt::Surge => ("SURGE", [0xFFFF_FFFF, 0xFF90_F0FF, 0xFF30_B0FF], [0.5, 0.9, 1.0]),
+            Prompt::Cheer(text) => (text, [0xFFFF_F4D0, 0xFFFF_C050, 0xFFD0_6810], tint(ACCENT)),
+        };
+        if let Some(mut label) = cx.get_mut(app.prompt) {
+            label.set_text(text);
+            label.set_fill_gradient(fire(colors));
+        }
+        (app.prompt_pop, app.prompt_time) = (1.0, 0.001);
+        if let Some(mut layer) = cx.get_mut(app.prompt_box) {
+            layer.set_is_visible(true);
+            if let Some(effect) = layer.effect_mut::<SkiaShaderEffect>() {
+                effect.set_uniform("uTint", &tint);
+            }
+        }
+    } else {
+        (app.prompt_pop, app.prompt_time) = (0.0, 0.0);
+        if let Some(mut layer) = cx.get_mut(app.prompt_box) {
+            layer.set_is_visible(false);
+        }
+    }
+}
+
+/// The gradient of the heavy letters (the countdown, GAME OVER, the title, the prompts): light at
+/// the top, deep at the bottom.
+fn fire(colors: [u32; 3]) -> SkiaGradient {
+    SkiaGradient::new(GradientType::Linear, colors.map(Color::new)).angle(0.0)
 }
 
 fn line(text: &str, size: i32, color: u32) -> Build<SkiaLabel> {
@@ -796,7 +874,7 @@ fn build(app: &mut App) -> Build<SkiaShell> {
                 .font_family("FontScore")
                 .font_size(120)
                 .text_color(Color::WHITE)
-                .fill_gradient(SkiaGradient::new(GradientType::Linear, [Color::new(0xFFFF_E870), Color::new(0xFFFF_8A20), Color::new(0xFFE0_1810)]).angle(0.0))
+                .fill_gradient(fire([0xFFFF_E870, 0xFFFF_8A20, 0xFFE0_1810]))
                 .stroke_color(Color::new(0xFF30_0404))
                 .stroke_width(3)
                 .center()
@@ -821,7 +899,37 @@ fn build(app: &mut App) -> Build<SkiaShell> {
             key("?", "Help").on_tapped(|_me, app: &mut App, cx| toggle_dialog(app, cx, help_dialog)),
             key("II", "Pause").on_tapped(|_me, app: &mut App, cx| menu(app, cx)),
         ));
-    let prompt = centered("", 34, ACCENT).margin((0, 110, 0, 0)).opacity(0.0).input_transparent(true).accessibility_live("assertive").assign(&mut app.prompt);
+    // The prompt, above the middle: heavy letters in the color of what it asks, in a glow of the
+    // same color (`show_prompt`); its own cached image under the glow shader, like the countdown.
+    let prompt = SkiaLayer::new()
+        .width_request(760)
+        .height_request(110)
+        .horizontal_options(LayoutOptions::Center)
+        .margin((0, 96, 0, 0))
+        .is_visible(false)
+        .input_transparent(true)
+        .use_cache(CacheType::Image)
+        .visual_effect(
+            SkiaShaderEffect::new()
+                .shader_code(shaders::GLOW)
+                .uniform("uGlow", &[1.0])
+                .uniform("uWash", &[0.0])
+                .uniform("uTint", &[0.62, 0.22, 1.0])
+                .on_compilation_error(|_me, _app: &mut App, _cx, error: &str| eprintln!("dungeon: glow SkSL: {error}")),
+        )
+        .assign(&mut app.prompt_box)
+        .children(
+            SkiaLabel::new("")
+                .font_family("FontScore")
+                .font_size(44)
+                .text_color(Color::WHITE)
+                .stroke_color(Color::new(0xFF14_0820))
+                .stroke_width(2.5)
+                .center()
+                .horizontal_text_alignment(TextAlignment::Center)
+                .accessibility_live("assertive")
+                .assign(&mut app.prompt),
+        );
     // Still over a scene that draws every frame: one cached image to blit.
     let title = SkiaStack::new()
         .spacing(14)
@@ -844,24 +952,22 @@ fn build(app: &mut App) -> Build<SkiaShell> {
                         .uniform("uTint", &tint(ACCENT))
                         .on_compilation_error(|_me, _app: &mut App, _cx, error: &str| eprintln!("dungeon: glow SkSL: {error}")),
                 )
-                .children(centered("DUNGEON RUN", 44, 0xFFFF_FFFF).vertical_options(LayoutOptions::Center).assign(&mut app.name)),
+                .children(
+                    // The same heavy letters as GAME OVER, gold to amber instead of fire.
+                    SkiaLabel::new("DUNGEON RUN")
+                        .font_family("FontScore")
+                        .font_size(44)
+                        .text_color(Color::WHITE)
+                        .fill_gradient(fire([0xFFFF_F4D0, 0xFFFF_C050, 0xFFD0_6810]))
+                        .stroke_color(Color::new(0xFF2A_1404))
+                        .stroke_width(2.5)
+                        .horizontal_options(LayoutOptions::Center)
+                        .vertical_options(LayoutOptions::Center)
+                        .horizontal_text_alignment(TextAlignment::Center)
+                        .assign(&mut app.name),
+                ),
             centered("DRAWNUI FOR RUST SAMPLE", 14, ACCENT),
-            centered("RENDERING WITH SKIA", 11, 0x99FF_FFFF),
-            // The call to start, in violet neon: its own cached image under the glow shader.
-            SkiaLayer::new()
-                .height_request(60)
-                .margin((0, 4, 0, -18))
-                .use_cache(CacheType::Image)
-                .visual_effect(
-                    SkiaShaderEffect::new()
-                        .shader_code(shaders::GLOW)
-                        .uniform("uGlow", &[0.25])
-                        .uniform("uWash", &[0.0])
-                        .uniform("uTint", &[0.62, 0.22, 1.0])
-                        .on_compilation_error(|_me, _app: &mut App, _cx, error: &str| eprintln!("dungeon: glow SkSL: {error}")),
-                )
-                .children(centered(if MOBILE { "TAP TO START" } else { "TAP OR PRESS SPACE" }, 16, 0xFFE2_C4FF).vertical_options(LayoutOptions::Center)),
-            centered(if MOBILE { "DRAG TO STEER, TAP TO JUMP" } else { "DRAG OR ARROWS TO STEER, TAP OR SPACE TO JUMP" }, 11, 0x99FF_FFFF),
+            centered(if MOBILE { "TAP TO PLAY" } else { "TAP OR PRESS SPACE TO PLAY" }, 11, 0x99FF_FFFF),
         ));
     SkiaShell::new()
         .assign(&mut app.shell)
