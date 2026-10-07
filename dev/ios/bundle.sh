@@ -4,11 +4,11 @@
 # from apps.sh: crate (the example), name (shown under the icon), bundle_id, bundle (the .app's
 # file name), launch_color (RRGGBB).
 
-# ({key} is literal: rust-skia fills it in. It cannot go inside ${...:=...}, its brace ends that.)
-if [ -z "${SKIA_BINARIES_URL:-}" ]; then
-    SKIA_BINARIES_URL="file://$root/target/skia-bin/skia-binaries-{key}.tar.gz"
-fi
-export SKIA_BINARIES_URL FORCE_SKIA_BINARIES_DOWNLOAD=1
+# Skia: the prebuilt archive from the DrawnUi/rust-skia release of the pinned drawnui-skia-bindings
+# (its default address), or SKIA_BINARIES_URL when the shell sets one (a local
+# file://.../skia-binaries-{key}.tar.gz). Forced, so the patched ../rust-skia checkout downloads
+# instead of compiling Skia from source.
+export FORCE_SKIA_BINARIES_DOWNLOAD=1
 
 if [ "$profile" = release ]; then
     cargo build -p "$crate" --target "$target" --release

@@ -2,8 +2,7 @@
 # An example on the iOS simulator: builds for aarch64-apple-ios-sim, makes its .app (binary,
 # Info.plist, assets, icon), boots a simulator, installs and launches the app.
 #   dev/ios/run-sim.sh [--release] [--example NAME, default hellorust] [simulator name, default "iPhone 17 Pro"]
-# Skia comes from target/skia-bin (the archive of a source build for the sim target, made by
-# dev/release-apple.sh); SKIA_BINARIES_URL is set here when the shell has none.
+# Skia: the prebuilt archive of the DrawnUi/rust-skia release (see dev/ios/bundle.sh).
 set -eu
 cd "$(dirname "$0")/../.."
 root="$PWD"

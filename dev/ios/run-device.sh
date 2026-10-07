@@ -7,7 +7,7 @@
 #   IOS_IDENTITY  codesigning identity; default: the first "Apple Development" one
 #   IOS_PROFILE   provisioning profile; default: the newest development profile that allows
 #                 net.drawnui.<example> (exactly or by its team's wildcard) and this device
-# Skia comes from target/skia-bin (a source build for aarch64-apple-ios with `metal`).
+# Skia: the prebuilt archive of the DrawnUi/rust-skia release (see dev/ios/bundle.sh).
 set -eu
 cd "$(dirname "$0")/../.."
 root="$PWD"
