@@ -61,6 +61,8 @@ pub struct App {
     pan_steps: i32,
     /// A dialog is open: the world stands still.
     paused: bool,
+    /// The open dialog is the help (closing it during a run brings the pause back).
+    help_open: bool,
     /// What the labels show.
     phase: Phase,
     shown_score: u32,
@@ -168,7 +170,7 @@ fn open_dialog(app: &mut App, cx: &mut Cx, dialog: fn(&mut App) -> Build<SkiaLay
 /// pause, shows how to play; an open dialog closes.
 fn menu(app: &mut App, cx: &mut Cx) {
     match app.phase {
-        _ if app.paused => cx.close_popup(app.shell, true),
+        _ if app.paused => close_dialog(app, cx),
         Phase::Playing | Phase::Countdown => open_dialog(app, cx, pause_dialog),
         Phase::Attract => open_dialog(app, cx, help_dialog),
         _ => {}
@@ -194,8 +196,8 @@ fn key_down(app: &mut App, cx: &mut Cx, event: &KeyEvent) -> bool {
     }
     match event.key {
         // In a dialog, Enter and Space press its main button.
-        "Enter" | "NumpadEnter" | "Space" if app.paused => cx.close_popup(app.shell, true),
-        "F1" | "KeyH" => toggle_dialog(app, cx, help_dialog),
+        "Enter" | "NumpadEnter" | "Space" if app.paused => close_dialog(app, cx),
+        "F1" => toggle_dialog(app, cx, help_dialog),
         "Escape" | "KeyP" => menu(app, cx),
         // Android's Back during a run pauses it; otherwise the shell closes the dialog, and at the
         // title the app goes to the background as Android apps do.
@@ -694,6 +696,7 @@ fn help_dialog(app: &mut App) -> Build<SkiaLayout> {
     // What the dialog needs around the text: its glow, padding, title, last line and button.
     let room = (app.canvas_height - 300.0).max(110.0);
     let narrow = app.narrow;
+    app.help_open = true;
     dialog(
         app,
         "HOW TO PLAY",
@@ -720,7 +723,7 @@ fn help_dialog(app: &mut App) -> Build<SkiaLayout> {
             button("OK")
                 .horizontal_options(LayoutOptions::End)
                 .margin((0, 6, 0, 0))
-                .on_tapped(|_me, app: &mut App, cx| cx.close_popup(app.shell, true)),
+                .on_tapped(|_me, app: &mut App, cx| close_dialog(app, cx)),
         ),
     )
 }
@@ -745,11 +748,25 @@ fn controls() -> Build<SkiaLayout> {
     }
 }
 
+/// The open dialog closes; the help read during a run gives way to the pause again.
+fn close_dialog(app: &mut App, cx: &mut Cx) {
+    let back_to_pause = app.help_open && matches!(app.phase, Phase::Playing | Phase::Countdown);
+    cx.close_popup(app.shell, !back_to_pause);
+    if back_to_pause {
+        open_dialog(app, cx, pause_dialog);
+    }
+}
+
 fn pause_dialog(app: &mut App) -> Build<SkiaLayout> {
+    app.help_open = false;
     dialog(
         app,
         "PAUSED",
         SkiaRow::new().spacing(14).horizontal_options(LayoutOptions::End).margin((0, 12, 0, 0)).children((
+            ghost("HELP").on_tapped(|_me, app: &mut App, cx| {
+                cx.close_popup(app.shell, false);
+                open_dialog(app, cx, help_dialog);
+            }),
             // Leaves the run for the title.
             ghost("HOME").on_tapped(|_me, app: &mut App, cx| {
                 cx.close_popup(app.shell, true);

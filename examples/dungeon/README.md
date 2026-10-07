@@ -12,7 +12,7 @@ You run forward by yourself. Stay alive as long as you can.
 | Start       | Space, Enter         | Tap                                          |
 | Change lane | Left / Right, A / D (hold to keep moving) | Drag left or right (finger or mouse) |
 | Jump        | Up, W, Space         | Tap or click anywhere                        |
-| Help        | H (F1 on the desktop; a browser may keep F1 for its own help) | The ? button |
+| Help        | F1 on the desktop (a browser may keep F1 for its own help) | The ? button |
 | Pause (home or resume) | P, Escape | The II button                                |
 
 - **Rune pillars**: change lane.
