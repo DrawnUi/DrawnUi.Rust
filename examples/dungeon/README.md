@@ -33,7 +33,9 @@ You run forward by yourself. Stay alive as long as you can.
 
 A run starts calm: few hazards, pillars before the first jumps, the full share after about 40
 seconds. In that start every hazard comes with a prompt, JUMP or CHANGE LANE; after it, the first
-three of each kind in a session. Every twelve seconds without a hit a word of praise shows instead.
+three of each kind in a session. Once a session: COLLECT ORBS TO HEAL after the first loss of
+health, AVOID GHOSTS after the first ghost gone by; LOW HEALTH under four cells. Every twelve
+seconds without a hit a word of praise shows instead.
 
 A run starts with a countdown. When the health is gone, GAME OVER stays a few seconds (any key
 or tap skips it), then its picture burns away over the title's run.

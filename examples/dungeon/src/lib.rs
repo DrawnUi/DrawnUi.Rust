@@ -96,6 +96,13 @@ pub struct App {
     taught: [u8; 2],
     /// The ghost has the run: no prompt over it.
     ghosted: bool,
+    /// A lesson waiting for the prompt to be free, and the two one-time lessons of a session: the
+    /// first loss of health, the first ghost's touch.
+    pending: Option<Prompt>,
+    taught_heal: bool,
+    taught_ghost: bool,
+    /// LOW HEALTH was said; said again after the health came back over the line.
+    warned_low: bool,
     /// Seconds run without a hit, and how many times that was praised.
     clean: f32,
     cheers: u32,
@@ -288,6 +295,12 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
         if let Some(mut count) = cx.get_mut(app.count) {
             count.set_width_request(canvas.width.min(760.0));
         }
+        if let Some(mut prompt) = cx.get_mut(app.prompt_box) {
+            prompt.set_width_request(canvas.width.min(760.0));
+        }
+        if let Some(mut prompt) = cx.get_mut(app.prompt) {
+            prompt.set_font_size(if canvas.width < 520.0 { 28.0 } else { 44.0 });
+        }
     }
     let narrow = canvas.width < NARROW;
     if narrow != app.narrow {
@@ -312,6 +325,8 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
     world.step(delta.min(0.05), &mut app.input);
     let (phase, orbs, health, hint, young) = (world.phase, world.orbs(), world.health, world.hint(), world.young());
     let world_killer = world.killer;
+    let world_ghost = world.ghost;
+    let ghosts_passed = world.ghosts_passed;
     let meters = world.distance() / 10 * 10;
     let count = world.count();
     let (burn, closing) = (world.burn, world.closing());
@@ -414,7 +429,16 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
     if health != app.shown_health {
         if health < app.shown_health {
             app.clean = 0.0;
+            if !app.taught_heal && phase == Phase::Playing {
+                (app.taught_heal, app.pending) = (true, Some(Prompt::Heal));
+            }
         }
+        // Under four cells: LOW HEALTH, once per fall under the line.
+        let low = (health * 10.0).round() < 4.0;
+        if low && !app.warned_low && phase == Phase::Playing && health > 0.0 {
+            app.pending = Some(Prompt::Low);
+        }
+        app.warned_low = low;
         app.shown_health = health;
         // Green, amber, red; a cell per tenth, lit from the left.
         let color = Color::new(if health > 0.6 { GOOD } else if health > 0.3 { 0xFFFF_B030 } else { 0xFFFF_3B30 });
@@ -481,15 +505,22 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
     if phase == Phase::Playing {
         app.clean += delta;
     }
+    // The first ghost gone by teaches (after a touch, once the blackout is over).
+    if ghosts_passed > 0 && !app.taught_ghost && phase == Phase::Playing {
+        (app.taught_ghost, app.pending) = (true, Some(Prompt::Avoid));
+    }
     // The ghost's kill takes the prompt away; a power-up says its name for a moment; the lessons wait.
     if world_killer.is_some() != app.ghosted {
         app.ghosted = world_killer.is_some();
         if app.ghosted {
-            (app.notice, app.hint) = (0.0, Hint::None);
+            (app.notice, app.hint, app.pending) = (0.0, Hint::None, None);
             show_prompt(app, cx, None);
         }
     }
-    if let Some(power) = pickup.filter(|_| phase == Phase::Playing) {
+    if let Some(prompt) = app.pending.filter(|_| phase == Phase::Playing && app.notice <= 0.0 && hint == Hint::None && world_ghost < 0.5) {
+        (app.pending, app.notice, app.hint) = (None, 1.8, Hint::None);
+        show_prompt(app, cx, Some(prompt));
+    } else if let Some(power) = pickup.filter(|_| phase == Phase::Playing) {
         (app.notice, app.hint) = (1.3, Hint::None);
         show_prompt(app, cx, Some(if power == HEALTH { Prompt::Health } else { Prompt::Surge }));
     } else if app.notice > 0.0 {
@@ -540,6 +571,11 @@ enum Prompt {
     Health,
     Surge,
     Cheer(&'static str),
+    /// The one-time lessons: after the first loss of health, after the first ghost gone by.
+    Heal,
+    Avoid,
+    /// Under four cells of health.
+    Low,
 }
 
 /// Shows the prompt (text, gradient and glow of its kind, jumping in) or hides it.
@@ -552,6 +588,9 @@ fn show_prompt(app: &mut App, cx: &mut Cx, prompt: Option<Prompt>) {
             Prompt::Health => ("HEALTH UP", [0xFFFF_FFFF, 0xFFF0_FFE8, 0xFFA0_E890], [0.42, 1.0, 0.35]),
             Prompt::Surge => ("SURGE", [0xFFFF_FFFF, 0xFF90_F0FF, 0xFF30_B0FF], [0.5, 0.9, 1.0]),
             Prompt::Cheer(text) => (text, [0xFFFF_F4D0, 0xFFFF_C050, 0xFFD0_6810], tint(ACCENT)),
+            Prompt::Heal => ("COLLECT ORBS TO HEAL", [0xFFFF_FFFF, 0xFFF0_FFE8, 0xFFA0_E890], [0.42, 1.0, 0.35]),
+            Prompt::Avoid => ("AVOID GHOSTS", [0xFFFF_FFFF, 0xFFD8_E4FF, 0xFF88_A0E0], [0.72, 0.84, 1.0]),
+            Prompt::Low => ("LOW HEALTH", [0xFFFF_E0D8, 0xFFFF_6050, 0xFFC0_1810], [1.0, 0.25, 0.2]),
         };
         if let Some(mut label) = cx.get_mut(app.prompt) {
             label.set_text(text);

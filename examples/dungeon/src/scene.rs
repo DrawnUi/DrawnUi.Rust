@@ -238,6 +238,8 @@ pub struct World {
     /// 0..1: a ghost is near ahead: the dungeon darkens. `revealed`: the ghost that lunged last.
     pub dread: f32,
     revealed: Option<i64>,
+    /// Ghosts the runner has gone past (hit or not) in this run.
+    pub ghosts_passed: u32,
     /// 0 to 1, eased: how strong the rays of a surge are (full at first, fading with its time left).
     pub surge_glow: f32,
     /// 1 to 0 after GAME OVER: how much of its frozen picture still covers the title's run.
@@ -287,6 +289,7 @@ impl Default for World {
             first_palette: 0,
             dread: 0.0,
             revealed: None,
+            ghosts_passed: 0,
             surge_glow: 0.0,
             pace: 1.0,
             surge: 0.0,
@@ -363,7 +366,7 @@ impl World {
         (self.z, self.x, self.y, self.vy, self.lane, self.orbs, self.zone) = (0.0, 0.0, 0.0, 0.0, 0, 0, 0);
         (self.health, self.invulnerable, self.surge, self.pace, self.fall) = (1.0, 0.0, 0.0, 1.0, 0.0);
         self.collected.clear();
-        (self.ghost, self.killer, self.dread, self.revealed) = (0.0, None, 0.0, None);
+        (self.ghost, self.killer, self.dread, self.revealed, self.ghosts_passed) = (0.0, None, 0.0, None, 0);
         self.first_palette = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos() as usize % PALETTES.len());
         (self.streak, self.last_orb, self.orb_pulse) = (0, -10, 0.0);
         self.phase = phase;
@@ -421,6 +424,12 @@ impl World {
             dread = 1.0;
         }
         self.dread += (dread - self.dread) * (1.0 - (-dt * 6.0).exp());
+        if let Some(i) = self.revealed
+            && self.z > i as f64 * 2.0 + 1.5
+        {
+            self.ghosts_passed += 1;
+            self.revealed = None;
+        }
         self.orb_pulse = (self.orb_pulse - dt * 4.5).max(0.0);
 
         // Full for the first second of a surge, then fading with the time left: faint rays say it is almost over.
