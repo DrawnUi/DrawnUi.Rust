@@ -45,6 +45,8 @@ fn titles() -> [(&'static str, Build<SkiaLabel>); 2] {
 
 #[test]
 fn a_label_wrapping_in_a_star_column_grows_its_auto_row() {
+    // The Center label takes the height of its lines; a Fill one takes its row's.
+    let mut lines_height = 0.0;
     for vertical in [LayoutOptions::Center, LayoutOptions::Fill] {
         let label = SkiaLabel::new("A long caption that needs two lines in its column").font_size(16).max_lines(3);
         let label = label.text_color(Color::WHITE).vertical_options(vertical).column(0);
@@ -57,6 +59,12 @@ fn a_label_wrapping_in_a_star_column_grows_its_auto_row() {
         assert!(label.width() <= 181.0, "{vertical:?}: label {} px in a 180 px column", label.width());
         let grid = host.rect(host.ui.tree.parent(host.ui.state).unwrap());
         assert!(grid.height() >= label.height(), "{vertical:?}: grid {} px, label {} px", grid.height(), label.height());
+        // The row holds the wrapped lines (React's check: a Fill label stuck at a one-line row
+        // passes the line above with both at the row's height).
+        if vertical == LayoutOptions::Center {
+            lines_height = label.height();
+        }
+        assert!(label.height() >= lines_height, "{vertical:?}: label {} px, its lines {lines_height} px", label.height());
     }
 }
 
