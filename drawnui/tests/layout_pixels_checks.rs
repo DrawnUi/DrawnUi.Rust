@@ -168,11 +168,13 @@ fn a_layout_is_done_in_one_frame_and_the_next_frames_measure_nothing() {
         let mut host = Headless::new(Ui::new((), |_| tree), 900, 700, scale);
         host.frame();
         let first = measures.borrow().clone();
-        // Once each. The grid children twice: for the tracks, then in their cells. The last child
-        // of the row a second time where the shares, whole pixels each, took a pixel of its room.
+        // Once each. The grid children twice: for the tracks, then in their cells. The vertical
+        // Fill child on the Auto row three times: it is measured unbounded for the height its row
+        // grows to (C# 7cf1007c), then at its final cell. The last child of the row a second time
+        // where the shares, whole pixels each, took a pixel of its room.
         assert!(first[3] == 1 || first[3] == 2, "@{scale}: {first:?}");
         let others: Vec<u32> = first.iter().enumerate().filter(|(index, _)| *index != 3).map(|(_, count)| *count).collect();
-        assert_eq!(others, [1, 1, 1, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1], "@{scale}: content measures of the first frame");
+        assert_eq!(others, [1, 1, 1, 2, 3, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1], "@{scale}: content measures of the first frame");
         for _ in 0..5 {
             host.frame_after(16.0);
         }

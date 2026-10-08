@@ -482,14 +482,16 @@ fn a_wrapping_child_is_laid_out_for_its_final_cell() {
     assert_eq!(laid.rect(1), ltrb(101, 0, 251, 60));
 
     // Fill in an Auto column: measured unbounded (one line of 400, 20 tall), the track is cut to
-    // the 190 the grid has, and the row stays one line tall.
+    // the 190 the grid has. At 190 it wraps to three lines, and the Auto row grows to them (C#
+    // 7cf1007c, drawnui-cross 6p: a child on a single Auto row gets the height the row can still
+    // grow to; before, the row stayed one line tall and the wrap was cut to it).
     let auto = |horizontal| grid("100, Auto", "", horizontal, START).column_spacing(10);
     let laid = lay_out(300.0, 700.0, auto(FILL), (boxed(50, 20), flow(8, FILL).column(1)));
-    assert_eq!(laid.rect(1), ltrb(110, 0, 300, 20));
-    assert_eq!(laid.size(), size(300, 20));
+    assert_eq!(laid.rect(1), ltrb(110, 0, 300, 60));
+    assert_eq!(laid.size(), size(300, 60));
     let laid = lay_out(300.0, 700.0, auto(START), (boxed(50, 20), flow(8, FILL).column(1)));
-    assert_eq!(laid.rect(1), ltrb(110, 0, 300, 20));
-    assert_eq!(laid.size(), size(300, 20));
+    assert_eq!(laid.rect(1), ltrb(110, 0, 300, 60));
+    assert_eq!(laid.size(), size(300, 60));
 }
 
 // ---------------------------------------------------------------- unbounded, nested
@@ -566,7 +568,8 @@ fn defaults_of_the_alias() {
 }
 
 /// A child in an Auto track is measured for its content and then at its cell; any other child
-/// only at its cell. The constraints are the ones upstream gives.
+/// only at its cell. The constraints are the ones upstream gives; on a single Auto row the height
+/// is what the row can still grow to (C# 7cf1007c AvailableHeight: 300 - 75 + 20 = 245).
 #[test]
 fn the_measures_of_a_first_layout() {
     let logs: Vec<Seen> = (0..5).map(|_| Seen::default()).collect();
@@ -578,9 +581,10 @@ fn the_measures_of_a_first_layout() {
         spy(&logs[4]).column(2).row(1),
     );
     let laid = lay_out(400.0, 300.0, grid("Auto, *, 100", "Auto, 50", FILL, START).column_spacing(10).row_spacing(5), items);
-    assert_eq!(*logs[0].borrow(), [(280.0, 245.0), (40.0, 20.0)]); // Auto column, Auto row
-    assert_eq!(*logs[1].borrow(), [(240.0, 245.0), (240.0, 20.0)]); // star column, Auto row
-    assert_eq!(*logs[2].borrow(), [(100.0, 245.0), (100.0, 20.0)]); // absolute column, Auto row
+    assert_eq!(*logs[0].borrow(), [(280.0, 245.0), (40.0, 245.0)]); // Auto column, Auto row
+    // Star column, Auto row: its content measure is already at its cell (the second is a memo hit).
+    assert_eq!(*logs[1].borrow(), [(240.0, 245.0)]);
+    assert_eq!(*logs[2].borrow(), [(100.0, 245.0)]); // absolute column, Auto row: the same
     assert_eq!(*logs[3].borrow(), [(INF, 50.0), (40.0, 50.0)]); // Fill in the Auto column, absolute row
     assert_eq!(*logs[4].borrow(), [(100.0, 50.0)]); // absolute column and row
     assert_eq!(laid.rects()[1], ltrb(50, 0, 290, 20));
@@ -616,8 +620,9 @@ fn nothing_is_measured_while_nothing_changes_and_a_change_measures_only_what_it_
     laid.host.ui.tree.invalidate(laid.items[3], Dirty::MEASURE);
     laid.host.settle();
     assert_eq!(counts(), [2, 2, 2, 4]);
-    // The last child gets taller: the row does, so its neighbor has another cell. The first row is
-    // not measured.
+    // The last child gets taller: the row does. The neighbor on that row keeps its offer (the room
+    // the row can grow to is the same); the first row's children have less room left, so they
+    // are measured once more (C# 7cf1007c offers that room too).
     change(&mut laid, 3, &|spy| spy.set_minimum_height_request(30));
-    assert_eq!(counts(), [2, 2, 3, 6]);
+    assert_eq!(counts(), [3, 3, 2, 6]);
 }

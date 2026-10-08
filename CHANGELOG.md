@@ -12,6 +12,10 @@ version before it. Commits in parentheses.
   toward the next snap point went there, also a resting fingertip's drift. Every snapping control
   now counts a release under 100 points per second as no speed, as the carousel already did
   (C# 662cb81b).
+- A label wrapping in a star column of a Grid next to an Auto column was cut to one line with an
+  ellipsis: its Auto row took the height of a first measure at the grid's whole width. A child on
+  a single Auto row is offered the height the row can still grow to, and the row grows to it
+  (C# 7cf1007c). A vertical Fill child on such a row is measured once more (unbounded, for the row).
 
 ## 0.1.0-preview.6 (crates.io, 2026-10-08)
 

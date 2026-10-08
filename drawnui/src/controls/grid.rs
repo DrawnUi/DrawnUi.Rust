@@ -324,22 +324,42 @@ impl Grid {
 
         // Pass 2: every child at the cell it is arranged in, so what is inside it is laid out for
         // that box. A child that comes back larger than its Auto track (wrapped text) grows it.
+        let mut auto_row_grew = false;
         for cell in cells.iter() {
             let cell_width = extent(columns, cell.column, cell.columns, column_gap);
             let cell_height = extent(rows, cell.row, cell.rows, row_gap);
             if cell_width <= 0.0 || cell_height <= 0.0 {
                 continue;
             }
+            // A child on a single Auto row is offered the height the row can still grow to (C#
+            // 7cf1007c): the row's size came from pass 1 at the grid's whole width, so text wrapping
+            // in a star column would be cut to that one-line height. A vertical Fill child, which
+            // would take all of it, is measured unbounded; the row grows only within the room.
+            let on_auto_row = cell.rows == 1 && rows[cell.row].is_auto();
+            let room_h = room(rows, cell.row, 1, row_gap, height);
+            let offer = match on_auto_row {
+                true if fills_height(&cx.child_base(cell.child).p) => f64::INFINITY,
+                true => cell_height.max(room_h),
+                false => cell_height,
+            };
             // Upstream rounds the height it offers to a pixel and leaves the width as it is.
-            let offer_h = (cell_height * scale as f64).round_ties_even() as f32;
+            let offer_h = if offer.is_finite() { (offer * scale as f64).round_ties_even() as f32 } else { f32::INFINITY };
             measure_kid(kids, cx, cell.child, pixels(cell_width), offer_h);
             let raw = desired(cx.child_base(cell.child));
             if cell.columns == 1 && columns[cell.column].is_auto() {
                 columns[cell.column].size = columns[cell.column].size.max(points(raw.width));
             }
-            if cell.rows == 1 && rows[cell.row].is_auto() {
-                rows[cell.row].size = rows[cell.row].size.max(points(raw.height));
+            if on_auto_row {
+                let grown = if room_h.is_finite() { points(raw.height).min(room_h) } else { points(raw.height) };
+                if grown > rows[cell.row].size {
+                    rows[cell.row].size = grown;
+                    auto_row_grew = true;
+                }
             }
+        }
+        // Star rows were shared out against the smaller Auto rows: what is left now, if anything.
+        if auto_row_grew && height.is_finite() {
+            resolve_stars(rows, row_gap, height, in_stars.1);
         }
         Size::new(snap(pixels(total(columns, column_gap))), snap(pixels(total(rows, row_gap))))
     }

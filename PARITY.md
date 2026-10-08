@@ -89,6 +89,7 @@ Status: `ported`, `partial`, `skipped`, `changed` (kept, but behaves differently
 | LayoutSweepTests | `drawnui/tests/layout_stack.rs`, `layout_wrap.rs`, `layout_grid.rs` | ported | 6 of 6. |
 | GridAutoSizeTests | `drawnui/tests/layout_grid.rs` | ported | 3 of 3. |
 | GridInScrollStackTests | `drawnui/tests/layout_grid.rs` | ported | 2 of 2 (6 cases), real SkiaScroll + SkiaShape. |
+| GridAutoRowWrapTests, LabelCharacterSpacingTests | `drawnui/tests/label_spacing_grid.rs` | ported | C# 7cf1007c: a child on a single Auto row is offered the height the row can still grow to (a vertical Fill child unbounded) and the row grows, star rows shared again; spaced text measured and cut at its drawn width (Rust already did; plain and spans, SkiaRichLabel not run). Two `nested` lines at 1.5 now differ by 1 px from the older C# dump (`layout_pixels.rs` UPSTREAM_BEFORE_AUTO_ROW_ROOM), to confirm with a new dump. |
 | AspectCoverTests | `drawnui/tests/image_upstream.rs` | ported | 3 of 3, plus the marker on pixels. The bitmap arrives as a PNG through the manager. |
 | AspectCoverHeightDrivenTests | `drawnui/tests/image_upstream.rs`, `effects_upstream.rs` | ported | 5 of 5; the 3 shader cases in effects_upstream.rs. |
 | ShaderEffectSnapshotTests | `drawnui/tests/effects_upstream.rs` | ported | 4 of 4, same numbers. |
