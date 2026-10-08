@@ -12,6 +12,11 @@ version before it. Commits in parentheses.
   comes from: images, GIFs and sprites (the decode worker too), fonts, SVG, Lottie and shaders. A
   string is used as is (a `blob:` url works); `undefined` loads the url as before.
 
+### Fixed
+
+- SkiaLottie applies layer masks (Skottie's geometric merge: add, subtract, intersect, lighten,
+  darken, difference, inverted). A spinner made of masked solid layers drew as a filled square.
+
 ## 0.1.0-preview.5 (crates.io, 2026-10-08)
 
 ### Added

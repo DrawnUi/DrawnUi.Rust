@@ -7,11 +7,13 @@
 //! In: shape layers (group, rectangle, ellipse, path, polystar, fill, stroke with dashes, gradient
 //! fill and stroke, trim paths, group transforms), solid and null layers, precomps with start
 //! time, time stretch and time remap, parenting, layer and group opacity, hold and bezier
-//! keyframes, split position, colors replaced before parsing (`apply_tint`).
-// ponytail: no masks, mattes (a matted layer draws unmasked, a matte source stays hidden as in
-// Skottie), effects, layer styles, text, images, merge paths, repeaters, round corners, offset
-// paths, pucker / bloat, blend modes, 3D, auto-orient, expressions (the static value is used).
-// Each is a new arm in `shape_type` / `Content` when a file needs it.
+//! keyframes, split position, colors replaced before parsing (`apply_tint`), layer masks as
+//! Skottie's geometric path (every mode, inverted masks).
+// ponytail: masks clip whole (their opacity, feather and expansion are not applied, as Skottie
+// does only for opaque masks); no mattes (a matted layer draws unmasked, a matte source stays
+// hidden as in Skottie), effects, layer styles, text, images, merge paths, repeaters, round
+// corners, offset paths, pucker / bloat, blend modes, 3D, auto-orient, expressions (the static
+// value is used). Each is a new arm in `shape_type` / `Content` when a file needs it.
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -24,6 +26,7 @@ use skia_safe::{
     gradient::{self, Gradient, Interpolation},
     matrix::ScaleToFit,
     trim_path_effect,
+    PathOp,
 };
 
 type Obj = Map<String, Value>;
@@ -973,7 +976,34 @@ struct Layer {
     hidden: bool,
     /// A precomp's `w` x `h`: its content is cut there.
     clip: Option<Rect>,
+    /// `masksProperties`: the layer's content is cut to them.
+    masks: Vec<Mask>,
     content: Content,
+}
+
+/// A layer mask (Skottie `AttachMask`, the geometric merge of opaque masks): its shape in the
+/// layer's space, how it joins the masks before it (a = union, s = difference, i = intersect,
+/// l = union, d = intersect, f = xor), inverted or not.
+struct Mask {
+    shape: Prop,
+    op: PathOp,
+    /// Subtract: the first mask of a layer leaves the layer outside it.
+    subtract: bool,
+    inverted: bool,
+}
+
+impl Mask {
+    fn parse(o: &Obj) -> Option<Mask> {
+        let (op, subtract) = match o.get("mode").and_then(Value::as_str).unwrap_or("a") {
+            "a" | "l" => (PathOp::Union, false),
+            "s" => (PathOp::Difference, true),
+            "i" | "d" => (PathOp::Intersect, false),
+            "f" => (PathOp::XOR, false),
+            _ => return None, // "n": no mask
+        };
+        let shape = Prop::parse(o.get("pt"), Kind::Shape)?;
+        Some(Mask { shape, op, subtract, inverted: flag(o.get("inv")).unwrap_or(false) })
+    }
 }
 
 struct Comp {
@@ -984,6 +1014,22 @@ struct Comp {
 impl Layer {
     fn active(&self, t: f32) -> bool {
         (t >= self.in_point && t < self.out_point) || (t > self.out_point && t <= self.in_point)
+    }
+
+    /// What the masks leave of the layer at `t`, in its space; `None` without masks.
+    fn mask(&self, t: f32) -> Option<Path> {
+        let mut merged: Option<Path> = None;
+        for (i, mask) in self.masks.iter().enumerate() {
+            let mut path = mask.shape.path(t);
+            if mask.inverted != (i == 0 && mask.subtract) {
+                path.toggle_inverse_fill_type();
+            }
+            merged = Some(match merged {
+                None => path,
+                Some(before) => before.op(&path, mask.op).unwrap_or(before),
+            });
+        }
+        merged
     }
 }
 
@@ -1026,6 +1072,9 @@ impl Comp {
             }
             if let Some(clip) = layer.clip {
                 canvas.clip_rect(clip, None, true);
+            }
+            if let Some(mask) = layer.mask(t) {
+                canvas.clip_path(&mask, None, true);
             }
             match &layer.content {
                 Content::Shapes(node) => render_node(node, canvas, t, opacity),
@@ -1134,6 +1183,10 @@ impl<'a> Builder<'a> {
             }
             _ => Content::None,
         };
+        let masks = match o.get("masksProperties").and_then(Value::as_array) {
+            Some(masks) => masks.iter().filter_map(Value::as_object).filter_map(Mask::parse).collect(),
+            None => Vec::new(),
+        };
         Layer {
             parent: None,
             in_point,
@@ -1141,6 +1194,7 @@ impl<'a> Builder<'a> {
             transform: o.get("ks").and_then(Value::as_object).map(Transform::parse),
             hidden,
             clip,
+            masks,
             content,
         }
     }
