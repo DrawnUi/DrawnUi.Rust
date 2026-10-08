@@ -30,6 +30,9 @@ props!(SnappingProps, SnappingBuild, SnappingSet {
     snap_distance_ratio / set_snap_distance_ratio: f32 = 0.2, NONE;
 });
 
+/// Release speeds under this many points per second count as none (`Snapping::snap_velocity`).
+pub const SNAP_VELOCITY_THRESHOLD: f32 = 100.0;
+
 /// How a control tunes its snaps (the overrides of SkiaCarousel and SkiaDrawer).
 #[derive(Clone, Copy)]
 pub(crate) struct Tuning {
@@ -171,6 +174,14 @@ impl Snapping {
             }
         }
         best.0
+    }
+
+    /// A release velocity as snapping counts it (C# SnappingLayout.SnapVelocityThreshold, 662cb81b):
+    /// an axis under 100 points per second is no speed. A resting fingertip still drifts a little;
+    /// that is not a flick toward the next snap point.
+    pub fn snap_velocity(velocity: Point) -> Point {
+        let keep = |v: f32| if v.abs() < SNAP_VELOCITY_THRESHOLD { 0.0 } else { v };
+        Point::new(keep(velocity.x), keep(velocity.y))
     }
 
     /// The closest snap point that lies the way the velocity points, else `origin` (React

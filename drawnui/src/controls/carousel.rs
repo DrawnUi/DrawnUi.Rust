@@ -308,8 +308,7 @@ impl SkiaCarousel {
         if self.s.snap_points.is_empty() {
             return;
         }
-        let keep = |v: f32| if v.abs() < 100.0 { 0.0 } else { v };
-        let velocity = Point::new(keep(velocity.x), keep(velocity.y));
+        let velocity = Snapping::snap_velocity(velocity);
         let origin = self.nearest_anchor_internal(location);
         let target = self.select_next_anchor(origin, velocity);
         if dist(location, target) >= 0.5 {

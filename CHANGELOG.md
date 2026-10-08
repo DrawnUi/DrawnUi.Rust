@@ -4,6 +4,15 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## Unreleased
+
+### Fixed
+
+- A side or bottom drawer dragged and held still before the release closed (or opened): any speed
+  toward the next snap point went there, also a resting fingertip's drift. Every snapping control
+  now counts a release under 100 points per second as no speed, as the carousel already did
+  (C# 662cb81b).
+
 ## 0.1.0-preview.6 (crates.io, 2026-10-08)
 
 ### Added

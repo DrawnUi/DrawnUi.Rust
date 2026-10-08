@@ -430,6 +430,7 @@ impl Control for SkiaDrawer {
                 // React reads the clock while it processes the Up: the frame time here.
                 let velocity = self.s.accumulator.final_velocity(cx.tree.time_ms, 3000.0);
                 let velocity = if self.horizontal() { Point::new(velocity.x, 0.0) } else { Point::new(0.0, velocity.y) };
+                let velocity = Snapping::snap_velocity(velocity);
                 self.s.snap = self.s.position;
                 // React ScrollToNearestAnchor (the base one).
                 let location = self.s.position;
