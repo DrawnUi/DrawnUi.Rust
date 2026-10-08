@@ -805,6 +805,14 @@ fn push_transformed(out: &mut String, word: &str, transform: TextTransform) {
     }
 }
 
+/// Default-ignorable code points: zero width space, (non-)joiner and direction marks, word joiners,
+/// variation selectors (U+FE0F after an emoji), tags. Text is not shaped, so where a label's fonts
+/// have no glyph for one it draws nothing and takes no room, never the missing-glyph box (C# keeps
+/// them in the font of the glyph before them, where shaping hides them).
+fn ignorable(c: char) -> bool {
+    matches!(c, '\u{200B}'..='\u{200F}' | '\u{2060}'..='\u{2064}' | '\u{FE00}'..='\u{FE0F}' | '\u{E0000}'..='\u{E0FFF}')
+}
+
 /// Glyphs and advances of `text` in `font`.
 fn glyph_widths(font: &Font, text: &str, glyphs: &mut Vec<GlyphId>, widths: &mut Vec<f32>) {
     let count = font.count_str(text);
@@ -947,7 +955,7 @@ impl Layout {
     /// Replaces the characters from `start` on that neither the font of the style nor a fallback
     /// has a glyph for.
     fn replace_missing(&mut self, start: usize, style: usize, missing: char) {
-        let lacks = |c: char| self.lacks(style, c);
+        let lacks = |c: char| !ignorable(c) && self.lacks(style, c);
         if self.source[start..].chars().any(lacks) {
             let word: String = self.source[start..].chars().map(|c| if lacks(c) { missing } else { c }).collect();
             self.source.truncate(start);
@@ -1000,6 +1008,11 @@ impl Layout {
             let ids = &glyphs[face * count + from.0..face * count + to.0];
             widths.resize(ids.len(), 0.0);
             fonts[font].get_widths(ids, widths);
+            for ((c, &id), w) in word[from.1..to.1].chars().zip(ids).zip(widths.iter_mut()) {
+                if id == 0 && ignorable(c) {
+                    *w = 0.0;
+                }
+            }
             let mut width = 0.0;
             for w in widths.iter() {
                 word_widths.push(w + spacing);
@@ -1280,6 +1293,13 @@ impl Layout {
             for run in &mut runs[line.runs.clone()] {
                 let font = &fonts[run.font];
                 glyph_widths(font, &text[run.text.clone()], glyphs, widths);
+                // An ignorable code point the font lacks: the space glyph (nothing), no room.
+                for (k, c) in text[run.text.clone()].chars().enumerate() {
+                    if glyphs[k] == 0 && ignorable(c) {
+                        glyphs[k] = font.unichar_to_glyph(' ' as i32);
+                        widths[k] = 0.0;
+                    }
+                }
                 advances.extend(widths.iter().map(|w| w + spacing));
                 if glyphs.is_empty() {
                     continue;

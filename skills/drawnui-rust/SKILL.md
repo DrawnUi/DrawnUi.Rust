@@ -346,9 +346,8 @@ Windows: your font has the color gear, and Segoe UI Emoji has only the plain one
 - A skin tone (👍🏽) draws as the hand plus a color swatch.
 - A flag draws as its two regional letters.
 - U+FE0F (VS16) does not switch a symbol to its emoji look.
-- Today a U+FE0F that no font of the label has draws a box. Segoe UI Emoji has it, so with the
-  system fallback on Windows it stays invisible. A shipped font alone shows the box after the
-  symbol.
+- Invisible code points (U+FE0F, the zero width joiner, tags) that no font of the label has draw
+  nothing and take no room. They never draw a box, and `fallback_character` leaves them alone.
 
 ## Cache types
 

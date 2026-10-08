@@ -223,3 +223,47 @@ fn a_deep_change_inside_a_composite_allocates_nothing_per_frame() {
     let record = host.ui.tree.last_composite_record(id).expect("recorded");
     assert_eq!(record.changed, [card_id]);
 }
+
+/// 20 x 20 points of red with a 10 px yellow glow on its left or right side: the effects margin
+/// moves sides, its total size stays.
+struct Glow {
+    left: Rc<Cell<bool>>,
+}
+impl Control for Glow {
+    fn measure(&mut self, cx: &mut LayoutCx, _width: f32, _height: f32) -> Size {
+        Size::new(20.0 * cx.scale, 20.0 * cx.scale)
+    }
+    fn paint(&self, cx: &mut PaintCx) {
+        let mut paint = SkPaint::default();
+        paint.set_color(Color::RED);
+        cx.canvas.draw_rect(cx.rect, &paint);
+        paint.set_color(Color::YELLOW);
+        let r = cx.rect;
+        let glow = if self.left.get() { Rect::new(r.left - 10.0, r.top, r.left, r.bottom) } else { Rect::new(r.right, r.top, r.right + 10.0, r.bottom) };
+        cx.canvas.draw_rect(glow, &paint);
+    }
+    fn effects_margin(&self, _scale: f32) -> Thickness {
+        if self.left.get() { Thickness::new(10.0, 0.0, 0.0, 0.0) } else { Thickness::new(0.0, 0.0, 10.0, 0.0) }
+    }
+}
+
+fn glowing(cache: CacheType, left: Rc<Cell<bool>>) -> (Headless<()>, ControlId) {
+    let glow = Build::new(Glow { left }).margin(Thickness::new(60.0, 40.0, 0.0, 0.0));
+    let id = glow.id();
+    let other = square(Color::BLUE, 120.0);
+    (host(SkiaLayout::new().fill().use_cache(cache).children((glow, other))), id)
+}
+
+#[test]
+fn a_cache_follows_an_effects_margin_that_moves_sides() {
+    // C# 97683f19 (EffectsMarginMismatch): a kept surface is valid only for the same margin.
+    for cache in [CacheType::ImageComposite, CacheType::Image] {
+        let left = Rc::new(Cell::new(true));
+        let (mut host, id) = glowing(cache, left.clone());
+        let (mut fresh, _) = glowing(CacheType::None, Rc::new(Cell::new(false)));
+        left.set(false);
+        host.ui.tree.invalidate(id, Dirty::DRAW);
+        host.settle();
+        same_pixels(&mut host, &mut fresh, &format!("{cache:?}"));
+    }
+}

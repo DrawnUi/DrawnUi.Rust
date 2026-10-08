@@ -19,6 +19,13 @@ version before it. Commits in parentheses.
   cached list), where it was and where it is, transforms included; past 16 areas or half the control
   it draws everything.
 
+### Fixed
+
+- A U+FE0F (after an emoji), a zero width joiner or a tag that no font of the label has drew a
+  missing-glyph box; it draws nothing now.
+- ImageComposite drew its content shifted when a child's effects margin moved to another side at
+  the same total size (a glow); such a change draws everything again.
+
 ### Breaking
 
 - `CompositeRecord` has the fields `areas` and `changed`, and is no longer `Eq`.

@@ -534,7 +534,7 @@ fn record(
             Some(CachedObject { content: CachedContent::Image(image), bounds: r, margin, scale, kind: cache_type })
         }
         CacheType::ImageComposite => {
-            let image = record_composite(cx, id, base, r)?;
+            let image = record_composite(cx, id, base, r, margin)?;
             Some(CachedObject { content: CachedContent::Image(image), bounds: r, margin, scale, kind: cache_type })
         }
         // `resolved` turned the GPU names into the caches above.
@@ -597,6 +597,8 @@ pub(crate) fn painted_below(cx: &PaintCx, id: ControlId) -> Option<u64> {
 pub(crate) struct Composite {
     surface: Surface,
     scale: f32,
+    /// The effects margin the surface was laid out with: where the control's rect sits in it.
+    margin: Thickness,
     /// Children a change came through since the last record (`layout::flush`), drawn whole.
     dirty: Vec<ControlId>,
     /// Controls deeper than a child that changed without a new layout, the child they are in, and
@@ -728,17 +730,25 @@ fn deep_area(cx: &mut PaintCx, deep: ControlId, composite: ControlId, was: Drawn
 /// sibling that overlaps those, are erased and only those children are drawn again. Anything else
 /// (the control itself, its layout, size or scale, a control that is not a plain layout) draws
 /// everything. Returns the picture of the surface.
-fn record_composite(cx: &mut PaintCx, id: ControlId, base: &Base, r: Rect) -> Option<Image> {
+fn record_composite(cx: &mut PaintCx, id: ControlId, base: &Base, r: Rect, margin: Thickness) -> Option<Image> {
     let slot = id.index as usize;
     let (w, h) = ((r.width().round() as i32).max(1), (r.height().round() as i32).max(1));
     let kept = cx.render[slot].paints.as_deref_mut().and_then(|p| p.composite.take());
     let mut state = match kept {
-        Some(state) if state.surface.width() == w && state.surface.height() == h && state.scale == cx.scale => state,
+        Some(mut state) if state.surface.width() == w && state.surface.height() == h && state.scale == cx.scale => {
+            // Another margin of the same size (a glow that moved sides): the content sits elsewhere
+            // in the surface (C# EffectsMarginMismatch, 97683f19).
+            if state.margin != margin {
+                state.full = true;
+                state.margin = margin;
+            }
+            state
+        }
         kept => {
             let (bounds, drawn, rects, deep, areas, changed) =
                 kept.map_or_else(Default::default, |k| (k.bounds, k.drawn, k.rects, k.deep, k.areas, k.changed));
             let surface = cx.gpu.offscreen(w, h)?;
-            Composite { surface, scale: cx.scale, dirty: Vec::new(), deep, full: true, bounds, partial: false, drawn, rects, areas, changed }
+            Composite { surface, scale: cx.scale, margin, dirty: Vec::new(), deep, full: true, bounds, partial: false, drawn, rects, areas, changed }
         }
     };
     let node = cx.node(id)?;
