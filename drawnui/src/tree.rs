@@ -815,6 +815,26 @@ impl Tree {
     }
 
     /// Marks a control dirty from outside a setter.
+    /// An ancestor of the control (not the control itself) is hidden: nothing of it is drawn. A
+    /// change of such a control asks for no frame (C# 329f6c44: an update stops at the first
+    /// control that is not visible); it applies with the next frame, at the latest when the
+    /// ancestor is shown, which asks for one.
+    pub(crate) fn hidden_above(&self, id: ControlId) -> bool {
+        let mut at = self.node(id).and_then(|n| n.parent);
+        while let Some(node) = at.and_then(|p| self.node(p)) {
+            if !node.base.p.is_visible {
+                return true;
+            }
+            at = node.parent;
+        }
+        false
+    }
+
+    /// The control or an ancestor is hidden (C# `!IsVisibleInViewTree`).
+    pub(crate) fn hidden(&self, id: ControlId) -> bool {
+        self.node(id).is_some_and(|n| !n.base.p.is_visible) || self.hidden_above(id)
+    }
+
     pub fn invalidate(&mut self, id: impl Into<ControlId>, dirty: Dirty) {
         let id = id.into();
         let Tree { nodes, queue, .. } = self;

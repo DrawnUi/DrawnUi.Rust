@@ -568,7 +568,9 @@ impl<S: 'static> Ui<S> {
         }
         let animating = animators::running(&self.tree);
         let long_press = self.recognizer.long_press_due().is_some_and(|due| due <= self.tree.time_ms);
-        self.state_dirty || self.tree.needs_frame || animating || !self.tree.queue.is_empty() || !self.input.is_empty() || long_press
+        // A change under a hidden ancestor asks for no frame: nothing of it can be seen.
+        let changed = self.tree.queue.iter().any(|&id| !self.tree.hidden_above(id));
+        self.state_dirty || self.tree.needs_frame || animating || changed || !self.input.is_empty() || long_press
     }
 
     /// The frame time a sleeping animator, a timer, a pending long press or the accessibility

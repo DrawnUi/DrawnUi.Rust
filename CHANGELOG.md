@@ -14,6 +14,10 @@ version before it. Commits in parentheses.
 
 ### Fixed
 
+- A control that changes under a hidden screen (a live picture behind a pushed page) asked for a
+  frame each time; it asks for none now and shows its latest state when the screen is shown again.
+  Animations of hidden controls (the control or an ancestor) pause and go on from where they were
+  when shown (C# 329f6c44).
 - SkiaLottie applies layer masks (Skottie's geometric merge: add, subtract, intersect, lighten,
   darken, difference, inverted). A spinner made of masked solid layers drew as a filled square.
 

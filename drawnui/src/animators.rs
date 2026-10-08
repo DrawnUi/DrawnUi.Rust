@@ -171,6 +171,9 @@ pub(crate) struct Animator {
     /// Frame time it was paused at and the wake time it had: the run, or the wait before it,
     /// goes on from there when resumed.
     paused: Option<(f64, f64)>,
+    /// The same while its control or an ancestor is hidden (C# `IsHiddenInViewTree`): no ticks,
+    /// no frames; it goes on from where it was when shown again.
+    hidden: Option<(f64, f64)>,
 }
 
 fn start(
@@ -185,7 +188,7 @@ fn start(
     let id = tree.last_animation;
     let (start_ms, value, finished, frame, paused) = (None, run.from, None, None, None);
     let wake_ms = if run.delay_ms > 0.0 { tree.time_ms + run.delay_ms as f64 } else { 0.0 };
-    tree.animators.push(Animator { id, control, kind, run, start_ms, value, update, overlay, finished, frame, wake_ms, paused });
+    tree.animators.push(Animator { id, control, kind, run, start_ms, value, update, overlay, finished, frame, wake_ms, paused, hidden: None });
     AnimationId(id)
 }
 
@@ -221,9 +224,40 @@ pub(crate) fn next_wake(tree: &Tree) -> Option<f64> {
     tree.animators.iter().map(|a| a.wake_ms).filter(|t| *t > tree.time_ms && t.is_finite()).min_by(f64::total_cmp)
 }
 
+/// Pauses the animators of hidden controls (the control or an ancestor) and lets those shown
+/// again go on, as C# DrawnView pauses and resumes them: a hidden animation draws nothing, so it
+/// must not keep the canvas drawing.
+fn follow_visibility(tree: &mut Tree, now: f64) {
+    for i in 0..tree.animators.len() {
+        let hidden = tree.hidden(tree.animators[i].control);
+        let a = &mut tree.animators[i];
+        match (hidden, a.hidden) {
+            (true, None) => {
+                a.hidden = Some((now, a.wake_ms));
+                a.wake_ms = f64::INFINITY;
+            }
+            (false, Some((at, wake))) => {
+                a.hidden = None;
+                // The hidden time did not pass for the run, or for the delay it waited out.
+                if let Some(start) = a.start_ms.as_mut() {
+                    *start += now - at;
+                }
+                let wake = if wake > at { now + (wake - at) } else { 0.0 };
+                match a.paused.as_mut() {
+                    // Paused by the app meanwhile: it stays paused, and goes on from here.
+                    Some(paused) => *paused = (now, wake),
+                    None => a.wake_ms = wake,
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// One frame of every running animator. True when a completion callback ran (it may have
 /// changed the app state).
 pub(crate) fn tick(tree: &mut Tree, state: &mut dyn Any, time_ms: f64) -> bool {
+    follow_visibility(tree, time_ms);
     let mut state_touched = false;
     // Animators started by a callback during this tick get their first tick on the next frame.
     let newest = tree.last_animation;
