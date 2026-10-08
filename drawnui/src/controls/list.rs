@@ -1209,6 +1209,16 @@ impl Items {
         if !base.need_measure && self.slots[index].measured_for == Some(key) {
             return base.measured;
         }
+        // Only the height offered changed (a Grid's final pass, a row whose neighbours changed): a
+        // view that does not fill its height and fitted in both keeps its size, bound to nothing.
+        if !base.need_measure
+            && let Some((w, h, s)) = self.slots[index].measured_for
+            && (w, s) == (key.0, key.2)
+            && !fills_height(&base.p)
+            && base.measured.height <= height.min(f32::from_bits(h))
+        {
+            return base.measured;
+        }
         let (cell, spare) = match self.slots[index].view.take() {
             Some(cell) => (cell, false),
             None => (self.acquire(cx, index), true),

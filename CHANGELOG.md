@@ -18,6 +18,9 @@ version before it. Commits in parentheses.
   frame each time; it asks for none now and shows its latest state when the screen is shown again.
   Animations of hidden controls (the control or an ancestor) pause and go on from where they were
   when shown (C# 329f6c44).
+- A recycled templated Grid with `invert` bound almost every item again when items were appended
+  (141 binds for 12 new items at 170): every slot was measured again for its new row's height. A
+  view that does not fill its height and fits keeps its size now (35).
 - SkiaLottie applies layer masks (Skottie's geometric merge: add, subtract, intersect, lighten,
   darken, difference, inverted). A spinner made of masked solid layers drew as a filled square.
 

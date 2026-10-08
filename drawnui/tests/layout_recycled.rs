@@ -528,3 +528,24 @@ fn recycled_wrap_cost() {
 fn count_nodes(host: &Headless<App>, id: ControlId) -> usize {
     1 + host.ui.tree.children(id).iter().map(|child| count_nodes(host, *child)).sum::<usize>()
 }
+
+#[test]
+fn an_append_binds_only_the_new_items() {
+    // 12 items appended to 170 (a partial last row). Wrap and Column bind the new items once. A
+    // Grid measures an Auto row's cell twice (at the grid's width, then at its column), so its new
+    // items bind twice. An inverted Grid moves every item to another row: before, a new height
+    // offer measured every slot again (141 binds); a view that fits and does not fill its height
+    // keeps its size now (35).
+    for (kind, most) in [(Kind::WrapSplit3, 12), (Kind::ColumnSplit2, 12), (Kind::DecoratedSplit4, 24), (Kind::GridSplit3Invert, 40)] {
+        let mut enabled = scene(kind, RecyclingTemplate::Enabled, 170, 1.0);
+        let mut disabled = scene(kind, RecyclingTemplate::Disabled, 170, 1.0);
+        enabled.ui.state.binds.set(0);
+        change([&mut enabled, &mut disabled], |app, cx, layout| {
+            app.items.extend(170..182);
+            cx.items_inserted(layout, 170, 12);
+        });
+        let binds = enabled.ui.state.binds.get();
+        assert!(binds <= most, "{kind:?}: {binds} binds for 12 new items");
+        same_pixels(&mut enabled, &mut disabled, kind, 1.0, "after an append");
+    }
+}
