@@ -167,3 +167,23 @@ fn a_jump_or_a_hidden_card_checks_hover_again() {
     assert!(!hovered(&host, cards[3]));
     assert_eq!(host.ui.hovered(), [cards[4]]);
 }
+
+#[test]
+fn a_popup_that_blocks_gestures_below_takes_hover_from_the_list() {
+    let (mut host, _, cards) = cards_in_a_scroll();
+    host.hover(100.0, 75.0);
+    assert_eq!(host.ui.hovered(), [cards[1]]);
+
+    // A popup opens over the list under a still mouse: one check, the card below is no longer hovered.
+    let root = host.ui.tree.parent(cards[0]).and_then(|c| host.ui.tree.parent(c)).and_then(|s| host.ui.tree.parent(s)).unwrap();
+    let popup = SkiaLayout::new().fill().background_color(Color::from_argb(128, 0, 0, 0)).block_gestures_below(true);
+    let popup = host.ui.tree.add_child(root, popup);
+    host.settle();
+    assert!(!hovered(&host, cards[1]));
+    assert!(host.ui.hovered().is_empty());
+
+    // It closes: the card under the mouse is hovered again.
+    host.ui.tree.cx().remove(popup);
+    host.settle();
+    assert_eq!(host.ui.hovered(), [cards[1]]);
+}

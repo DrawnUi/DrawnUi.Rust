@@ -106,7 +106,7 @@ Status: `ported`, `partial`, `skipped`, `changed` (kept, but behaves differently
 | LoadMoreDistanceTests | `drawnui/tests/scroll_robot.rs` (plain stack), `list_scroll.rs` (templated) | ported | 1 of 1 at scales 1, 2, 3. |
 | ScrollBarHoldTests | `drawnui/tests/scroll_bars.rs` | partial | The KeepScrollBarsVisible half of 1 of 3; the hover tests and the keyboard-focus half are not ported yet. |
 | WheelScrollNoPlanesTests | | skipped | Needs SkiaWheelPicker. |
-| HoverTests | `drawnui/tests/hover.rs` | ported | 4 of 4, and own checks: touch never hovers, a scroll jump and a hidden card check hover again. |
+| HoverTests | `drawnui/tests/hover.rs` | ported | 4 of 4, and own checks: touch never hovers, a scroll jump and a hidden card check hover again, a popup that blocks gestures below takes hover from the list. |
 | CompositeDeepChangeTests | `drawnui/tests/composite_deep_change.rs` | changed | 5 of 5, pixels equal a render without the composite; TransformOnTheWay expects the moved card as an area (C#: the child whole); plus an effect on the way, and no allocation per frame in `paint_caches.rs`. |
 | MeasureFirstAutoWidthTests | `drawnui/tests/list_upstream.rs` | ported | 2 of 2, same numbers. |
 | VariableHeightPlanesTests | `drawnui/tests/list_upstream.rs` | changed | 2 of 2 with the upstream scene; own text generator; the planes are gone, continuity is checked on the list's offsets. |
