@@ -4,6 +4,14 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## Unreleased
+
+### Added
+
+- Web host: `DrawnUi.start({ resolveAsset })`. The page decides where every file the engine loads
+  comes from: images, GIFs and sprites (the decode worker too), fonts, SVG, Lottie and shaders. A
+  string is used as is (a `blob:` url works); `undefined` loads the url as before.
+
 ## 0.1.0-preview.5 (crates.io, 2026-10-08)
 
 ### Added

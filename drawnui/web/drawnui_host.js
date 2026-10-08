@@ -2,9 +2,13 @@
 // CPU), requestAnimationFrame and DOM events, and calls the exports of host_web.rs.
 //
 //   const { snapshot } = await DrawnUi.start({ canvas, create: createDrawnUi, configure: (module) => {},
-//     imageWorker: true, history: true });
+//     imageWorker: true, history: true, resolveAsset: (url) => undefined });
 //   snapshot("image/png") -> Promise<Blob>: a picture of the canvas (thumbnails).
 //   history: false keeps the app out of the browser's history and URL hash (a page in an iframe).
+//   resolveAsset(url) -> string | undefined: the address to load an app file from, asked for every
+//     file the engine loads (images, GIFs and sprites, fonts, SVG, Lottie, shaders) with the url the
+//     app gave ("assets/x.png"). A string is used as is (a blob: url made by the page works for the
+//     image worker too); undefined loads the url as usual.
 //
 // Frame timing is collected in window.duiStats.
 
@@ -95,7 +99,7 @@ function drawnUiVersioned(url) {
 }
 
 window.DrawnUi = {
-  async start({ canvas, create, configure, imageWorker = true, history: useHistory = true }) {
+  async start({ canvas, create, configure, imageWorker = true, history: useHistory = true, resolveAsset }) {
     const module = await create();
     if (configure) configure(module);
     const app = module._dui_create();
@@ -159,11 +163,13 @@ window.DrawnUi = {
         });
     }
 
+    // Where a file the app named is loaded from: the page's own answer, else the url with its stamp.
+    const address = (url) => resolveAsset?.(url) ?? drawnUiVersioned(url);
     const pumpAssets = () => {
       for (let p; (p = module._dui_poll_image(app)); ) {
         const [id, width, height, frames, ...url] = module.UTF8ToString(p).split(" ");
         // The worker has no page to resolve a relative url against.
-        decodeImage(new URL(drawnUiVersioned(url.join(" ")), document.baseURI).href, Number(width), Number(height), frames === "1")
+        decodeImage(new URL(address(url.join(" ")), document.baseURI).href, Number(width), Number(height), frames === "1")
           .then((image) => {
             const started = performance.now();
             const ptr = module._dui_alloc_pixels(app, image.pixels.length);
@@ -188,7 +194,7 @@ window.DrawnUi = {
       for (let p; (p = module._dui_poll_request(app)); ) {
         const [id, ...rest] = module.UTF8ToString(p).split(" ");
         const url = rest.join(" ");
-        fetch(drawnUiVersioned(url))
+        fetch(address(url))
           .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${url}: ${r.status}`))))
           .then((buffer) => {
             const bytes = new Uint8Array(buffer);

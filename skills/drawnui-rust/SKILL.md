@@ -137,6 +137,10 @@ cached.
 requestFrame, snapshot }`: `snapshot(type = "image/png", quality)` gives a Promise<Blob> of the
 canvas (a frame drawn and read in the same task: no `preserveDrawingBuffer`). Pass
 `history: false` to keep the app out of the browser's history and URL hash (a page in an iframe).
+Pass `resolveAsset: (url) => string | undefined` to serve the app's files from the page. It is asked
+for every file the engine loads (images, GIFs, sprites, fonts, SVG, Lottie, shaders) with the url the
+app gave, such as `assets/logo.png`. Return a string to load from there; a `blob:` url made with
+`URL.createObjectURL` works, the image worker included. Return `undefined` to load the url as usual.
 `create` can wrap the module options: `create: () => createDrawnUi({ onAbort, print, printErr })`
 to show panics and engine warnings. Canvas CSS: `width: 100vw; height: 100vh; height: 100dvh`
 (dvh: the height Safari's toolbars leave free; with 100vh alone the bottom of the canvas sits under
