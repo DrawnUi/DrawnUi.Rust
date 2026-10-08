@@ -132,9 +132,9 @@ fn row(i: i64) -> Row {
         }
         // Now and then the middle orb of a group is a power-up: health in one group of twelve, a
         // surge in one of twenty-four (it goes through everything: more made the run too easy),
-        // the ghost in every other group after the first thirty rows.
+        // the ghost in one group of four after the first thirty rows.
         3 => match hash(group, 6) % 24 {
-            _ if i > 30 && hash(group, 9) % 2 == 0 => Row::Power(orb_lane(group), GHOST),
+            _ if i > 30 && hash(group, 9) % 4 == 0 => Row::Power(orb_lane(group), GHOST),
             0 | 1 => Row::Power(orb_lane(group), HEALTH),
             2 => Row::Power(orb_lane(group), SURGE),
             _ => Row::Orb(orb_lane(group)),
