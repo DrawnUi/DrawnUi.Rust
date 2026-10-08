@@ -1442,6 +1442,9 @@ impl Has<ScrollProps> for SkiaScroll {
 }
 
 impl Control for SkiaScroll {
+    fn moves_content(&self) -> Option<bool> {
+        Some(self.is_animating() || self.is_user_panning)
+    }
     /// A node of its own in a screen reader's tree, which pages it (`Ui::accessibility_scroll`);
     /// the browser overlay leaves it out.
     fn accessibility_role(&self) -> Option<&'static str> {

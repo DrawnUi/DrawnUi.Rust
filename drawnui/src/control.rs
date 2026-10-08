@@ -159,6 +159,19 @@ pub trait Control: Any {
         self.inner().and_then(|inner| inner.accessibility_can_interact())
     }
 
+    /// Takes hover when `receives_hover` is not set (DrawnUI ReceivesHoverByDefault): true for
+    /// buttons, sliders, toggles, radio buttons, carousels and drawers.
+    fn receives_hover(&self) -> bool {
+        self.inner().is_some_and(|inner| inner.receives_hover())
+    }
+
+    /// A control that moves its content by itself (a scroll, a carousel, a drawer) says whether it
+    /// is moving it now; `None` for every other control. While one moves, hover waits; it is checked
+    /// again when they stop (DrawnUI PauseHover / ResumeHover).
+    fn moves_content(&self) -> Option<bool> {
+        self.inner().and_then(|inner| inner.moves_content())
+    }
+
     /// aria-pressed / aria-checked when `accessibility_is_pressed` is not set: a toggle's state.
     fn accessibility_is_pressed(&self) -> Option<bool> {
         self.inner().and_then(|inner| inner.accessibility_is_pressed())

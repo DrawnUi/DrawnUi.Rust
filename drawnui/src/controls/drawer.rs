@@ -293,6 +293,12 @@ impl Has<LayoutProps> for SkiaDrawer {
 impl Container for SkiaDrawer {}
 
 impl Control for SkiaDrawer {
+    fn receives_hover(&self) -> bool {
+        true
+    }
+    fn moves_content(&self) -> Option<bool> {
+        Some(self.s.in_transition)
+    }
     fn inner(&self) -> Option<&dyn Control> {
         Some(&self.layout)
     }

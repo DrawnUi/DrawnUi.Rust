@@ -158,6 +158,9 @@ impl Has<LayoutProps> for SkiaButton {
 }
 
 impl Control for SkiaButton {
+    fn receives_hover(&self) -> bool {
+        true
+    }
     fn inner(&self) -> Option<&dyn Control> {
         Some(&self.layout)
     }

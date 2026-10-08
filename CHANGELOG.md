@@ -4,6 +4,25 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## Unreleased
+
+### Added
+
+- Hover for cards and lists: `receives_hover` (on by default for buttons, sliders, toggles, carousels
+  and drawers), `is_hovered` on every control under the mouse that takes hover, `on_hovered`,
+  `Ui::hovered`. While a scroll, carousel or drawer moves its content, hover waits and is checked
+  once when it stops; leaving the canvas clears it at once; touch never hovers.
+
+### Changed
+
+- ImageComposite draws a change deeper than a child again by its area only (a card in a stack in the
+  cached list), where it was and where it is, transforms included; past 16 areas or half the control
+  it draws everything.
+
+### Breaking
+
+- `CompositeRecord` has the fields `areas` and `changed`, and is no longer `Eq`.
+
 ## 0.1.0-preview.4 (crates.io, 2026-10-06)
 
 ### Added

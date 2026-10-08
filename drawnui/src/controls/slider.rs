@@ -349,6 +349,9 @@ impl Has<SliderProps> for SkiaSlider {
 }
 
 impl Control for SkiaSlider {
+    fn receives_hover(&self) -> bool {
+        true
+    }
     /// Values set from code: clamped, the thumbs follow, the handlers hear of it.
     fn on_props_changed(&mut self, cx: &mut Cx) {
         (self.p.start, self.p.end) = (self.clamp(self.p.start), self.clamp(self.p.end));

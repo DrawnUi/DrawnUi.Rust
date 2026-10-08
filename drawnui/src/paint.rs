@@ -15,8 +15,8 @@ use skia_safe::{
 
 use skia_safe::QuickReject as _;
 
-use crate::control::{PaintCx, Target};
-use crate::controls::backdrop::BackdropPaint;
+use crate::control::{Control, PaintCx, Target};
+use crate::controls::backdrop::{BackdropPaint, SkiaBackdrop};
 use crate::controls::layout::SkiaLayout;
 use crate::controls::shape::ShapeCache;
 use crate::effects::{self, CachedTexture};
@@ -597,8 +597,11 @@ pub(crate) fn painted_below(cx: &PaintCx, id: ControlId) -> Option<u64> {
 pub(crate) struct Composite {
     surface: Surface,
     scale: f32,
-    /// Children a change came through since the last record (`layout::flush`).
+    /// Children a change came through since the last record (`layout::flush`), drawn whole.
     dirty: Vec<ControlId>,
+    /// Controls deeper than a child that changed without a new layout, the child they are in, and
+    /// how they were drawn before: only their area is drawn again.
+    deep: Vec<(ControlId, ControlId, DrawnWith)>,
     /// The next record draws everything: the control itself or its layout changed.
     full: bool,
     /// Where each child was drawn at the last record, relative to the cache's top-left.
@@ -608,28 +611,61 @@ pub(crate) struct Composite {
     drawn: Vec<ControlId>,
     /// The areas erased by the last record; reused.
     rects: Vec<Rect>,
+    /// The areas of the deep changes of the last record, and the controls that changed.
+    areas: Vec<Rect>,
+    changed: Vec<ControlId>,
 }
 
-/// A change reached an ImageComposite control (`layout::flush`): through its child `child`, or,
+/// What a control was drawn with at its last paint: its effects margin and its transform.
+/// `layout::flush` reads them for an ImageComposite ancestor before the control paints again.
+#[derive(Clone, Copy)]
+pub(crate) struct DrawnWith {
+    pub margin: Thickness,
+    pub matrix: Option<Matrix>,
+}
+
+/// More areas than this in one record of an ImageComposite cache draw it whole instead: one full
+/// record costs less than many clipped ones (DrawnUI MaxCompositionAreas).
+pub const MAX_COMPOSITE_AREAS: usize = 16;
+/// Areas covering more than this share of an ImageComposite cache draw it whole instead (DrawnUI
+/// MaxCompositionShare).
+pub const MAX_COMPOSITE_SHARE: f32 = 0.5;
+
+/// A change reached an ImageComposite control (`layout::flush`): through its child, from a
+/// control deeper in it that changed without a new layout (with how it was drawn before), or,
 /// with `None`, from the control itself or a new layout, and its next record draws everything.
-pub(crate) fn composite_changed(render: &mut [RenderSlot], id: ControlId, child: Option<ControlId>) {
+pub(crate) fn composite_changed(
+    render: &mut [RenderSlot],
+    id: ControlId,
+    change: Option<(ControlId, Option<(ControlId, DrawnWith)>)>,
+) {
     let paints = render.get_mut(id.index as usize).and_then(|slot| slot.paints.as_deref_mut());
     // No state yet: the first record draws everything anyway.
     let Some(state) = paints.and_then(|p| p.composite.as_mut()) else { return };
-    match child {
+    match change {
         None => state.full = true,
-        Some(child) if !state.dirty.contains(&child) => state.dirty.push(child),
+        Some((child, Some((deep, was)))) => {
+            if !state.deep.iter().any(|d| d.0 == deep) {
+                state.deep.push((deep, child, was));
+            }
+        }
+        Some((child, None)) if !state.dirty.contains(&child) => state.dirty.push(child),
         Some(_) => {}
     }
 }
 
 /// What the last record of an ImageComposite cache did (React LastCompositeRecord).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CompositeRecord {
     /// Only some children were drawn again (React Mode "partial"); false: everything was.
     pub partial: bool,
     /// The children drawn again, in drawing order; their count is React's Children.
     pub children: Vec<ControlId>,
+    /// Pixels erased and drawn again for changes deeper than a child (DrawnUI Areas), in the
+    /// control's drawing space; empty when only whole children were.
+    pub areas: Vec<Rect>,
+    /// The controls those areas belong to (DrawnUI Changed).
+    pub changed: Vec<ControlId>,
 }
 
 impl Tree {
@@ -637,7 +673,12 @@ impl Tree {
     pub fn last_composite_record(&self, id: impl Into<ControlId>) -> Option<CompositeRecord> {
         let slot = self.render.get(id.into().index as usize)?;
         let state = slot.paints.as_deref()?.composite.as_ref()?;
-        Some(CompositeRecord { partial: state.partial, children: state.drawn.clone() })
+        Some(CompositeRecord {
+            partial: state.partial,
+            children: state.drawn.clone(),
+            areas: state.areas.clone(),
+            changed: state.changed.clone(),
+        })
     }
 }
 
@@ -657,6 +698,31 @@ fn drawn_bounds(cx: &mut PaintCx, child: ControlId, offset: Point) -> Rect {
     rect.with_offset(offset)
 }
 
+/// Where a change of control `deep` shows inside ImageComposite control `composite`, before the
+/// composite's content offset (DrawnUI DirtyRegion): its rect grown by its effects margin, through
+/// its transform, as drawn before and as drawn now; then through the content offset and the
+/// transform of every ancestor on the way. `None` when an ancestor's output depends on all of its
+/// content (a visual effect, a backdrop): then the child it is in is drawn whole.
+fn deep_area(cx: &mut PaintCx, deep: ControlId, composite: ControlId, was: DrawnWith) -> Option<Rect> {
+    let node = cx.node(deep).filter(|n| n.base.p.is_visible)?;
+    let through = |m: Option<Matrix>, r: Rect| m.map_or(r, |m| m.map_rect(r).0);
+    let mut area = through(control_matrix(&node.base, cx.scale), grow(node.base.rect, &effects_margin(cx, deep)));
+    area.join(through(was.matrix, grow(node.base.rect, &was.margin)));
+    let backdrop = |k: &dyn Control| (k as &dyn Any).downcast_ref::<SkiaBackdrop>().is_some();
+    let mut at = node;
+    loop {
+        let parent = cx.node(at.parent?)?;
+        if parent.id == composite {
+            return Some(area);
+        }
+        if !parent.base.visual_effects.is_empty() || parent.kind.as_deref().is_some_and(backdrop) {
+            return None;
+        }
+        area = through(control_matrix(&parent.base, cx.scale), area.with_offset(parent.base.content_offset));
+        at = parent;
+    }
+}
+
 /// Records an ImageComposite cache into its kept surface (DrawnUI ImageComposite, as React):
 /// when only children changed since the last record, their old and new places, and every
 /// sibling that overlaps those, are erased and only those children are drawn again. Anything else
@@ -669,9 +735,10 @@ fn record_composite(cx: &mut PaintCx, id: ControlId, base: &Base, r: Rect) -> Op
     let mut state = match kept {
         Some(state) if state.surface.width() == w && state.surface.height() == h && state.scale == cx.scale => state,
         kept => {
-            let (bounds, drawn, rects) = kept.map_or_else(Default::default, |k| (k.bounds, k.drawn, k.rects));
+            let (bounds, drawn, rects, deep, areas, changed) =
+                kept.map_or_else(Default::default, |k| (k.bounds, k.drawn, k.rects, k.deep, k.areas, k.changed));
             let surface = cx.gpu.offscreen(w, h)?;
-            Composite { surface, scale: cx.scale, dirty: Vec::new(), full: true, bounds, partial: false, drawn, rects }
+            Composite { surface, scale: cx.scale, dirty: Vec::new(), deep, full: true, bounds, partial: false, drawn, rects, areas, changed }
         }
     };
     let node = cx.node(id)?;
@@ -679,12 +746,45 @@ fn record_composite(cx: &mut PaintCx, id: ControlId, base: &Base, r: Rect) -> Op
     // Only a plain layout paints nothing but its background and its children.
     let plain = node.kind.as_deref().is_some_and(|k| (k as &dyn Any).downcast_ref::<SkiaLayout>().is_some_and(|l| l.items.is_none()));
     state.dirty.retain(|c| children.contains(c));
-    let partial = plain && !state.full && !state.dirty.is_empty();
+    state.deep.retain(|d| children.contains(&d.1));
     let offset = base.content_offset;
     let origin = Point::new(r.left, r.top);
 
     state.drawn.clear();
     state.rects.clear();
+    state.areas.clear();
+    state.changed.clear();
+    if plain && !state.full {
+        // A change deeper than a child: only its area, unless something on the way moves or
+        // filters what it draws; then the child whole.
+        for i in 0..state.deep.len() {
+            let (deep, child, was) = state.deep[i];
+            if state.dirty.contains(&child) {
+                continue;
+            }
+            match deep_area(cx, deep, id, was) {
+                Some(area) => {
+                    state.areas.push(area.with_offset(offset));
+                    state.changed.push(deep);
+                    if !state.drawn.contains(&child) {
+                        state.drawn.push(child);
+                    }
+                }
+                None => state.dirty.push(child),
+            }
+        }
+        let covered: f32 = state.areas.iter().map(|a| a.width() * a.height()).sum();
+        if state.areas.len() > MAX_COMPOSITE_AREAS || covered > r.width() * r.height() * MAX_COMPOSITE_SHARE {
+            state.full = true;
+        }
+    }
+    let partial = plain && !state.full && !(state.dirty.is_empty() && state.areas.is_empty());
+    if !partial {
+        state.drawn.clear();
+        state.areas.clear();
+        state.changed.clear();
+    }
+    state.rects.extend_from_slice(&state.areas);
     if partial {
         // What changed: the reported children where they were and where they are now, then every
         // sibling that overlaps any of that, until no more does.
@@ -694,7 +794,9 @@ fn record_composite(cx: &mut PaintCx, id: ControlId, base: &Base, r: Rect) -> Op
             let now = drawn_bounds(cx, child, offset);
             state.rects.push(now);
             state.rects.extend(old(&state, child));
-            state.drawn.push(child);
+            if !state.drawn.contains(&child) {
+                state.drawn.push(child);
+            }
         }
         let mut grew = true;
         while grew {
@@ -766,6 +868,7 @@ fn record_composite(cx: &mut PaintCx, id: ControlId, base: &Base, r: Rect) -> Op
     }
     state.partial = partial;
     state.dirty.clear();
+    state.deep.clear();
     state.full = false;
     let image = cx.gpu.snapshot(&mut state.surface, None);
     cx.render[slot].paints.get_or_insert_default().composite = Some(state);

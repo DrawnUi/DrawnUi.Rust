@@ -187,6 +187,11 @@ pub(crate) struct Recognizer {
 }
 
 impl Recognizer {
+    /// A pointer is pressed now.
+    pub fn is_pressed(&self) -> bool {
+        self.down.is_some()
+    }
+
     /// The frame time the long press of the current press is due at, if one is still pending.
     pub fn long_press_due(&self) -> Option<f64> {
         self.down.filter(|p| !p.long_press_done).map(|p| p.down_ms + LONG_PRESS_MS)

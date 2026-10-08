@@ -107,6 +107,16 @@ pub struct Base {
     /// Effects attached to the control (DrawnUI VisualEffects): `Build::visual_effect`,
     /// `Mut::add_visual_effect`. Empty for most controls; an empty list allocates nothing.
     pub visual_effects: Vec<Box<dyn crate::effects::SkiaEffect>>,
+    /// The mouse is over the control and it takes hover (`is_hovered`).
+    pub(crate) hovered: bool,
+}
+
+impl Base {
+    /// The mouse is over the control and it takes hover (DrawnUI IsHovered): true on every
+    /// control under the pointer that takes hover, a card and the button inside it alike.
+    pub fn is_hovered(&self) -> bool {
+        self.hovered
+    }
 }
 
 impl Default for Base {
@@ -128,6 +138,7 @@ impl Default for Base {
             context_index: None,
             viewport_shift: 0.0,
             visual_effects: Vec::new(),
+            hovered: false,
         }
     }
 }
@@ -327,6 +338,10 @@ base_props! {
     z_index / set_z_index: i32 = 0, REPAINT;
     input_transparent / set_input_transparent: bool = false, NONE;
     block_gestures_below / set_block_gestures_below: bool = false, NONE;
+    /// The control takes hover: `is_hovered` and `on_hovered` follow the mouse over it (DrawnUI
+    /// ReceivesHover). `None` = the control's default (`Control::receives_hover`: buttons, sliders,
+    /// toggles, radio buttons, carousels, drawers); a tapped handler does not make a control hover.
+    receives_hover / set_receives_hover: Option<bool> = None, NONE;
     lock_children_gestures / set_lock_children_gestures: LockTouch = LockTouch::Disabled, NONE;
     /// Color of touch feedback effects (the ripple).
     touch_effect_color / set_touch_effect_color: Color = Color::WHITE, NONE;
@@ -582,6 +597,12 @@ pub struct Tree {
     pub(crate) history_enabled: bool,
     /// Controls told when the browser moves in its history (`Cx::listen_history`).
     pub(crate) history_listeners: Vec<ControlId>,
+    /// What is under the mouse may have changed without the mouse moving (controls added,
+    /// removed, rebound, hidden, scrolled by a jump): the frame ends with a hover check.
+    pub(crate) hover_check: bool,
+    /// Controls that move their content by themselves (`Control::moves_content`: scrolls,
+    /// carousels, drawers): while one moves, hover waits.
+    pub(crate) movers: Vec<ControlId>,
 }
 
 impl Tree {
@@ -628,6 +649,10 @@ impl Tree {
         if d.handlers.input.as_ref().is_some_and(|h| h.listen_history) {
             self.history_listeners.push(d.id);
         }
+        if d.control.moves_content().is_some() {
+            self.movers.push(d.id);
+        }
+        self.hover_check = true;
         self.nodes[index] = Some(Node {
             id: d.id,
             parent,
@@ -660,6 +685,10 @@ impl Tree {
         if node.base.tracks_viewport {
             self.trackers.retain(|t| *t != id);
         }
+        if node.kind.as_deref().is_some_and(|k| k.moves_content().is_some()) {
+            self.movers.retain(|m| *m != id);
+        }
+        self.hover_check = true;
         if let Some(p) = node.parent.and_then(|p| self.node_mut(p)) {
             p.children.retain(|c| *c != id);
         }
@@ -731,6 +760,8 @@ impl Tree {
             return;
         }
         node.base.content_offset = offset;
+        // The content moved under a still mouse (a jump; a running scroll pauses hover till it stops).
+        self.hover_check = true;
         // Own pixels changed: own cache and the ancestors' caches are stale.
         self.invalidate(id, Dirty::DRAW);
         self.rearrange_trackers(id, None);

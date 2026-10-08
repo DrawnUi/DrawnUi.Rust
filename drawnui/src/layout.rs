@@ -403,6 +403,16 @@ pub(crate) fn flush(tree: &mut Tree, within: Option<ControlId>) {
             let mut is_self = true;
             // The child the change came through, for an ImageComposite ancestor.
             let mut through = None;
+            // No new layout: an ImageComposite ancestor can draw again only the control's area,
+            // where it was drawn before (read now, before it paints again) and where it is now.
+            let area = if measure {
+                None
+            } else {
+                tree.render.get(id.index as usize).map(|slot| crate::paint::DrawnWith {
+                    margin: slot.effects.map_or(Thickness::ZERO, |e| e.2),
+                    matrix: slot.matrix,
+                })
+            };
             while let Some(node) = current.and_then(|c| tree.node_mut(c)) {
                 if !is_self && Some(node.id) == within {
                     measure = false;
@@ -419,10 +429,12 @@ pub(crate) fn flush(tree: &mut Tree, within: Option<ControlId>) {
                 }
                 let (at, composite) = (node.id, node.base.p.use_cache.resolved() == CacheType::ImageComposite);
                 current = node.parent;
-                // An ImageComposite control draws again only the children a change came through;
-                // its own change or a new layout draws it whole.
+                // An ImageComposite control draws again only the children a change came through,
+                // or only the area of a change deeper in them; its own change or a new layout draws
+                // it whole.
                 if composite && (own || !is_self) {
-                    crate::paint::composite_changed(&mut tree.render, at, if is_self || measure { None } else { through });
+                    let change = if is_self || measure { None } else { through.map(|child| (child, area.filter(|_| child != id).map(|m| (id, m)))) };
+                    crate::paint::composite_changed(&mut tree.render, at, change);
                 }
                 through = Some(at);
                 is_self = false;

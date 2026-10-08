@@ -429,6 +429,8 @@ fn state<S: Any>(state: &dyn Any) -> &S {
 
 fn bind_cell(bind: &mut Bind, cell: &mut Cell, cx: &mut LayoutCx, index: usize) -> bool {
     cell.bound = Some(index);
+    // A cell under a still mouse may now show another item: hover is checked again.
+    cx.tree.hover_check = true;
     bind(&*cell.handles, cx.state, index, &mut Cx { tree: cx.tree });
     // Setters only queue: the cell is measured and painted in this frame, so they apply now.
     layout::flush(cx.tree, Some(cx.id));

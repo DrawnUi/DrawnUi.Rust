@@ -195,5 +195,31 @@ fn a_handler_reads_the_last_composite_record() {
     host.ui.tree.any_mut(green).unwrap().set_translation_y(5);
     host.settle();
     host.tap(180.0, 80.0);
-    assert_eq!(host.ui.state.read, Some(CompositeRecord { partial: true, children: vec![green] }));
+    assert_eq!(host.ui.state.read, Some(CompositeRecord { partial: true, children: vec![green], areas: vec![], changed: vec![] }));
+}
+
+#[test]
+fn a_deep_change_inside_a_composite_allocates_nothing_per_frame() {
+    // A card in an uncached stack, the stack a child of the composite: redrawn by its area.
+    let card = square(Color::GREEN, 60.0);
+    let card_id = card.id();
+    let inner = SkiaLayout::new().fill().children((square(Color::RED, 10.0), card));
+    let parent = SkiaLayout::new().fill().background_color(Color::WHITE).use_cache(CacheType::ImageComposite).children(inner);
+    let id = parent.id();
+    let mut host = host(parent);
+    let mut i = 0u8;
+    let mut frame = |host: &mut Headless<()>| {
+        i = i.wrapping_add(1);
+        host.ui.tree.any_mut(card_id).unwrap().set_background_color(Color::from_rgb(0, i, 0));
+        host.frame_after(16.0);
+    };
+    frame(&mut host);
+    frame(&mut host);
+    let before = ALLOCATIONS.with(|a| a.get());
+    for _ in 0..10 {
+        frame(&mut host);
+    }
+    assert_eq!(ALLOCATIONS.with(|a| a.get()) - before, 0);
+    let record = host.ui.tree.last_composite_record(id).expect("recorded");
+    assert_eq!(record.changed, [card_id]);
 }

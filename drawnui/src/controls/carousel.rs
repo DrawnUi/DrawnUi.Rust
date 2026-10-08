@@ -649,6 +649,12 @@ impl Has<LayoutProps> for SkiaCarousel {
 impl Container for SkiaCarousel {}
 
 impl Control for SkiaCarousel {
+    fn receives_hover(&self) -> bool {
+        true
+    }
+    fn moves_content(&self) -> Option<bool> {
+        Some(self.s.in_transition || self.s.is_animating())
+    }
     fn inner(&self) -> Option<&dyn Control> {
         Some(&self.layout)
     }

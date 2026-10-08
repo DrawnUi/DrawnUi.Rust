@@ -39,6 +39,8 @@ pub(crate) struct InputHandlers {
     pub key_up: Option<KeyHandler>,
     pub key_char: Option<KeyHandler>,
     pub focus_changed: Option<FocusHandler>,
+    /// `Build::on_hovered`: the control's `is_hovered` changed.
+    pub hovered: Option<FocusHandler>,
     /// Sees every gesture first (`Build::consume_gestures`).
     pub consume_gestures: Option<GestureHandler>,
     /// Gets every key while mounted (`Build::listen_keys`).
@@ -257,6 +259,14 @@ pub struct Ui<S: 'static> {
     /// collected by the current hover route; swapped, never reallocated.
     over: Vec<ControlId>,
     over_next: Vec<ControlId>,
+    /// The controls under the mouse that take hover (DrawnUI HoveredControls), root first, and
+    /// the list being built; swapped, never reallocated.
+    hovered: Vec<ControlId>,
+    hovered_next: Vec<ControlId>,
+    /// Where the mouse was last seen over the canvas (`None` = it left).
+    last_pointer: Option<Point>,
+    /// A scroll, carousel or drawer moved its content in the last frame: hover waits.
+    hover_paused: bool,
     cursor: Cursor,
     cursor_changed: bool,
     /// The last text input area told to the host (`None` = closed), and whether it changed.
@@ -367,6 +377,10 @@ impl<S: 'static> Ui<S> {
             frame_times: VecDeque::with_capacity(256),
             over: Vec::with_capacity(32),
             over_next: Vec::with_capacity(32),
+            hovered: Vec::with_capacity(8),
+            hovered_next: Vec::with_capacity(8),
+            last_pointer: None,
+            hover_paused: false,
             cursor: Cursor::Default,
             cursor_changed: false,
             text_input: None,
@@ -1055,6 +1069,12 @@ impl<S: 'static> Ui<S> {
         &self.over
     }
 
+    /// The controls under the mouse that take hover, root first (DrawnUI HoveredControls): each
+    /// has `is_hovered`.
+    pub fn hovered(&self) -> &[ControlId] {
+        &self.hovered
+    }
+
     /// The accessibility snapshot as last built.
     pub fn accessibility_nodes(&self) -> &[AccessibilityNode] {
         &self.tree.accessibility
@@ -1181,7 +1201,10 @@ impl<S: 'static> Ui<S> {
     fn flush_input(&mut self) {
         while let Some((kind, button, touch, location, time_ms)) = self.input.pop_front() {
             match kind {
+                // While content moves under the mouse, hover waits (one check when it stops).
+                PointerKind::Hover if self.hover_paused => self.last_pointer = Some(location),
                 PointerKind::Hover => self.hover(Some(location), time_ms),
+                // Leaving the canvas ends hover at once, also while content moves.
                 PointerKind::Leave => self.hover(None, time_ms),
                 _ => {
                     for gesture in self.recognizer.feed(kind, button, touch, location, time_ms, self.scale).into_iter().flatten() {
@@ -1200,6 +1223,8 @@ impl<S: 'static> Ui<S> {
     /// pointer get `Pointer`, the ones newly under it `PointerEnter`, the ones no longer
     /// `PointerExit`; the cursor follows.
     fn hover(&mut self, location: Option<Point>, time_ms: f64) {
+        self.last_pointer = location;
+        self.tree.hover_check = false;
         self.over_next.clear();
         if let Some(location) = location {
             self.process_gesture(plain_gesture(GestureKind::Pointer, location, time_ms));
@@ -1220,6 +1245,8 @@ impl<S: 'static> Ui<S> {
             }
         }
         std::mem::swap(over, over_next);
+        self.update_hovered();
+        let Ui { tree, over, .. } = self;
         // The cursor: the deepest control with an answer, else the hand over anything tappable.
         let mut cursor = Cursor::Default;
         for &id in over.iter().rev() {
@@ -1238,6 +1265,93 @@ impl<S: 'static> Ui<S> {
             self.cursor = cursor;
             self.cursor_changed = true;
         }
+    }
+
+    /// DrawnUI hover: after the pointer pass, the controls under the mouse that take hover are
+    /// hovered, every one of them (a card and the button inside it alike, as CSS :hover); the ones
+    /// that left get `on_hovered(false)`, the new ones `on_hovered(true)`.
+    fn update_hovered(&mut self) {
+        let Ui { tree, over, hovered_next, .. } = self;
+        hovered_next.clear();
+        for &id in over.iter() {
+            let Some(node) = tree.node(id) else { continue };
+            let takes = node.base.p.receives_hover.unwrap_or_else(|| node.kind.as_deref().is_some_and(|k| k.receives_hover()));
+            if takes {
+                hovered_next.push(id);
+            }
+        }
+        for i in 0..self.hovered.len() {
+            let id = self.hovered[i];
+            if !self.hovered_next.contains(&id) {
+                self.set_hovered(id, false);
+            }
+        }
+        for i in 0..self.hovered_next.len() {
+            let id = self.hovered_next[i];
+            if !self.hovered.contains(&id) {
+                self.set_hovered(id, true);
+            }
+        }
+        std::mem::swap(&mut self.hovered, &mut self.hovered_next);
+    }
+
+    fn set_hovered(&mut self, id: ControlId, on: bool) {
+        let Some(node) = self.tree.node_mut(id) else { return };
+        if node.base.hovered == on {
+            return;
+        }
+        node.base.hovered = on;
+        if !node.handlers.input.as_ref().is_some_and(|h| h.hovered.is_some()) {
+            return;
+        }
+        let Some(mut node) = self.tree.take(id) else { return };
+        if let Some(control) = node.kind.as_deref_mut()
+            && let Some(handler) = node.handlers.input.as_deref_mut().and_then(|h| h.hovered.as_mut())
+        {
+            let mut queue = Vec::new();
+            let raw = Raw { id, control, base: &mut node.base, queue: &mut queue };
+            handler(raw, &mut self.state, &mut Cx { tree: &mut self.tree }, on);
+            self.tree.queue.append(&mut queue);
+            self.state_dirty = true;
+        }
+        self.tree.put_back(node);
+        self.tree.needs_frame = true;
+    }
+
+    /// The end of a frame: while a scroll, carousel or drawer moves its content, hover waits; when
+    /// they stop, and after the controls under a still mouse may have changed (added, removed,
+    /// rebound, hidden, scrolled by a jump), hover is checked again where the mouse is (DrawnUI
+    /// OnHoverCheck).
+    fn hover_after_frame(&mut self, time_ms: f64) {
+        let tree = &self.tree;
+        let moving = tree.movers.iter().any(|&id| {
+            tree.node(id).is_some_and(|n| n.base.p.is_visible && n.kind.as_deref().and_then(|k| k.moves_content()) == Some(true))
+        });
+        if moving {
+            self.hover_paused = true;
+            return;
+        }
+        if std::mem::take(&mut self.hover_paused) {
+            self.tree.hover_check = true;
+        }
+        // A hovered control (or an ancestor) was hidden under a still mouse: it stops being hovered.
+        let tree = &self.tree;
+        let shown = |mut id: Option<ControlId>| {
+            while let Some(node) = id.and_then(|id| tree.node(id)) {
+                if !node.base.p.is_visible {
+                    return false;
+                }
+                id = node.parent;
+            }
+            true
+        };
+        if self.hovered.iter().any(|&id| !shown(Some(id))) {
+            self.tree.hover_check = true;
+        }
+        if !std::mem::take(&mut self.tree.hover_check) || self.last_pointer.is_none() || self.recognizer.is_pressed() {
+            return;
+        }
+        self.hover(self.last_pointer, time_ms);
     }
 
     /// A new FPS value goes into every SkiaLabelFps before the layout of the frame, so setting it
@@ -1350,6 +1464,7 @@ impl<S: 'static> Ui<S> {
         if self.fps.on {
             self.fps.draw(canvas, &self.fonts, content.bottom(), scale);
         }
+        self.hover_after_frame(time_ms);
         self.fps.chained = self.needs_frame();
         // The focused control may have moved: the host's keyboard follows it.
         self.update_text_input();
@@ -2047,6 +2162,19 @@ impl<T: Control> Build<T> {
         self.input().key_char = Some(Box::new(move |raw, state, cx, event| {
             let state = state.downcast_mut::<S>().unwrap_or_else(|| crate::tree::wrong_state::<S>());
             f(&mut raw.typed(), state, cx, event)
+        }));
+        self
+    }
+
+    /// The mouse came over the control (true) or left it (false); the control takes hover then
+    /// (`receives_hover`, set for it unless its type takes hover by default). DrawnUI OnHovered.
+    pub fn on_hovered<S: Any>(mut self, mut f: impl FnMut(&mut crate::Mut<'_, T>, &mut S, &mut Cx<'_>, bool) + 'static) -> Self {
+        if self.base.p.receives_hover.is_none() {
+            self.base.p.receives_hover = Some(true);
+        }
+        self.input().hovered = Some(Box::new(move |raw, state, cx, on| {
+            let state = state.downcast_mut::<S>().unwrap_or_else(|| crate::tree::wrong_state::<S>());
+            f(&mut raw.typed(), state, cx, on)
         }));
         self
     }

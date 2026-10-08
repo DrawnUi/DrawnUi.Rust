@@ -221,6 +221,9 @@ impl Has<LayoutProps> for SkiaToggle {
 }
 
 impl Control for SkiaToggle {
+    fn receives_hover(&self) -> bool {
+        true
+    }
     fn inner(&self) -> Option<&dyn Control> {
         Some(&self.layout)
     }

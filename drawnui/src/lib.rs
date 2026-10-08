@@ -48,7 +48,7 @@ pub mod prelude {
     pub use crate::controls::backdrop::{BackdropBuild, BackdropSet, SkiaBackdrop};
     pub use crate::controls::shader_carousel::{CarouselTransition, ShaderCarouselBuild, ShaderCarouselSet, SkiaShaderCarousel};
     pub use crate::controls::button::{ButtonBuild, ButtonLook, ButtonSet, SkiaButton, SkiaTouchAnimation};
-    pub use crate::paint::CompositeRecord;
+    pub use crate::paint::{CompositeRecord, MAX_COMPOSITE_AREAS, MAX_COMPOSITE_SHARE};
     pub use crate::effects::{
         CachedTexture, MultiRippleWithTouchEffect, SkiaEffect, SkiaShaderEffect, UseBackground, Uniforms,
         register_shader_source,
