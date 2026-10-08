@@ -4,7 +4,7 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.6 (crates.io, 2026-10-08)
 
 ### Added
 
@@ -28,6 +28,10 @@ version before it. Commits in parentheses.
   view that does not fill its height and fits keeps its size now (35).
 - SkiaLottie applies layer masks (Skottie's geometric merge: add, subtract, intersect, lighten,
   darken, difference, inverted). A spinner made of masked solid layers drew as a filled square.
+
+### Toolchain
+
+The same as 0.1.0-preview.5: the Skia crates stay at 0.153.6.
 
 ## 0.1.0-preview.5 (crates.io, 2026-10-08)
 

@@ -1,6 +1,6 @@
 [package]
 name = "drawnui"
-version = "0.1.0-preview.5"
+version = "0.1.0-preview.6"
 edition.workspace = true
 license.workspace = true
 description = "DrawnUI for Rust: a Skia-drawn UI engine, the same controls and contract as DrawnUI for .NET and React, on the desktop, mobile and the web."
