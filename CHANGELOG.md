@@ -11,6 +11,9 @@ version before it. Commits in parentheses.
 - Web host: `DrawnUi.start({ resolveAsset })`. The page decides where every file the engine loads
   comes from: images, GIFs and sprites (the decode worker too), fonts, SVG, Lottie and shaders. A
   string is used as is (a `blob:` url works); `undefined` loads the url as before.
+- Web host: `DrawnUi.start({ fonts: [{ alias, url, weight }] })` registers fonts from the page before
+  the first frame, as the app's `Ui::font`. A page font never becomes the default font: labels
+  name it with `font_family`.
 
 ### Fixed
 

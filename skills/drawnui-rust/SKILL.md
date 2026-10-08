@@ -141,6 +141,9 @@ Pass `resolveAsset: (url) => string | undefined` to serve the app's files from t
 for every file the engine loads (images, GIFs, sprites, fonts, SVG, Lottie, shaders) with the url the
 app gave, such as `assets/logo.png`. Return a string to load from there; a `blob:` url made with
 `URL.createObjectURL` works, the image worker included. Return `undefined` to load the url as usual.
+Pass `fonts: [{ alias, url, weight }]` to add fonts from the page. Each is registered as if the app
+had called `Ui::font`, and the first frame waits for it. A page font never becomes the default font:
+only labels that name it with `.font_family("alias")` use it. Its url goes through `resolveAsset`.
 `create` can wrap the module options: `create: () => createDrawnUi({ onAbort, print, printErr })`
 to show panics and engine warnings. Canvas CSS: `width: 100vw; height: 100vh; height: 100dvh`
 (dvh: the height Safari's toolbars leave free; with 100vh alone the bottom of the canvas sits under

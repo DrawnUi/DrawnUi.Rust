@@ -246,6 +246,9 @@ impl Host {
 
 pub trait App {
     fn init(&mut self, _host: &mut Host) {}
+    /// A font the web page hands in (`DrawnUi.start({ fonts })`), after `init`, before the first
+    /// frame: loaded like `Ui::font` and waited for, but never the default font.
+    fn page_font(&mut self, _alias: &str, _url: &str, _weight: i32, _host: &mut Host) {}
     /// GPU or CPU; the host asks once, before the first frame.
     fn rendering_mode(&self) -> RenderingModeType {
         RenderingModeType::Accelerated

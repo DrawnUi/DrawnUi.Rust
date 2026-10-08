@@ -5,6 +5,9 @@
 //     imageWorker: true, history: true, resolveAsset: (url) => undefined });
 //   snapshot("image/png") -> Promise<Blob>: a picture of the canvas (thumbnails).
 //   history: false keeps the app out of the browser's history and URL hash (a page in an iframe).
+//   fonts: [{ alias, url, weight = 400 }]: fonts the page adds, as the app's Ui::font (the first
+//     frame waits for them), but never the default font: labels that name the alias use it. The
+//     url goes through resolveAsset like any file.
 //   resolveAsset(url) -> string | undefined: the address to load an app file from, asked for every
 //     file the engine loads (images, GIFs and sprites, fonts, SVG, Lottie, shaders) with the url the
 //     app gave ("assets/x.png"). A string is used as is (a blob: url made by the page works for the
@@ -99,10 +102,20 @@ function drawnUiVersioned(url) {
 }
 
 window.DrawnUi = {
-  async start({ canvas, create, configure, imageWorker = true, history: useHistory = true, resolveAsset }) {
+  async start({ canvas, create, configure, imageWorker = true, history: useHistory = true, resolveAsset, fonts = [] }) {
     const module = await create();
     if (configure) configure(module);
     const app = module._dui_create();
+    // Fonts of the page: registered before anything is laid out (an engine without it skips them).
+    const utf8 = new TextEncoder();
+    for (const { alias, url, weight = 400 } of module._dui_font ? fonts : []) {
+      const [a, u] = [utf8.encode(alias), utf8.encode(url)];
+      const ptr = module._dui_alloc(a.length + u.length);
+      module.HEAPU8.set(a, ptr);
+      module.HEAPU8.set(u, ptr + a.length);
+      module._dui_font(app, ptr, a.length, ptr + a.length, u.length, weight);
+      module._dui_free(ptr, a.length + u.length);
+    }
     // The app's RenderingMode: Accelerated draws with WebGL2; Default, or a browser that refuses
     // WebGL2, draws on the CPU and hands each frame to a 2D context.
     const accelerated = module._dui_accelerated(app);

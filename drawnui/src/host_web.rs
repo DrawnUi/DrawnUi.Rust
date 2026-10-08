@@ -57,6 +57,17 @@ pub extern "C" fn dui_create() -> *mut WebState {
     Box::into_raw(Box::new(WebState { app, gpu, surface, host, width: 1, height: 1, scale: 1.0, request, pixels, output, cpu }))
 }
 
+/// A font the page hands in (`DrawnUi.start({ fonts })`), right after `dui_create`: UTF-8 alias
+/// and url in `dui_alloc` buffers (freed by JS). The first frame waits for it; it never becomes the
+/// default font.
+#[unsafe(no_mangle)]
+pub extern "C" fn dui_font(s: *mut WebState, alias: *const u8, alias_len: usize, url: *const u8, url_len: usize, weight: i32) {
+    let read = |ptr: *const u8, len: usize| std::str::from_utf8(unsafe { std::slice::from_raw_parts(ptr, len) }).ok();
+    let (Some(alias), Some(url)) = (read(alias, alias_len), read(url, url_len)) else { return };
+    let s = state(s);
+    s.app.page_font(alias, url, weight, &mut s.host);
+}
+
 /// 1 when the canvas owns every touch (`GesturesMode::Lock`): the page guards it.
 #[unsafe(no_mangle)]
 pub extern "C" fn dui_gestures_lock(s: *mut WebState) -> i32 {

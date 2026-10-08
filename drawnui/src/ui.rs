@@ -232,7 +232,8 @@ pub struct Ui<S: 'static> {
     owner: Option<ControlId>,
     state_dirty: bool,
     /// Fonts the host loads: (alias, url, weight, the first layout waits for it).
-    font_urls: Vec<(String, String, i32, bool)>,
+    /// Alias, url, weight, whether the first layout waits for it, whether it came from the page.
+    font_urls: Vec<(String, String, i32, bool, bool)>,
     /// Registered fonts the host has not delivered yet. Nothing is laid out before they arrive.
     fonts_pending: usize,
     scale: f32,
@@ -414,7 +415,7 @@ impl<S: 'static> Ui<S> {
     pub fn font_weight(mut self, alias: &str, url: &str, weight: i32) -> Self {
         // Registration order decides the default font, not the order the files arrive in.
         self.fonts.register(alias);
-        self.font_urls.push((alias.to_owned(), url.to_owned(), weight, true));
+        self.font_urls.push((alias.to_owned(), url.to_owned(), weight, true, false));
         self.fonts_pending += 1;
         self
     }
@@ -423,7 +424,7 @@ impl<S: 'static> Ui<S> {
     /// in `font_family_fallback`): texts are measured again when it arrives. Register the fonts
     /// the first layout needs before it, or it could become the default font.
     pub fn font_fallback(mut self, alias: &str, url: &str) -> Self {
-        self.font_urls.push((alias.to_owned(), url.to_owned(), 400, false));
+        self.font_urls.push((alias.to_owned(), url.to_owned(), 400, false, false));
         self
     }
 
@@ -2334,8 +2335,15 @@ impl<S: 'static> App for Ui<S> {
         self.gestures
     }
 
+    fn page_font(&mut self, alias: &str, url: &str, weight: i32, host: &mut Host) {
+        let index = self.font_urls.len();
+        self.font_urls.push((alias.to_owned(), url.to_owned(), weight, true, true));
+        self.fonts_pending += 1;
+        host.fetch(index as u32, url);
+    }
+
     fn init(&mut self, host: &mut Host) {
-        for (index, (_, url, _, _)) in self.font_urls.iter().enumerate() {
+        for (index, (_, url, ..)) in self.font_urls.iter().enumerate() {
             host.fetch(index as u32, url);
         }
         // Images preloaded before the first frame.
@@ -2363,14 +2371,14 @@ impl<S: 'static> App for Ui<S> {
             }
             return;
         }
-        let Some((alias, url, weight, gates)) = self.font_urls.get(id as usize) else { return };
+        let Some((alias, url, weight, gates, page)) = self.font_urls.get(id as usize) else { return };
         if *gates {
             self.fonts_pending = self.fonts_pending.saturating_sub(1);
         }
         self.tree.needs_frame = true;
         if bytes.is_empty() {
             eprintln!("drawnui: font {url} did not load");
-        } else if self.fonts.add_weight(alias, *weight, &bytes) {
+        } else if self.fonts.add_face(alias, *weight, &bytes, !page) {
             // Every text may change its size.
             let ids: Vec<ControlId> = self.tree.nodes.iter().flatten().map(|n| n.id).collect();
             for id in ids {
@@ -2517,5 +2525,34 @@ impl<S: 'static> App for Ui<S> {
         }
         frame.host.wake_ms = self.wake_at();
         self.needs_frame()
+    }
+}
+
+#[cfg(test)]
+mod page_font_tests {
+    use super::*;
+
+    const OPEN_SANS: &[u8] = include_bytes!("../../examples/bench/assets/OpenSans-Regular.ttf");
+    const INTER: &[u8] = include_bytes!("../tests/fonts/Inter-Regular.ttf");
+
+    /// The page's font is fetched at once, the first frame waits for it, and it never becomes the
+    /// default font: only labels that name it use it.
+    #[test]
+    fn a_page_font_is_waited_for_and_never_the_default() {
+        for own in [true, false] {
+            let ui = Ui::new((), |_| crate::controls::label::SkiaLabel::new("Hello"));
+            let mut ui = if own { ui.font_bytes("Default", OPEN_SANS) } else { ui };
+            let mut host = Host::default();
+            ui.init(&mut host);
+            App::page_font(&mut ui, "MyFont", "fonts/my.ttf", 400, &mut host);
+            assert_eq!(host.requests.last(), Some(&(0, "fonts/my.ttf".to_owned())));
+            assert!(!ui.needs_frame(), "nothing is laid out before the page's font is there");
+
+            App::asset(&mut ui, 0, INTER.to_vec());
+            assert!(ui.needs_frame());
+            let family = ui.fonts.font("MyFont", 12.0).map(|f| f.typeface().family_name());
+            assert_eq!(family.as_deref(), Some("Inter"));
+            assert_eq!(ui.fonts.default_alias(), own.then_some("Default"), "own fonts: {own}");
+        }
     }
 }

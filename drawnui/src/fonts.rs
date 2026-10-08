@@ -64,8 +64,16 @@ impl Fonts {
     /// Adds a face of an alias at a weight (100..900): `FontWeight` and bold pick the nearest
     /// registered weight (DrawnUI `fonts.AddFont(source, alias, weight)`).
     pub fn add_weight(&mut self, alias: &str, weight: i32, bytes: &[u8]) -> bool {
+        self.add_face(alias, weight, bytes, true)
+    }
+
+    /// `add_weight`; `may_be_default` false never makes the alias the default font (a font the
+    /// web page hands in: only labels that name it use it).
+    pub(crate) fn add_face(&mut self, alias: &str, weight: i32, bytes: &[u8], may_be_default: bool) -> bool {
         let Some(typeface) = font_mgr().new_from_data(Data::new_copy(bytes), None) else { return false };
-        self.register(alias);
+        if may_be_default {
+            self.register(alias);
+        }
         let faces = self.named.entry(alias.to_owned()).or_default();
         match faces.iter_mut().find(|(w, _)| *w == weight) {
             Some(face) => face.1 = typeface,
