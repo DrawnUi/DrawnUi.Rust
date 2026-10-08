@@ -142,7 +142,7 @@ to show panics and engine warnings. Canvas CSS: `width: 100vw; height: 100vh; he
 (dvh: the height Safari's toolbars leave free; with 100vh alone the bottom of the canvas sits under
 them on an iPhone), `display: block`,
 `touch-action: none`. Load large fallback fonts (emoji) through the font fallback so they never
-delay the first frame.
+delay the first frame (see Emoji and symbols).
 
 ## Windows build
 
@@ -290,6 +290,65 @@ copy the app's `assets` next to the exe in `build.rs` (OUT_DIR is
 `target/<profile>/build/<package>-<hash>/out`, so `Path::new(&out_dir).ancestors().nth(3)` is the
 exe's folder; skip it when `CARGO_CFG_TARGET_OS` is `emscripten`, and emit
 `cargo:rerun-if-changed=assets`). A shipped app carries the same folder beside its exe.
+
+## Emoji and symbols
+
+A label draws a character only from its own fonts. A plain `SkiaLabel` with just the font
+registered by `Ui::font` draws a missing-glyph box (tofu) for every emoji, on every platform.
+There are two sources of glyphs, and they can be used together.
+
+**The system emoji font** (desktop and mobile; there are no system fonts on the web):
+
+```rust
+SkiaLabel::new("💤 ✋ 🔊").system_font_fallback(true)
+```
+
+A character that none of the label's fonts has is drawn with a system font that has it.
+`SkiaRichLabel` and `SkiaEditor` (`use_unicode`) turn this on by themselves.
+- Windows: Segoe UI Emoji, in color, for characters that look like emoji by default (💤 ✋ 🔊 🔔 💬 😀).
+  Symbols that look like text by default (⚙ ❤ ☀) come out in one color, even when followed by U+FE0F.
+  Their color version needs the U+FE0F sequence, and labels are not shaped (see below).
+- Linux (fontconfig), macOS, iOS and Android: the platform's emoji font through Skia's font
+  manager. Not measured yet.
+
+**A font you ship** (every platform, and the only way on the web):
+
+```rust
+Ui::new(state, build)
+    .font("Default", "assets/OpenSans-Regular.ttf")
+    .font_fallback("FontEmoji", "assets/emoji.ttf") // loaded after the first frame
+// on the label:
+SkiaLabel::new("⚙ 4m").font_family_fallback("FontEmoji")
+```
+
+- `font_family_fallback` is a comma-separated list of aliases, tried in order after the label's own
+  font. `SkiaButton` has it too, but has no system fallback.
+- Register large fonts with `Ui::font_fallback`: the first frame does not wait for them, and the
+  texts are measured again when they arrive.
+- The Noto Color Emoji COLRv1 build draws in color on Windows (measured).
+- Ship a subset with only the characters the app shows. The full emoji font is several MB.
+  Make the subset with fontTools:
+  `pyftsubset Noto-COLRv1.ttf --unicodes=U+2699,U+1F4A4,... --output-file=emoji.ttf`
+- List every character you need. A character missing from the subset is a box again, unless the
+  system fallback is also on.
+
+**Both together:**
+
+```rust
+.font_family_fallback("FontEmoji").system_font_fallback(true)
+```
+
+Your font comes first, the system font fills the rest. This is the way to get a colored ⚙ on
+Windows: your font has the color gear, and Segoe UI Emoji has only the plain one.
+
+**No text shaping.** Labels draw one glyph per code point. So:
+- A joined sequence (👨‍👩‍👧) draws as its parts.
+- A skin tone (👍🏽) draws as the hand plus a color swatch.
+- A flag draws as its two regional letters.
+- U+FE0F (VS16) does not switch a symbol to its emoji look.
+- Today a U+FE0F that no font of the label has draws a box. Segoe UI Emoji has it, so with the
+  system fallback on Windows it stays invisible. A shipped font alone shows the box after the
+  symbol.
 
 ## Cache types
 
