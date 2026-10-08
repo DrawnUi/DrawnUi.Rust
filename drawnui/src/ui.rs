@@ -256,6 +256,9 @@ pub struct Ui<S: 'static> {
     insets_changed: bool,
     /// Frame clock times of the frames of the last second, oldest first (`FrameStats::fps`).
     frame_times: VecDeque<f64>,
+    /// What `prepare` left for the paint of the same frame: its time, the content rect, when the
+    /// frame's work started, whether a tree was laid out.
+    prepared: Option<(f64, Rect, std::time::Instant, bool)>,
     /// The controls under the mouse, root first (DrawnUI IsPointerOver), and the list being
     /// collected by the current hover route; swapped, never reallocated.
     over: Vec<ControlId>,
@@ -376,6 +379,7 @@ impl<S: 'static> Ui<S> {
             visibility: None,
             insets_changed: false,
             frame_times: VecDeque::with_capacity(256),
+            prepared: None,
             over: Vec::with_capacity(32),
             over_next: Vec::with_capacity(32),
             hovered: Vec::with_capacity(8),
@@ -1378,14 +1382,11 @@ impl<S: 'static> Ui<S> {
     /// One frame, up to but not including the submit: input, animators, observers, invalidation,
     /// layout, paint. `time_ms` is the host's frame time (vsync-aligned where the host has one):
     /// animators run on it, never on a clock read here.
-    pub fn draw(&mut self, canvas: &Canvas, gpu: &mut Gpu, width: f32, height: f32, scale: f32, time_ms: f64) {
-        // Caches replaced during the previous frame: that frame was submitted, they can go now.
-        self.tree.drops.clear();
-        // A new GPU context (the old one was lost): what lived on the old one is dead.
-        if gpu.epoch() != self.tree.gpu_epoch {
-            self.tree.gpu_epoch = gpu.epoch();
-            paint::gpu_changed(&mut self.tree);
-        }
+    /// Everything of a frame that does not draw: input, animators, observers, layout. A host whose
+    /// drawing target makes it wait (Metal's next drawable, about a vsync) runs it before taking
+    /// the target, so the wait does not add to the frame (drawnui-cross 6k); `draw` at the same
+    /// time then only paints. `draw` runs it by itself otherwise.
+    pub fn prepare(&mut self, width: f32, height: f32, scale: f32, time_ms: f64) {
         self.tree.needs_frame = false;
         self.tree.time_ms = time_ms;
         self.scale = scale;
@@ -1394,7 +1395,7 @@ impl<S: 'static> Ui<S> {
         // would land on controls that are about to move.
         if self.fonts_pending > 0 {
             self.input.clear();
-            canvas.clear(self.background);
+            self.prepared = Some((time_ms, Rect::default(), std::time::Instant::now(), false));
             return;
         }
 
@@ -1436,15 +1437,35 @@ impl<S: 'static> Ui<S> {
         self.update_fps_labels();
         layout::commit(&mut self.tree);
 
-        canvas.clear(self.background);
-        let Some(root) = self.tree.root else { return };
-        let full = content;
-        layout::measure(&mut self.tree, &self.fonts, &self.state, root, full.width(), full.height(), scale);
-        layout::arrange(&mut self.tree, &self.fonts, &self.state, root, full, scale);
-        // Image handlers run before the bitmap is first painted.
-        if images::dispatch(&mut self.tree, &mut self.state) {
-            self.state_dirty = true;
+        let root = self.tree.root;
+        if let Some(root) = root {
+            layout::measure(&mut self.tree, &self.fonts, &self.state, root, content.width(), content.height(), scale);
+            layout::arrange(&mut self.tree, &self.fonts, &self.state, root, content, scale);
+            // Image handlers run before the bitmap is first painted.
+            if images::dispatch(&mut self.tree, &mut self.state) {
+                self.state_dirty = true;
+            }
         }
+        self.prepared = Some((time_ms, content, started, root.is_some()));
+    }
+
+    /// Draws a frame at `time_ms`: `prepare`, unless the host ran it for this time already, then
+    /// the paint.
+    pub fn draw(&mut self, canvas: &Canvas, gpu: &mut Gpu, width: f32, height: f32, scale: f32, time_ms: f64) {
+        if self.prepared.is_none_or(|p| p.0 != time_ms) {
+            self.prepare(width, height, scale, time_ms);
+        }
+        let Some((_, content, started, laid_out)) = self.prepared.take() else { return };
+        // Caches replaced during the previous frame: that frame was submitted, they can go now.
+        self.tree.drops.clear();
+        // A new GPU context (the old one was lost): what lived on the old one is dead.
+        if gpu.epoch() != self.tree.gpu_epoch {
+            self.tree.gpu_epoch = gpu.epoch();
+            paint::gpu_changed(&mut self.tree);
+        }
+        canvas.clear(self.background);
+        let (Some(root), true) = (self.tree.root, laid_out) else { return };
+        let full = content;
 
         let Tree { nodes, render, drops, animators, bakes, .. } = &mut self.tree;
         let fonts = &self.fonts;
@@ -2333,6 +2354,10 @@ impl<S: 'static> App for Ui<S> {
 
     fn gestures(&self) -> GesturesMode {
         self.gestures
+    }
+
+    fn prepare(&mut self, width: f32, height: f32, scale: f32, time_ms: f64) {
+        Ui::prepare(self, width, height, scale, time_ms)
     }
 
     fn page_font(&mut self, alias: &str, url: &str, weight: i32, host: &mut Host) {

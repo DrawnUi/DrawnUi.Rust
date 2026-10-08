@@ -249,6 +249,9 @@ pub trait App {
     /// A font the web page hands in (`DrawnUi.start({ fonts })`), after `init`, before the first
     /// frame: loaded like `Ui::font` and waited for, but never the default font.
     fn page_font(&mut self, _alias: &str, _url: &str, _weight: i32, _host: &mut Host) {}
+    /// What the next `frame` at `time_ms` does that does not draw (input, animators, layout),
+    /// ahead of it: a host that must wait for its drawing target runs it before waiting.
+    fn prepare(&mut self, _width: f32, _height: f32, _scale: f32, _time_ms: f64) {}
     /// GPU or CPU; the host asks once, before the first frame.
     fn rendering_mode(&self) -> RenderingModeType {
         RenderingModeType::Accelerated

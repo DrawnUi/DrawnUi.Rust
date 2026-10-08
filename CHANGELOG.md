@@ -17,6 +17,8 @@ version before it. Commits in parentheses.
 
 ### Fixed
 
+- macOS / iOS (Metal): the frame's input, animations and layout run before the next drawable is
+  taken, so waiting for it no longer adds to the frame (`Ui::prepare`, `App::prepare`).
 - A control that changes under a hidden screen (a live picture behind a pushed page) asked for a
   frame each time; it asks for none now and shows its latest state when the screen is shown again.
   Animations of hidden controls (the control or an ancestor) pause and go on from where they were

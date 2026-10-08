@@ -526,13 +526,29 @@ impl Desktop {
         #[cfg(any(target_os = "ios", target_os = "android"))]
         self.report_safe_area();
         let (size, clock) = (self.surface_size(), self.start);
-        // Metal: waits here for a free drawable, the layer's vsync; not counted as frame work.
+        // Metal: taking the next drawable waits for the compositor (about a vsync when frames run
+        // back to back), so what needs no drawable runs first, or the wait adds to the frame and
+        // it is shown a vsync late (drawnui-cross 6k, C# 416af16e). The wait is not frame work.
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        let (prepared_at, prepared_ms) = {
+            let at = Instant::now();
+            let time_ms = (at - clock).as_secs_f64() * 1000.0;
+            let scale = self.window.scale_factor() as f32;
+            self.app.prepare(size.width as f32, size.height as f32, scale, time_ms);
+            (at, time_ms)
+        };
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        let waiting = Instant::now();
         let Some(surface) = self.presenter.begin(&mut self.gpu, &mut self.surface, size.width.max(1), size.height.max(1)) else {
             // No drawable (the window is hidden): the next event that wants a frame asks again.
             return;
         };
         let frame_start = Instant::now();
+        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
         let time_ms = (frame_start - clock).as_secs_f64() * 1000.0;
+        // The frame runs at the time it was prepared at; its work is counted without the wait.
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        let (frame_start, time_ms) = (prepared_at + (frame_start - waiting), prepared_ms);
         // Paced frames: animations step with the frame's slot on the refresh grid, not with the
         // moment the wake-up came (a timer is late by up to a millisecond).
         #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
