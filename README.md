@@ -87,7 +87,7 @@ fn main() {
 
 | Crate | What it is | Version |
 |---|---|---|
-| [`drawnui`](https://crates.io/crates/drawnui) | the engine: controls, layouts, caches, gestures, animations, accessibility, the desktop, mobile and browser hosts | 0.1.0-preview.4 |
+| [`drawnui`](https://crates.io/crates/drawnui) | the engine: controls, layouts, caches, gestures, animations, accessibility, the desktop, mobile and browser hosts | 0.1.0-preview.5 |
 | [`drawnui-skia-safe`](https://crates.io/crates/drawnui-skia-safe) | Skia for Rust: rust-skia's skia-safe plus SkMesh; drawnui re-exports it as `drawnui::skia` | 0.153.6 |
 | [`drawnui-skia-bindings`](https://crates.io/crates/drawnui-skia-bindings) | the native Skia under drawnui-skia-safe, downloaded prebuilt from [DrawnUi/rust-skia](https://github.com/DrawnUi/rust-skia/releases) | 0.153.6 |
 
@@ -104,7 +104,7 @@ Or by hand, in a new project (`cargo new myapp`), `Cargo.toml`:
 
 ```toml
 [dependencies]
-drawnui = "0.1.0-preview.4"
+drawnui = "0.1.0-preview.5"
 
 [profile.release]
 lto = "thin"

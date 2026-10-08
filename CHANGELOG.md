@@ -4,11 +4,11 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.5 (crates.io, 2026-10-08)
 
 ### Added
 
-- Hover for cards and lists: `receives_hover` (on by default for buttons, sliders, toggles, carousels
+- Hover for cards and lists (a3946c8): `receives_hover` (on by default for buttons, sliders, toggles, carousels
   and drawers), `is_hovered` on every control under the mouse that takes hover, `on_hovered`,
   `Ui::hovered`. While a scroll, carousel or drawer moves its content, hover waits and is checked
   once when it stops; leaving the canvas clears it at once; touch never hovers.
@@ -17,18 +17,22 @@ version before it. Commits in parentheses.
 
 - ImageComposite draws a change deeper than a child again by its area only (a card in a stack in the
   cached list), where it was and where it is, transforms included; past 16 areas or half the control
-  it draws everything.
+  it draws everything (a3946c8).
 
 ### Fixed
 
 - A U+FE0F (after an emoji), a zero width joiner or a tag that no font of the label has drew a
-  missing-glyph box; it draws nothing now.
+  missing-glyph box; it draws nothing now (e8078b4).
 - ImageComposite drew its content shifted when a child's effects margin moved to another side at
-  the same total size (a glow); such a change draws everything again.
+  the same total size (a glow); such a change draws everything again (e8078b4).
 
 ### Breaking
 
 - `CompositeRecord` has the fields `areas` and `changed`, and is no longer `Eq`.
+
+### Toolchain
+
+The same as 0.1.0-preview.4: the Skia crates stay at 0.153.6.
 
 ## 0.1.0-preview.4 (crates.io, 2026-10-06)
 

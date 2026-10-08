@@ -20,7 +20,7 @@ browser need no `[patch]`.
 
 ```toml
 [dependencies]
-drawnui = "0.1.0-preview.4"
+drawnui = "0.1.0-preview.5"
 
 [profile.release]
 lto = "thin"
