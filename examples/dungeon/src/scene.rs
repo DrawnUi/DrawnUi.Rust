@@ -99,6 +99,8 @@ const RAMP_UNTIL: i64 = 304;
 const JUMPS_FROM: i64 = 90;
 /// Seconds before a hazard its prompt shows (longer while the run is young).
 const HINT_LEAD: f32 = 1.2;
+/// Seconds of running that cost one cell of health.
+const DRAIN_SECONDS: f32 = 3.0;
 
 /// The run is a function of the row number: an event every fifth row, orbs in between.
 fn row(i: i64) -> Row {
@@ -135,9 +137,9 @@ fn row(i: i64) -> Row {
         }
         // Now and then the middle orb of a group is a power-up: health in one group of twelve, a
         // surge in one of twenty-four (it goes through everything: more made the run too easy),
-        // the ghost in one group of four after the first thirty rows.
+        // the ghost in one group of four after the first thirty rows, in any lane.
         3 => match hash(group, 6) % 24 {
-            _ if i > 30 && hash(group, 9) % 4 == 0 => Row::Power(orb_lane(group), GHOST),
+            _ if i > 30 && hash(group, 9) % 4 == 0 => Row::Power((hash(group, 10) % 3) as i32 - 1, GHOST),
             0 | 1 => Row::Power(orb_lane(group), HEALTH),
             2 => Row::Power(orb_lane(group), SURGE),
             _ => Row::Orb(orb_lane(group)),
@@ -241,6 +243,8 @@ pub struct World {
     revealed: Option<i64>,
     /// Ghosts the runner has gone past (hit or not) in this run.
     pub ghosts_passed: u32,
+    /// Hits taken in this run (the drain is not a hit).
+    pub hits: u32,
     /// The runner reached the exit: the run ends in light, not on the floor. `run_time`: seconds
     /// of the run; `best_time`: the fastest escape of the session; `escape`: 0 to 1, the white-out.
     pub escaped: bool,
@@ -296,6 +300,7 @@ impl Default for World {
             dread: 0.0,
             revealed: None,
             ghosts_passed: 0,
+            hits: 0,
             escaped: false,
             run_time: 0.0,
             best_time: None,
@@ -376,10 +381,20 @@ impl World {
         (self.z, self.x, self.y, self.vy, self.lane, self.orbs, self.zone) = (0.0, 0.0, 0.0, 0.0, 0, 0, 0);
         (self.health, self.invulnerable, self.surge, self.pace, self.fall) = (1.0, 0.0, 0.0, 1.0, 0.0);
         self.collected.clear();
-        (self.ghost, self.killer, self.dread, self.revealed, self.ghosts_passed) = (0.0, None, 0.0, None, 0);
+        (self.ghost, self.killer, self.dread, self.revealed, self.ghosts_passed, self.hits) = (0.0, None, 0.0, None, 0, 0);
         (self.escaped, self.run_time, self.escape) = (false, 0.0, 0.0);
         (self.streak, self.last_orb, self.orb_pulse) = (0, -10, 0.0);
         self.phase = phase;
+    }
+
+    /// The health is gone: the runner goes down.
+    fn die(&mut self) {
+        self.health = 0.0;
+        self.phase = Phase::Dead;
+        // Under the ghost the runner lies a while longer.
+        self.dead_timer = if self.killer.is_some() { 2.6 } else { 1.6 };
+        (self.last, self.last_distance) = (self.distance(), self.distance());
+        self.best = self.best.max(self.last);
     }
 
     /// A new run, through a portal.
@@ -504,6 +519,12 @@ impl World {
             Phase::Playing => {
                 self.speed = (12.0 + self.z as f32 * 0.012).min(27.0);
                 self.run_time += dt;
+                // The run wears the runner down: a cell of health every DRAIN_SECONDS. The orbs
+                // are what keeps it up.
+                self.health -= dt / (DRAIN_SECONDS * 10.0);
+                if self.health < 0.005 {
+                    self.die();
+                }
                 if self.z >= EXIT + 1.0 {
                     // Out, into the light: the run ends like a death without the fall.
                     (self.escaped, self.phase, self.dead_timer, self.warp) = (true, Phase::Dead, 1.8, 1.0);
@@ -573,6 +594,7 @@ impl World {
                 // The title's run cannot be hurt, a surge goes through everything.
                 if damage > 0.0 && self.phase == Phase::Playing && self.invulnerable <= 0.0 && self.surge <= 0.0 {
                     self.health -= damage;
+                    self.hits += 1;
                     (self.flash, self.shake, self.invulnerable) = (0.4 + damage * 2.0, 0.5 + damage * 2.5, 0.8);
                     if let Row::Power(lane, GHOST) = kind {
                         // The ghost: a blackout, no red flash. When it takes the last of the health it
@@ -596,12 +618,7 @@ impl World {
                         self.pace = 0.6;
                     }
                     if self.health < 0.005 {
-                        self.health = 0.0;
-                        self.phase = Phase::Dead;
-                        // Under the ghost the runner lies a while longer.
-                        self.dead_timer = if self.killer.is_some() { 2.6 } else { 1.6 };
-                        (self.last, self.last_distance) = (self.distance(), self.distance());
-                        self.best = self.best.max(self.last);
+                        self.die();
                     }
                     if self.pace == 0.0 {
                         break;
@@ -629,9 +646,12 @@ impl World {
             input.jump = true;
         }
         let mut want = orb_lane(group);
-        // The ghost hangs in the orbs' lane: the next lane over until it is passed.
+        // A ghost in the wanted lane: the next lane over until it is passed.
         let ghost = group * 5 + 3;
-        if matches!(row(ghost), Row::Power(_, GHOST)) && self.z < ghost as f64 * 2.0 + 1.5 {
+        if let Row::Power(lane, GHOST) = row(ghost)
+            && lane == want
+            && self.z < ghost as f64 * 2.0 + 1.5
+        {
             want = if want == 1 { 0 } else { want + 1 };
         }
         if want != self.lane && self.pilot_wait <= 0.0 {

@@ -65,7 +65,9 @@ pub struct App {
     /// What the labels show.
     phase: Phase,
     shown_score: u32,
-    shown_health: f32,
+    /// Lit cells of the health bar, and the hits the run has taken, as last shown.
+    shown_cells: usize,
+    shown_hits: u32,
     /// The canvas is too narrow for one row of HUD.
     narrow: bool,
     /// Points: how high a dialog may be.
@@ -326,7 +328,7 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
     // A frame that came late (a hidden tab) is not a jump through the walls.
     world.step(delta.min(0.05), &mut app.input);
     let (phase, orbs, health, hint, young) = (world.phase, world.orbs(), world.health, world.hint(), world.young());
-    let (escaped, run_time, best_time) = (world.escaped, world.run_time, world.best_time);
+    let (escaped, run_time, best_time, hits) = (world.escaped, world.run_time, world.best_time, world.hits);
     let world_killer = world.killer;
     let world_ghost = world.ghost;
     let ghosts_passed = world.ghosts_passed;
@@ -450,23 +452,28 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
             layer.set_scale_y(scale);
         }
     }
-    if health != app.shown_health {
-        if health < app.shown_health {
+    // A hit (not the drain) ends the clean stretch and, the first time, teaches the orbs.
+    if hits != app.shown_hits {
+        app.shown_hits = hits;
+        if hits > 0 {
             app.clean = 0.0;
             if !app.taught_heal && phase == Phase::Playing {
                 (app.taught_heal, app.pending) = (true, Some(Prompt::Heal));
             }
         }
+    }
+    // The bar changes by whole cells (the drain moves the health every frame).
+    let lit = (health * 10.0).round() as usize;
+    if lit != app.shown_cells {
+        app.shown_cells = lit;
         // Under four cells: LOW HEALTH, once per fall under the line.
-        let low = (health * 10.0).round() < 4.0;
+        let low = lit < 4;
         if low && !app.warned_low && phase == Phase::Playing && health > 0.0 {
             app.pending = Some(Prompt::Low);
         }
         app.warned_low = low;
-        app.shown_health = health;
         // Green, amber, red; a cell per tenth, lit from the left.
         let color = Color::new(if health > 0.6 { GOOD } else if health > 0.3 { 0xFFFF_B030 } else { 0xFFFF_3B30 });
-        let lit = (health * 10.0).round() as usize;
         if let Some(mut hud) = cx.get_mut(app.hud) {
             hud.set_accessibility_label(format!("Health {} percent", lit * 10));
         }

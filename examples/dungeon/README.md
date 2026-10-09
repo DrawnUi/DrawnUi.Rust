@@ -23,15 +23,16 @@ You run forward by yourself. Stay alive as long as you can.
   3000 m: the last hazards stand at 2900 m, the corridor brightens toward the daylight at its end,
   and out of the door the run is over: YOU ESCAPED! with your time; the title keeps the session's
   best. That screen stays until a key or a tap.
-- **Ghost**: hangs in the orbs' lane. Far away only its eyes burn; as you come near the torches dim,
+- **Ghost**: hangs in any lane. Far away only its eyes burn; as you come near the torches dim,
   the fog thickens, then it reveals itself and lunges. It takes three tenths of your health in a
   blackout; the one that takes the last of it stays over you while you lie there. Change lane.
   One power row in four after 60 m is a ghost.
 - **Green cross**: gives a fifth of your health back, in a green aura.
 - **Surge** (cyan arrows): four seconds much faster, and nothing hurts you; rays of light fly
   past along the borders of the screen and fade as the time runs out.
-- A pillar takes two tenths of your health, a beam or lava one tenth. The run ends at zero. After
-  a hit nothing hurts you for a moment.
+- Running itself wears you down: a cell of health every three seconds, so the orbs are what keeps
+  you going. A pillar takes two tenths of your health, a beam or lava one tenth, a ghost three. The
+  run ends at zero. After a hit nothing hurts you for a moment.
 - The run gets faster with distance, and the colors change every 400 units.
 
 A run starts calm: few hazards, pillars before the first jumps, the full share after about 40
