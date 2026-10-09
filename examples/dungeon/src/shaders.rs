@@ -195,21 +195,24 @@ float2 main(const Varyings v, out half4 color) {
         return v.position;
     }
 
+    // The bricks are keyed by z wrapped at the rebase period (40 units, a whole number of bricks
+    // at every scale used below): the pattern keeps its place when the origin moves on.
+    float zz = mod(P.z, 40.0);
     float3 base;
     float3 n = N;
     float3 emis = float3(0.0);
     if (mat < 0.5) {
-        float4 b = brick(float2(P.x * 0.5 + 0.5, P.z * 0.5));
+        float4 b = brick(float2(P.x * 0.5 + 0.5, zz * 0.5));
         float grit = vnoise(P.xz * 7.0);
         base = mix(float3(0.05, 0.045, 0.04), float3(0.42, 0.38, 0.34) * (0.7 + 0.5 * b.w), b.x) * (0.75 + 0.5 * grit);
         n = normalize(N + float3(b.y, 0.0, b.z) * 0.7);
     } else if (mat < 1.5) {
-        float4 b = brick(float2(P.x * 0.34, P.z * 0.25));
+        float4 b = brick(float2(P.x * 0.34, zz * 0.25));
         base = mix(float3(0.03), float3(0.22, 0.2, 0.2) * (0.7 + 0.5 * b.w), b.x);
         n = normalize(N + float3(b.y, 0.0, b.z) * 0.6);
     } else if (mat < 2.5) {
-        float4 b = brick(float2(P.z * 0.8, P.y * 1.6));
-        float grit = vnoise(float2(P.z, P.y) * 9.0);
+        float4 b = brick(float2(zz * 0.8, P.y * 1.6));
+        float grit = vnoise(float2(zz, P.y) * 9.0);
         base = mix(float3(0.05, 0.04, 0.04), float3(0.5, 0.42, 0.36) * (0.65 + 0.6 * b.w), b.x) * (0.7 + 0.6 * grit);
         base *= 0.6 + 0.4 * smoothstep(0.0, 1.2, P.y);
         n = normalize(N + float3(0.0, b.z, b.y) * 0.8);
