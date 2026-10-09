@@ -32,14 +32,17 @@ const REBASE: f64 = 40.0;
 const FLOATS: usize = 14;
 /// How long GAME OVER stays, and how long its frozen picture takes to burn away over the title.
 const OVER_SECONDS: f32 = 3.7;
+/// The dungeon ends here: a doorway of light. The last hazards stand 100 units before it.
+pub const EXIT: f64 = 3000.0;
+const EXIT_ROW: i64 = (EXIT / 2.0) as i64;
 const BURN_SECONDS: f32 = 1.4;
 /// A zone of one palette.
 const ZONE: f64 = 400.0;
 
 /// Torch, accent (lava, runes) and fog colors per zone.
 const PALETTES: [[[f32; 3]; 3]; 3] = [
-    [[0.35, 0.65, 1.0], [0.15, 0.85, 1.0], [0.012, 0.03, 0.07]],
     [[1.0, 0.55, 0.22], [1.0, 0.33, 0.04], [0.045, 0.02, 0.03]],
+    [[0.35, 0.65, 1.0], [0.15, 0.85, 1.0], [0.012, 0.03, 0.07]],
     [[0.55, 1.0, 0.3], [0.7, 1.0, 0.08], [0.02, 0.05, 0.022]],
 ];
 
@@ -74,8 +77,8 @@ enum Row {
 
 /// Gives a fifth of the health back.
 pub const HEALTH: u8 = 0;
-/// What one orb gives back: three orbs fill one cell of the health (the green cross fills two).
-const ORB_HEALTH: f32 = 0.1 / 3.0;
+/// What one orb gives back: ten orbs fill one cell of the health (the green cross fills two).
+const ORB_HEALTH: f32 = 0.01;
 /// Four seconds much faster, through everything unhurt.
 pub const SURGE: u8 = 1;
 /// The dungeon ghost: it hangs in the orbs' lane like a power-up and takes a third of the health.
@@ -99,7 +102,7 @@ const HINT_LEAD: f32 = 1.2;
 
 /// The run is a function of the row number: an event every fifth row, orbs in between.
 fn row(i: i64) -> Row {
-    if i < 24 {
+    if i < 24 || i >= EXIT_ROW - 50 {
         return Row::Empty;
     }
     let group = i.div_euclid(5);
@@ -233,13 +236,17 @@ pub struct World {
     pub ghost: f32,
     /// The row of the ghost that took the run: it stays, over the fallen runner.
     pub killer: Option<i64>,
-    /// Which palette the run starts in: drawn at random, so every run looks new.
-    first_palette: usize,
     /// 0..1: a ghost is near ahead: the dungeon darkens. `revealed`: the ghost that lunged last.
     pub dread: f32,
     revealed: Option<i64>,
     /// Ghosts the runner has gone past (hit or not) in this run.
     pub ghosts_passed: u32,
+    /// The runner reached the exit: the run ends in light, not on the floor. `run_time`: seconds
+    /// of the run; `best_time`: the fastest escape of the session; `escape`: 0 to 1, the white-out.
+    pub escaped: bool,
+    pub run_time: f32,
+    pub best_time: Option<f32>,
+    pub escape: f32,
     /// 0 to 1, eased: how strong the rays of a surge are (full at first, fading with its time left).
     pub surge_glow: f32,
     /// 1 to 0 after GAME OVER: how much of its frozen picture still covers the title's run.
@@ -286,10 +293,13 @@ impl Default for World {
             heal: 0.0,
             ghost: 0.0,
             killer: None,
-            first_palette: 0,
             dread: 0.0,
             revealed: None,
             ghosts_passed: 0,
+            escaped: false,
+            run_time: 0.0,
+            best_time: None,
+            escape: 0.0,
             surge_glow: 0.0,
             pace: 1.0,
             surge: 0.0,
@@ -367,7 +377,7 @@ impl World {
         (self.health, self.invulnerable, self.surge, self.pace, self.fall) = (1.0, 0.0, 0.0, 1.0, 0.0);
         self.collected.clear();
         (self.ghost, self.killer, self.dread, self.revealed, self.ghosts_passed) = (0.0, None, 0.0, None, 0);
-        self.first_palette = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos() as usize % PALETTES.len());
+        (self.escaped, self.run_time, self.escape) = (false, 0.0, 0.0);
         (self.streak, self.last_orb, self.orb_pulse) = (0, -10, 0.0);
         self.phase = phase;
     }
@@ -384,9 +394,9 @@ impl World {
         self.burn = 1.0;
     }
 
-    /// GAME OVER ends within a moment: time to take its picture.
+    /// GAME OVER ends within a moment: time to take its picture (an escape waits for the player).
     pub fn closing(&self) -> bool {
-        self.phase == Phase::Over && self.dead_timer <= -(OVER_SECONDS - 0.15)
+        self.phase == Phase::Over && !self.escaped && self.dead_timer <= -(OVER_SECONDS - 0.15)
     }
 
     /// The number the countdown shows: 3, 2, 1.
@@ -449,15 +459,26 @@ impl World {
                 input = Input::default();
                 self.speed *= (-dt * 4.0).exp();
                 self.dead_timer -= dt;
-                self.fall = (self.fall + dt / 1.1).min(1.0);
+                if self.escaped {
+                    // Drifts on into the light, slowing.
+                    self.speed *= (-dt * 1.2).exp();
+                    self.escape = (self.escape + dt / 1.4).min(1.0);
+                } else {
+                    self.fall = (self.fall + dt / 1.1).min(1.0);
+                }
                 if self.dead_timer <= 0.0 {
                     self.phase = Phase::Over;
                 }
             }
             Phase::Over => {
-                (input, self.speed) = (Input::default(), 0.0);
+                input = Input::default();
+                self.speed = if self.escaped { self.speed * (-dt * 1.2).exp() } else { 0.0 };
                 self.dead_timer -= dt;
-                if self.dead_timer <= -OVER_SECONDS {
+                if self.escaped {
+                    self.escape = (self.escape + dt / 1.4).min(1.0);
+                }
+                // GAME OVER goes by itself; the view from outside stays until a key or a tap.
+                if self.dead_timer <= -OVER_SECONDS && !self.escaped {
                     self.to_title();
                 }
             }
@@ -475,8 +496,21 @@ impl World {
             Phase::Attract => {
                 input = self.pilot(dt);
                 self.speed = 16.0;
+                // The title's run never leaves the dungeon: it starts over before the exit.
+                if self.z >= EXIT - 100.0 {
+                    self.restart(Phase::Attract);
+                }
             }
-            Phase::Playing => self.speed = (12.0 + self.z as f32 * 0.012).min(27.0),
+            Phase::Playing => {
+                self.speed = (12.0 + self.z as f32 * 0.012).min(27.0);
+                self.run_time += dt;
+                if self.z >= EXIT + 1.0 {
+                    // Out, into the light: the run ends like a death without the fall.
+                    (self.escaped, self.phase, self.dead_timer, self.warp) = (true, Phase::Dead, 1.8, 1.0);
+                    (self.last, self.last_distance) = (self.distance(), self.distance());
+                    self.best_time = Some(self.best_time.map_or(self.run_time, |best| best.min(self.run_time)));
+                }
+            }
         }
         if self.surge > 0.0 && self.phase != Phase::Dead {
             self.surge -= dt;
@@ -617,7 +651,7 @@ impl World {
         let at = self.z / ZONE;
         let zone = at.floor();
         let t = (((at - zone) as f32 - 0.9) / 0.1).clamp(0.0, 1.0);
-        let (a, b) = (PALETTES[(zone as usize + self.first_palette) % PALETTES.len()], PALETTES[(zone as usize + self.first_palette + 1) % PALETTES.len()]);
+        let (a, b) = (PALETTES[zone as usize % PALETTES.len()], PALETTES[(zone as usize + 1) % PALETTES.len()]);
         std::array::from_fn(|i| std::array::from_fn(|j| a[i][j] + (b[i][j] - a[i][j]) * t))
     }
 }
@@ -669,10 +703,19 @@ impl Control for Scene {
         let Some(spec) = spec else { return };
         let (world, rect) = (&self.world, cx.rect);
         let [torch, accent, fog] = world.palette();
+        // A ghost near: the torches dim, the fog thickens and darkens. The exit's daylight: from
+        // 600 units before it, the whole corridor brightens toward it (ambient, torches, the far
+        // end), the walls and the floor catch the light from the door; stronger out of the door.
+        let dim = 1.0 - 0.55 * world.dread;
+        let exit_light = ((world.z - (EXIT - 600.0)) / 600.0).clamp(0.0, 1.0) as f32 * (1.0 + 0.8 * world.escape);
+        let far = (exit_light * 0.9).min(1.0);
+        let sky = [1.0, 0.9, 0.7];
+        let fog = [fog[0] * dim * (1.0 - far) + sky[0] * far, fog[1] * dim * (1.0 - far) + sky[1] * far, fog[2] * dim * (1.0 - far) + sky[2] * far];
 
-        // What no quad covers is the fog at the end of the corridor.
+        // What no quad covers is the fog at the end of the corridor (the sky past the exit): the
+        // same color the shader fogs to, so the last drawn row has no seam.
         let mut paint = Paint::default();
-        paint.set_color(Color::from_argb(255, (fog[0] * 255.0) as u8, (fog[1] * 255.0) as u8, (fog[2] * 255.0) as u8));
+        paint.set_color(Color::from_argb(255, (fog[0].min(1.0) * 255.0) as u8, (fog[1].min(1.0) * 255.0) as u8, (fog[2].min(1.0) * 255.0) as u8));
         cx.canvas.draw_rect(rect, &paint);
 
         let mut vertices = self.vertices.borrow_mut();
@@ -703,13 +746,12 @@ impl Control for Scene {
             return;
         }
         let Some(buffer) = meshes::make_vertex_buffer(bytes(&vertices)) else { return };
-        // A ghost near: the torches dim, the fog thickens and darkens.
-        let dim = 1.0 - 0.55 * world.dread;
+        let bright = dim * (1.0 + 0.7 * exit_light);
         let uniforms = [
             world.time, camera[0], camera[1], camera[2],
-            torch[0] * dim, torch[1] * dim, torch[2] * dim, 0.0,
-            accent[0], accent[1], accent[2], 0.0,
-            fog[0] * dim, fog[1] * dim, fog[2] * dim, 0.028 + 0.08 * world.dread,
+            torch[0] * bright, torch[1] * bright, torch[2] * bright, (EXIT - base) as f32,
+            accent[0], accent[1], accent[2], exit_light,
+            fog[0], fog[1], fog[2], 0.028 + 0.08 * world.dread,
         ];
         let mesh = Mesh::make(spec.clone(), Mode::Triangles, buffer, count, 0, Data::new_copy(bytes(&uniforms)), &[], bounds);
         let mesh = match mesh {
@@ -795,7 +837,28 @@ impl Builder<'_> {
         const W: f32 = HALF_WIDTH;
         const H: f32 = HEIGHT;
         let first = (world.z / 2.0).floor() as i64;
+        // Past the door there is no dungeon: the world outside, one wide quad far off (sky, sun,
+        // clouds, mountains in the shader), and the stone floor going on as a terrace.
+        let outside = EXIT_ROW + 45;
+        if (first..first + VISIBLE).contains(&outside) {
+            let z = (outside as f64 * 2.0 - base) as f32;
+            self.quad([[-400.0, -40.0, z], [400.0, -40.0, z], [400.0, 200.0, z], [-400.0, 200.0, z]], 13.0, [0.0; 4], [0.0, 0.0, -1.0], 0.0);
+        }
         for i in (first..first + VISIBLE).rev() {
+            if i >= EXIT_ROW {
+                // A terrace of twelve rows, then the drop to the valley: farther rows would be
+                // lifted over the horizon by the corridor's bend (depth squared).
+                let z0 = (i as f64 * 2.0 - base) as f32;
+                if i < EXIT_ROW + 12 {
+                    self.quad([[-30.0, 0.0, z0], [30.0, 0.0, z0], [30.0, 0.0, z0 + SEG], [-30.0, 0.0, z0 + SEG]], 0.0, [0.0; 4], [0.0, 1.0, 0.0], 0.0);
+                }
+                // The way out: the corridor's opening at its end, solid daylight (it hides the
+                // world behind it until the runner is through).
+                if i == EXIT_ROW {
+                    self.quad([[-W, 0.0, z0], [W, 0.0, z0], [W, H, z0], [-W, H, z0]], 11.0, [0.0; 4], [0.0, 0.0, -1.0], 0.0);
+                }
+                continue;
+            }
             let z0 = (i as f64 * 2.0 - base) as f32;
             let z1 = z0 + SEG;
             let (g0, g1) = (lava_glow(i), lava_glow(i + 1));

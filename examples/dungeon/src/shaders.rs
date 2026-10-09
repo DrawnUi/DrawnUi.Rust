@@ -18,8 +18,8 @@ Varyings main(const Attributes a) {
 /// and 9 surge power-ups are additive sprites (premultiplied color with alpha 0).
 pub const MESH_FS: &str = "
 uniform float4 uTC;     // time, camera xyz
-uniform float4 uTorch;  // torch color
-uniform float4 uAccent; // lava, runes
+uniform float4 uTorch;  // torch color, z of the exit
+uniform float4 uAccent; // lava, runes; the exit's light (0 to 1)
 uniform float4 uFog;    // color, density
 
 float hash(float2 p) { return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453); }
@@ -30,6 +30,21 @@ float vnoise(float2 p) {
     f = f * f * (3.0 - 2.0 * f);
     return mix(mix(hash(i), hash(i + float2(1.0, 0.0)), f.x),
                mix(hash(i + float2(0.0, 1.0)), hash(i + float2(1.0, 1.0)), f.x), f.y);
+}
+
+// A hash without sin, for inputs that grow large (the sky's coordinates): sin() of a number in
+// the thousands loses its precision on the GPU and the noise freezes.
+float hash2(float2 p) {
+    float3 q = fract(float3(p.x, p.y, p.x) * float3(0.1031, 0.1030, 0.0973));
+    q += dot(q, float3(q.y, q.x, q.z) + 33.33);
+    return fract((q.x + q.y) * q.z);
+}
+float vnoise2(float2 p) {
+    float2 i = floor(p);
+    float2 f = p - i;
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash2(i), hash2(i + float2(1.0, 0.0)), f.x),
+               mix(hash2(i + float2(0.0, 1.0)), hash2(i + float2(1.0, 1.0)), f.x), f.y);
 }
 
 // x: 1 inside a brick, 0 in the mortar. yz: the bevel's slope. w: the brick's own random.
@@ -71,6 +86,8 @@ float2 main(const Varyings v, out half4 color) {
         float r2 = dot(c, c);
         float edge = 1.0 - smoothstep(0.6, 1.0, r2);
         float3 e;
+        float solid = 0.0;
+        float nofog = 0.0;
         if (mat < 5.5) {
             float pulse = 0.85 + 0.15 * sin(t * 6.0 + seed * 40.0);
             e = uAccent.gbr * (exp(-r2 * 7.0) * 1.8 + exp(-r2 * 2.2) * 0.35) * pulse + float3(1.0) * exp(-r2 * 45.0);
@@ -87,6 +104,36 @@ float2 main(const Varyings v, out half4 color) {
             float flick = 0.75 + 0.25 * sin(t * 23.0 + uv.x * 40.0) * sin(t * 7.0 - uv.x * 9.0);
             e = float3(1.0, 0.16, 0.1) * exp(-y * y * 5.0) * 0.9 * flick + float3(1.0, 0.85, 0.75) * exp(-y * y * 90.0) * 1.4;
             e *= 1.0 - smoothstep(0.7, 1.0, y);
+        } else if (mat > 12.5) {
+            // The world outside the door: a sky from deep blue to a pale warm horizon, thin
+            // clouds, a low sun in a wide glare, a ridge of far mountains standing in haze.
+            // The quad is 800 wide and 240 tall (y from -40): h is the height above the ground
+            // in a 0..1 of the old 120-tall view, x the same width as before, from the middle.
+            float h = (uv.y * 240.0 - 30.0) / 120.0;
+            float x = (uv.x - 0.5) * 800.0 / 240.0 + 0.5;
+            float3 top = float3(0.28, 0.48, 0.88);
+            float3 horizon = float3(0.96, 0.84, 0.66);
+            float3 sky = mix(horizon, top, smoothstep(0.18, 0.85, h));
+            float cloud = smoothstep(0.52, 0.72, vnoise2(float2(x * 2.5 + t * 0.003, h * 5.0)) * 0.65 + vnoise2(float2(x * 6.0 - t * 0.004, h * 12.0)) * 0.35);
+            cloud *= smoothstep(0.3, 0.45, h) * (1.0 - smoothstep(0.7, 0.95, h));
+            sky = mix(sky, float3(1.0, 0.97, 0.94), cloud * 0.7);
+            float2 sunP = float2(0.6, 0.5);
+            float ds = length((float2(x, h) - sunP) * float2(2.0, 1.0));
+            float sun = exp(-ds * ds * 900.0) * 3.0 + exp(-ds * ds * 14.0) * 0.9 + exp(-ds * 3.0) * 0.5;
+            float ridge = 0.2 + 0.08 * vnoise2(float2(x * 5.0, 1.3)) + 0.03 * vnoise2(float2(x * 17.0, 4.1));
+            float mountain = 1.0 - smoothstep(ridge - 0.004, ridge + 0.004, h);
+            float3 rock = mix(float3(0.32, 0.34, 0.48), horizon, 0.45 + 0.4 * smoothstep(0.0, ridge, h));
+            e = mix(sky, rock, mountain) + float3(1.0, 0.93, 0.8) * sun * (1.0 - mountain * 0.7);
+            solid = 1.0;
+            nofog = 1.0;
+        } else if (mat > 10.5) {
+            // The way out: the opening itself, blown-out daylight, brightest in the middle;
+            // solid, and seen through the fog from far.
+            float r = length(c);
+            float pulse = 0.94 + 0.06 * sin(t * 2.0);
+            e = float3(1.0, 0.92, 0.7) * (2.2 + 1.6 * exp(-r * r * 2.0)) * pulse;
+            e /= max(1.0 - fog, 0.25);
+            solid = 1.0;
         } else if (mat > 9.5) {
             // The dungeon ghost, a spectre: a pointed hood over a dark hollow with two burning eyes,
             // a tattered robe trailing into mist; it sways and breathes. Additive, so the dungeon
@@ -143,8 +190,8 @@ float2 main(const Varyings v, out half4 color) {
             e = pc * (ring * 1.5 * beat + sign * 2.2 + exp(-r2 * 2.5) * 0.4) + float3(1.0) * sign * 0.8;
             e *= edge;
         }
-        e *= 1.0 - fog;
-        color = half4(half3(e), 0.0);
+        e *= 1.0 - fog * (1.0 - nofog);
+        color = half4(half3(e), half(solid));
         return v.position;
     }
 
@@ -198,11 +245,16 @@ float2 main(const Varyings v, out half4 color) {
     }
 
     float k0 = floor(P.z / 10.0);
-    float3 lit = float3(0.035, 0.04, 0.06) + torch(P, n, k0) + torch(P, n, k0 + 1.0);
+    float3 lit = float3(0.035, 0.04, 0.06) + float3(1.0, 0.9, 0.7) * uAccent.w * 0.35 + torch(P, n, k0) + torch(P, n, k0 + 1.0);
     // The runner's own cold light.
     lit += float3(0.28, 0.3, 0.38) * (0.3 + 0.7 * max(dot(n, V / dist), 0.0)) * 1.2 / (1.0 + dist * dist * 0.12);
     // Lava lights what is next to it.
     lit += float3(1.0, 0.3, 0.05) * glow * 1.5;
+    // Daylight from the exit, along the corridor: the walls and the floor catch it, what faces
+    // the runner stays in its own shadow; weaker with the way left to the door.
+    float toExit = max(uTorch.w - P.z, 0.0);
+    float sun = uAccent.w * exp(-toExit * 0.012) * (0.3 + 0.7 * max(n.z, 0.0) + 0.55 * abs(n.x) + 0.35 * max(n.y, 0.0));
+    lit += float3(1.0, 0.9, 0.7) * sun * 2.4;
     float3 c = mix(base * lit + emis, uFog.rgb, fog);
     color = half4(half3(1.0 - exp(-c * 1.6)), 1.0);
     return v.position;

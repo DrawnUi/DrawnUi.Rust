@@ -73,6 +73,8 @@ pub struct App {
     canvas_width: f32,
     /// The game's name on the title: smaller on a narrow screen.
     name: Handle<SkiaLabel>,
+    /// The best escape time of the session, on the title.
+    best: Handle<SkiaLabel>,
     hint: Hint,
     /// The big label in the middle: what it shows (3, 2, 1, 0 = GO, -2 = GAME OVER, -1 = nothing), its jump, the seconds GO stays.
     count: Handle<SkiaLayout>,
@@ -109,7 +111,7 @@ pub struct App {
 }
 
 /// Said after every stretch of running without a hit.
-const CHEERS: [&str; 8] = ["WELL DONE", "NICE RUN", "YOU ARE KILLING IT", "UNSTOPPABLE", "ON FIRE", "FLAWLESS", "KEEP GOING", "SMOOTH"];
+const CHEERS: [&str; 8] = ["WELL DONE!", "NICE RUN!", "YOU ARE KILLING IT!", "UNSTOPPABLE!", "ON FIRE!", "FLAWLESS!", "KEEP GOING!", "SMOOTH!"];
 /// Seconds of clean running between two cheers.
 const CHEER_EVERY: f32 = 12.0;
 
@@ -324,6 +326,7 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
     // A frame that came late (a hidden tab) is not a jump through the walls.
     world.step(delta.min(0.05), &mut app.input);
     let (phase, orbs, health, hint, young) = (world.phase, world.orbs(), world.health, world.hint(), world.young());
+    let (escaped, run_time, best_time) = (world.escaped, world.run_time, world.best_time);
     let world_killer = world.killer;
     let world_ghost = world.ghost;
     let ghosts_passed = world.ghosts_passed;
@@ -364,6 +367,16 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
         if let Some(mut title) = cx.get_mut(app.title) {
             title.set_is_visible(on_title);
         }
+        if on_title {
+            (app.notice, app.hint, app.pending) = (0.0, Hint::None, None);
+            show_prompt(app, cx, None);
+        }
+        if on_title && let Some(mut best) = cx.get_mut(app.best) {
+            best.set_is_visible(best_time.is_some());
+            if let Some(time) = best_time {
+                best.set_text(format!("BEST ESCAPE {}", format_time((time * 10.0) as u32)));
+            }
+        }
         if let Some(mut fps) = cx.get_mut(app.fps) {
             fps.set_opacity(if on_title { 1.0 } else { 0.0 });
         }
@@ -398,7 +411,7 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
     app.go = (app.go - delta).max(0.0);
     let show = match count {
         Some(n) => n as i32,
-        None if phase == Phase::Over => -2,
+        None if phase == Phase::Over => if escaped { -3 } else { -2 },
         None if app.go > 0.0 => 0,
         None => -1,
     };
@@ -406,16 +419,27 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
         app.shown_count = show;
         app.count_pop = 1.0;
         if show != -1 && let Some(mut label) = cx.get_mut(app.count_label) {
-            label.set_font_size(if show != -2 { 120.0 } else if app.canvas_width < 520.0 { 38.0 } else { 64.0 });
+            label.set_font_size(if show >= 0 { 120.0 } else if app.canvas_width < 520.0 { 38.0 } else { 64.0 });
             label.set_text(match show {
                 0 => "GO".to_owned(),
                 -2 => "GAME OVER".to_owned(),
+                -3 => "YOU ESCAPED!".to_owned(),
                 n => n.to_string(),
             });
+            // Fire, or the title's gold for the way out.
+            label.set_fill_gradient(if show == -3 { fire(GOLD) } else { fire([0xFFFF_E870, 0xFFFF_8A20, 0xFFE0_1810]) });
         }
         if let Some(mut layer) = cx.get_mut(app.count) {
             layer.set_is_visible(show != -1);
             layer.set_opacity(1.0);
+            if let Some(effect) = layer.effect_mut::<SkiaShaderEffect>() {
+                effect.set_uniform("uTint", &if show == -3 { tint(ACCENT) } else { [1.0, 0.16, 0.04] });
+            }
+        }
+        if show == -3 {
+            // The time stays with the view from outside, until the player leaves it.
+            (app.notice, app.hint, app.pending) = (f32::MAX, Hint::None, None);
+            show_prompt(app, cx, Some(Prompt::Time((run_time * 10.0) as u32)));
         }
     }
     if app.count_pop > 0.0 {
@@ -576,18 +600,30 @@ enum Prompt {
     Avoid,
     /// Under four cells of health.
     Low,
+    /// The time of an escape, in tenths of a second.
+    Time(u32),
+}
+
+/// The title's gradient: gold to amber.
+const GOLD: [u32; 3] = [0xFFFF_F4D0, 0xFFFF_C050, 0xFFD0_6810];
+
+/// Tenths of a second as m:ss.t.
+fn format_time(tenths: u32) -> String {
+    format!("{}:{:02}.{}", tenths / 600, tenths / 10 % 60, tenths % 10)
 }
 
 /// Shows the prompt (text, gradient and glow of its kind, jumping in) or hides it.
 fn show_prompt(app: &mut App, cx: &mut Cx, prompt: Option<Prompt>) {
     if let Some(prompt) = prompt {
+        let time_text = if let Prompt::Time(tenths) = prompt { format!("YOUR TIME {}", format_time(tenths)) } else { String::new() };
         let (text, colors, tint) = match prompt {
+            Prompt::Time(_) => (time_text.as_str(), GOLD, tint(ACCENT)),
             Prompt::Jump => ("JUMP", [0xFFF4_E8FF, 0xFFB0_70FF, 0xFF70_20E0], [0.62, 0.22, 1.0]),
             Prompt::Lane => ("CHANGE LANE", [0xFFE8_FFFF, 0xFF40_E0FF, 0xFF10_90E0], [0.15, 0.85, 1.0]),
             // Health shows during its own green flash: white letters with a green glow stay readable in it.
             Prompt::Health => ("HEALTH UP", [0xFFFF_FFFF, 0xFFF0_FFE8, 0xFFA0_E890], [0.42, 1.0, 0.35]),
             Prompt::Surge => ("SURGE", [0xFFFF_FFFF, 0xFF90_F0FF, 0xFF30_B0FF], [0.5, 0.9, 1.0]),
-            Prompt::Cheer(text) => (text, [0xFFFF_F4D0, 0xFFFF_C050, 0xFFD0_6810], tint(ACCENT)),
+            Prompt::Cheer(text) => (text, GOLD, tint(ACCENT)),
             Prompt::Heal => ("COLLECT ORBS TO HEAL", [0xFFFF_FFFF, 0xFFF0_FFE8, 0xFFA0_E890], [0.42, 1.0, 0.35]),
             Prompt::Avoid => ("AVOID GHOSTS", [0xFFFF_FFFF, 0xFFD8_E4FF, 0xFF88_A0E0], [0.72, 0.84, 1.0]),
             Prompt::Low => ("LOW HEALTH", [0xFFFF_E0D8, 0xFFFF_6050, 0xFFC0_1810], [1.0, 0.25, 0.2]),
@@ -1011,7 +1047,7 @@ fn build(app: &mut App) -> Build<SkiaShell> {
                         .font_family("FontScore")
                         .font_size(44)
                         .text_color(Color::WHITE)
-                        .fill_gradient(fire([0xFFFF_F4D0, 0xFFFF_C050, 0xFFD0_6810]))
+                        .fill_gradient(fire(GOLD))
                         .stroke_color(Color::new(0xFF2A_1404))
                         .stroke_width(2.5)
                         .horizontal_options(LayoutOptions::Center)
@@ -1020,6 +1056,7 @@ fn build(app: &mut App) -> Build<SkiaShell> {
                         .assign(&mut app.name),
                 ),
             centered("DRAWNUI FOR RUST SAMPLE", 14, ACCENT),
+            centered("", 11, ACCENT).is_visible(false).assign(&mut app.best),
             centered(if MOBILE { "TAP TO PLAY" } else { "TAP OR PRESS SPACE TO PLAY" }, 11, 0x99FF_FFFF),
         ));
     SkiaShell::new()

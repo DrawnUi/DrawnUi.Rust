@@ -17,19 +17,22 @@ You run forward by yourself. Stay alive as long as you can.
 
 - **Rune pillars**: change lane.
 - **Red beam** and **lava**: jump.
-- **Orbs**: a little health each (three fill one cell). They come in rows of three: the third of a
+- **Orbs**: a little health each (ten fill one cell). They come in rows of three: the third of a
   row taken without a miss counts double. The orbs lead to the lane the next pillars leave free.
-- **The distance is the score**: how far you got, top left, in meters.
+- **The distance is the score**: how far you got, top left, in meters. The dungeon ends at
+  3000 m: the last hazards stand at 2900 m, the corridor brightens toward the daylight at its end,
+  and out of the door the run is over: YOU ESCAPED! with your time; the title keeps the session's
+  best. That screen stays until a key or a tap.
 - **Ghost**: hangs in the orbs' lane. Far away only its eyes burn; as you come near the torches dim,
   the fog thickens, then it reveals itself and lunges. It takes three tenths of your health in a
   blackout; the one that takes the last of it stays over you while you lie there. Change lane.
+  One power row in four after 60 m is a ghost.
 - **Green cross**: gives a fifth of your health back, in a green aura.
 - **Surge** (cyan arrows): four seconds much faster, and nothing hurts you; rays of light fly
   past along the borders of the screen and fade as the time runs out.
 - A pillar takes two tenths of your health, a beam or lava one tenth. The run ends at zero. After
   a hit nothing hurts you for a moment.
-- The run gets faster with distance, and the colors change every 400 units; each run starts in a
-  color drawn at random.
+- The run gets faster with distance, and the colors change every 400 units.
 
 A run starts calm: few hazards, pillars before the first jumps, the full share after about 40
 seconds. In that start every hazard comes with a prompt, JUMP or CHANGE LANE; after it, the first
