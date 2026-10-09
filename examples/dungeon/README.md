@@ -26,11 +26,14 @@ You run forward by yourself. Stay alive as long as you can.
 - **Ghost**: hangs in any lane. Far away only its eyes burn; as you come near the torches dim,
   the fog thickens, then it reveals itself and lunges. It takes three tenths of your health in a
   blackout; the one that takes the last of it stays over you while you lie there. Change lane.
-  About one power row in five after 60 m is a ghost, in any lane but never the one lane a double
+  Some 18 % of the power rows after 60 m are ghosts, in any lane but never the one lane a double
   pillar row just before or after it leaves free.
-- **Green cross**: gives a fifth of your health back, in a green aura.
+- **Green cross**: gives 15 percent of your health back, in a green aura.
 - **Surge** (cyan arrows): four seconds much faster, and nothing hurts you; rays of light fly
   past along the borders of the screen and fade as the time runs out.
+- **Shield** (golden): for ten seconds the next pillar or ghost costs nothing (beams and lava
+  still burn); a golden aura at the borders while it holds, a golden flash and ABSORBED! when it
+  takes the hit.
 - Running itself wears you down: a cell of health every four seconds, so the orbs are what keeps
   you going. A pillar takes two tenths of your health, a beam or lava one tenth, a ghost three. The
   run ends at zero. After a hit nothing hurts you for a moment.
@@ -43,8 +46,8 @@ COLLECT ORBS TO HEAL after the first hit, AVOID GHOSTS after the first ghost gon
 under four cells. Every twelve
 seconds without a hit a word of praise shows instead.
 
-A run starts with a countdown. When the health is gone, GAME OVER stays a few seconds (any key
-or tap skips it), then its picture burns away over the title's run.
+A run starts with a countdown. When the health is gone, GAME OVER stays until any key or tap,
+then its picture burns away over the title's run.
 
 The title screen plays the game by itself until you start.
 
@@ -86,7 +89,7 @@ DrawnUI's own accessibility layer; the game only names things and gives them rol
 **Time**
 
 - Pause at any moment (P, Escape or the II button). An open dialog stops the run.
-- GAME OVER can be skipped with any key or tap.
+- GAME OVER waits for any key or tap.
 - The first hazards of a session come with a written prompt about a second before them.
 
 **What is missing**

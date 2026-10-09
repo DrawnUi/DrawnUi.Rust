@@ -104,6 +104,22 @@ float2 main(const Varyings v, out half4 color) {
             float flick = 0.75 + 0.25 * sin(t * 23.0 + uv.x * 40.0) * sin(t * 7.0 - uv.x * 9.0);
             e = float3(1.0, 0.16, 0.1) * exp(-y * y * 5.0) * 0.9 * flick + float3(1.0, 0.85, 0.75) * exp(-y * y * 90.0) * 1.4;
             e *= 1.0 - smoothstep(0.7, 1.0, y);
+        } else if (mat > 13.5) {
+            // The shield: a golden shield shape (flat top, a point below) in its ring, a bright
+            // boss in the middle.
+            float3 pc = float3(1.0, 0.8, 0.3);
+            float ring = exp(-pow((sqrt(r2) - 0.6) * 9.0, 2.0));
+            float2 q = float2(abs(c.x), c.y);
+            float top = 1.0 - smoothstep(0.3, 0.34, q.y);
+            float side = 1.0 - smoothstep(0.26 - max(-q.y, 0.0) * 0.75, 0.3 - max(-q.y, 0.0) * 0.75, q.x);
+            float bottom = 1.0 - smoothstep(-0.38, -0.34, -q.y);
+            float shield = top * side * bottom;
+            float inner = top * (1.0 - smoothstep(0.19 - max(-q.y, 0.0) * 0.75, 0.22 - max(-q.y, 0.0) * 0.75, q.x)) * (1.0 - smoothstep(-0.31, -0.28, -q.y)) * (1.0 - smoothstep(0.23, 0.26, q.y));
+            float rimS = shield - inner;
+            float boss = exp(-dot(c, c) * 40.0);
+            float beat = 0.75 + 0.25 * sin(t * 5.0 + seed * 30.0);
+            e = pc * (ring * 1.5 * beat + rimS * 2.4 + inner * 0.5 + boss * 2.0 + exp(-r2 * 2.5) * 0.4) + float3(1.0) * (rimS * 0.5 + boss);
+            e *= edge;
         } else if (mat > 12.5) {
             // The world outside the door: a sky from deep blue to a pale warm horizon, thin
             // clouds, a low sun in a wide glare, a ridge of far mountains standing in haze.
@@ -276,6 +292,8 @@ uniform float2 iOffset;
 uniform float4 uFx;
 uniform float4 uFx2;
 uniform float3 uRay;
+uniform float3 uOrb;     // the orbs' color where the runner is
+uniform float2 uShield;  // held (0 or 1), burst (1 fading)
 
 float fxHash(float2 p) { return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453); }
 
@@ -321,8 +339,15 @@ half4 main(float2 fragCoord) {
         col += (uRay * 0.75 + 0.25) * soft * light * (0.35 + 0.65 * h) * border * uFx2.y * 0.7;
         col += uRay * border * uFx2.y * 0.14;
     }
-    // An orb was taken: a short violet pulse at the borders.
-    col += float3(0.62, 0.3, 1.0) * border * uFx2.z * 0.32;
+    // An orb was taken: a short pulse at the borders, in the orbs' color.
+    col += uOrb * 0.75 * border * uFx2.z * 0.18;
+    // A shield held: a golden aura at the borders, soft bands of it flowing upward (the health
+    // aura's kin); broken: a golden flash over the view, like a hit's red one.
+    if (uShield.x > 0.0) {
+        float flow = 0.5 + 0.5 * sin(uv.y * 14.0 + uFx.w * 7.0 + sin(uv.x * 6.0 + uFx.w * 1.7) * 1.6);
+        col += float3(1.0, 0.8, 0.3) * border * uShield.x * (0.3 + 0.5 * flow * flow);
+    }
+    col = mix(col, float3(1.0, 0.85, 0.4), uShield.y * uShield.y * min(0.1 + r2 * 0.9, 0.75));
     if (uFx2.x > 0.0) {
         // Health: a green aura at the borders, soft bands of it flowing upward.
         float flow = 0.5 + 0.5 * sin(uv.y * 16.0 + uFx.w * 9.0 + sin(uv.x * 7.0 + uFx.w * 2.0) * 1.6);

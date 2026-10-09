@@ -75,7 +75,7 @@ enum Row {
     Power(i32, u8),
 }
 
-/// Gives a fifth of the health back.
+/// Gives 15 percent of the health back.
 pub const HEALTH: u8 = 0;
 /// What one orb gives back: ten orbs fill one cell of the health (the green cross fills two).
 const ORB_HEALTH: f32 = 0.01;
@@ -83,6 +83,8 @@ const ORB_HEALTH: f32 = 0.01;
 pub const SURGE: u8 = 1;
 /// The dungeon ghost: it hangs in the orbs' lane like a power-up and takes a third of the health.
 pub const GHOST: u8 = 2;
+/// A golden shield: the next pillar or ghost costs nothing (beams and lava still burn).
+pub const SHIELD: u8 = 3;
 
 /// The lane the orbs of a group of five rows hang in; the pillars after them leave it free.
 fn orb_lane(group: i64) -> i32 {
@@ -116,6 +118,8 @@ const JUMPS_FROM: i64 = 90;
 const HINT_LEAD: f32 = 1.2;
 /// Seconds of running that cost one cell of health.
 const DRAIN_SECONDS: f32 = 4.0;
+/// How long a shield holds.
+const SHIELD_SECONDS: f32 = 10.0;
 
 /// The run is a function of the row number: an event every fifth row, orbs in between.
 fn row(i: i64) -> Row {
@@ -130,9 +134,10 @@ fn row(i: i64) -> Row {
             if hash01(group, 7) > 0.3 + 0.7 * ramp {
                 return Row::Empty;
             }
+            // Of a hundred event rows: 38 pillars, 20 beams, 21 lava, the rest empty.
             let h = hash(group, 2);
-            let kind = h % 8;
-            if kind < 3 || (kind < 7 && i < JUMPS_FROM) {
+            let roll = h % 100;
+            if roll < 38 || (roll < 79 && i < JUMPS_FROM) {
                 let others = match orb_lane(group - 1) {
                     -1 => [0, 1],
                     0 => [-1, 1],
@@ -144,19 +149,20 @@ fn row(i: i64) -> Row {
                     _ => lane_bit(others[0]) | lane_bit(others[1]),
                 });
             }
-            match kind {
-                3 | 4 => Row::Beam,
-                5 | 6 => Row::Lava,
+            match roll {
+                38..=57 => Row::Beam,
+                58..=78 => Row::Lava,
                 _ => Row::Empty,
             }
         }
         // Now and then the middle orb of a group is a power-up: health in one group of twelve, a
         // surge in one of twenty-four (it goes through everything: more made the run too easy),
-        // the ghost in about one group of five (21 %) after the first thirty rows, in any lane.
+        // the ghost in 18 % of the groups after the first thirty rows, in any lane.
         3 => match hash(group, 6) % 24 {
-            _ if i > 30 && hash(group, 9) % 100 < 21 => Row::Power(ghost_lane(group), GHOST),
+            _ if i > 30 && hash(group, 9) % 100 < 18 => Row::Power(ghost_lane(group), GHOST),
             0 | 1 => Row::Power(orb_lane(group), HEALTH),
             2 => Row::Power(orb_lane(group), SURGE),
+            3 | 4 => Row::Power(orb_lane(group), SHIELD),
             _ => Row::Orb(orb_lane(group)),
         },
         2 | 4 => Row::Orb(orb_lane(group)),
@@ -186,7 +192,7 @@ pub enum Phase {
     Playing,
     /// The health is gone: the runner goes down.
     Dead,
-    /// Down: GAME OVER stays a few seconds, then the title comes back.
+    /// Down: GAME OVER stays until a key or a tap brings the title back.
     Over,
 }
 
@@ -260,6 +266,10 @@ pub struct World {
     pub ghosts_passed: u32,
     /// Hits taken in this run (the drain is not a hit).
     pub hits: u32,
+    /// Seconds the shield still holds (ten from its pickup); `shield_burst`: 1 when it just took a
+    /// hit, fading (the golden flash).
+    pub shield: f32,
+    pub shield_burst: f32,
     /// The runner reached the exit: the run ends in light, not on the floor. `run_time`: seconds
     /// of the run; `best_time`: the fastest escape of the session; `escape`: 0 to 1, the white-out.
     pub escaped: bool,
@@ -316,6 +326,8 @@ impl Default for World {
             revealed: None,
             ghosts_passed: 0,
             hits: 0,
+            shield: 0.0,
+            shield_burst: 0.0,
             escaped: false,
             run_time: 0.0,
             best_time: None,
@@ -398,6 +410,7 @@ impl World {
         self.collected.clear();
         (self.ghost, self.killer, self.dread, self.revealed, self.ghosts_passed, self.hits) = (0.0, None, 0.0, None, 0, 0);
         (self.escaped, self.run_time, self.escape) = (false, 0.0, 0.0);
+        (self.shield, self.shield_burst) = (0.0, 0.0);
         (self.streak, self.last_orb, self.orb_pulse) = (0, -10, 0.0);
         self.phase = phase;
     }
@@ -424,7 +437,7 @@ impl World {
         self.burn = 1.0;
     }
 
-    /// GAME OVER ends within a moment: time to take its picture (an escape waits for the player).
+    /// GAME OVER has stood a moment: its picture is taken, to burn away when the player leaves it.
     pub fn closing(&self) -> bool {
         self.phase == Phase::Over && !self.escaped && self.dead_timer <= -(OVER_SECONDS - 0.15)
     }
@@ -442,6 +455,10 @@ impl World {
         self.invulnerable = (self.invulnerable - dt).max(0.0);
         self.heal = (self.heal - dt * 1.1).max(0.0);
         self.ghost = (self.ghost - dt * 0.7).max(0.0);
+        self.shield_burst = (self.shield_burst - dt * 1.4).max(0.0);
+        if self.phase == Phase::Playing {
+            self.shield = (self.shield - dt).max(0.0);
+        }
         // The nearest ghost ahead: dread grows over the last three seconds to it, and when it is
         // less than a second away it reveals itself with a jolt.
         let mut dread: f32 = 0.0;
@@ -507,10 +524,7 @@ impl World {
                 if self.escaped {
                     self.escape = (self.escape + dt / 1.4).min(1.0);
                 }
-                // GAME OVER goes by itself; the view from outside stays until a key or a tap.
-                if self.dead_timer <= -OVER_SECONDS && !self.escaped {
-                    self.to_title();
-                }
+                // GAME OVER and the view from outside stay until a key or a tap (`to_title`).
             }
             Phase::Countdown => {
                 (input, self.speed) = (Input::default(), 0.0);
@@ -526,13 +540,14 @@ impl World {
             Phase::Attract => {
                 input = self.pilot(dt);
                 self.speed = 16.0;
-                // The title's run never leaves the dungeon: it starts over before the exit.
-                if self.z >= EXIT - 100.0 {
+                // The title's run never shows the end: it starts over before the exit's light
+                // (which begins 600 units before the door).
+                if self.z >= EXIT - 700.0 {
                     self.restart(Phase::Attract);
                 }
             }
             Phase::Playing => {
-                self.speed = (12.0 + self.z as f32 * 0.012).min(27.0);
+                self.speed = (12.0 + self.z as f32 * 0.012).min(24.0);
                 self.run_time += dt;
                 // The run wears the runner down: a cell of health every DRAIN_SECONDS. The orbs
                 // are what keeps it up.
@@ -550,7 +565,7 @@ impl World {
         }
         if self.surge > 0.0 && self.phase != Phase::Dead {
             self.surge -= dt;
-            self.speed *= 1.6;
+            self.speed *= 1.5;
         }
 
         if input.left {
@@ -595,7 +610,8 @@ impl World {
                         }
                         self.collected.push(i);
                         match kind {
-                            Row::Power(_, HEALTH) => (self.health, self.heal) = ((self.health + 0.2).min(1.0), 1.0),
+                            Row::Power(_, HEALTH) => (self.health, self.heal) = ((self.health + 0.15).min(1.0), 1.0),
+                            Row::Power(_, SHIELD) => self.shield = SHIELD_SECONDS,
                             Row::Power(..) => (self.surge, self.warp) = (4.0, 1.0),
                             _ => self.take_orb(i),
                         }
@@ -607,7 +623,12 @@ impl World {
                     _ => 0.0,
                 };
                 // The title's run cannot be hurt, a surge goes through everything.
-                if damage > 0.0 && self.phase == Phase::Playing && self.invulnerable <= 0.0 && self.surge <= 0.0 {
+                let shielded = self.shield > 0.0 && matches!(kind, Row::Pillars(_) | Row::Power(_, GHOST));
+                if damage > 0.0 && self.phase == Phase::Playing && self.invulnerable <= 0.0 && self.surge <= 0.0 && shielded {
+                    // The shield takes a pillar or a ghost (not a beam, not lava): nothing lost, no
+                    // stumble, a golden burst.
+                    (self.shield, self.shield_burst, self.invulnerable, self.shake) = (0.0, 1.0, 0.8, 0.4);
+                } else if damage > 0.0 && self.phase == Phase::Playing && self.invulnerable <= 0.0 && self.surge <= 0.0 {
                     self.health -= damage;
                     self.hits += 1;
                     (self.flash, self.shake, self.invulnerable) = (0.4 + damage * 2.0, 0.5 + damage * 2.5, 0.8);
@@ -661,11 +682,12 @@ impl World {
             input.jump = true;
         }
         let mut want = orb_lane(group);
-        // A ghost in the wanted lane: the next lane over until it is passed.
-        let ghost = group * 5 + 3;
-        if let Row::Power(lane, GHOST) = row(ghost)
+        // A ghost, or a shield it has no use for, in the wanted lane: the next lane over until it
+        // is passed.
+        let avoid = group * 5 + 3;
+        if let Row::Power(lane, GHOST | SHIELD) = row(avoid)
             && lane == want
-            && self.z < ghost as f64 * 2.0 + 1.5
+            && self.z < avoid as f64 * 2.0 + 1.5
         {
             want = if want == 1 { 0 } else { want + 1 };
         }
@@ -679,6 +701,12 @@ impl World {
     /// The color of the torches where the runner is: the light of the zone.
     pub fn light(&self) -> [f32; 3] {
         self.palette()[0]
+    }
+
+    /// The color of the orbs where the runner is (the zone's accent, channels turned: `uAccent.gbr`).
+    pub fn orb_color(&self) -> [f32; 3] {
+        let accent = self.palette()[1];
+        [accent[1], accent[2], accent[0]]
     }
 
     /// Torch, accent and fog of where the runner is; the last tenth of a zone turns into the next.
@@ -949,7 +977,8 @@ impl Builder<'_> {
                 }
                 Row::Power(lane, power) if !world.collected.contains(&i) => {
                     let y = 1.05 + 0.12 * (world.time * 3.0 + i as f32).sin();
-                    self.sprite(lane as f32 * LANE, (y - 0.75, y + 0.75), z0 + 1.0, 0.75, 8.0 + power as f32, hash01(i, 5));
+                    let material = if power == SHIELD { 14.0 } else { 8.0 + power as f32 };
+                    self.sprite(lane as f32 * LANE, (y - 0.75, y + 0.75), z0 + 1.0, 0.75, material, hash01(i, 5));
                 }
                 Row::Orb(lane) if !world.collected.contains(&i) => {
                     let y = 1.0 + 0.12 * (world.time * 3.0 + i as f32).sin();

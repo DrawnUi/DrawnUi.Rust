@@ -12,7 +12,7 @@ mod scene;
 mod shaders;
 
 use plate::Plate;
-use scene::{HEALTH, Hint, Input, Phase, Scene};
+use scene::{HEALTH, Hint, Input, Phase, SHIELD, Scene};
 
 /// The amber of every line, caption and frame of the interface.
 const ACCENT: u32 = 0xFFFF_B060;
@@ -89,8 +89,12 @@ pub struct App {
     curtain_on: bool,
     shown_burn: f32,
     /// The health flash, the surge, the color of its rays, the orb pulse and the ghost's flash
-    /// the post effect was last given.
+    /// the post effect was last given; the shield (held, burst) likewise.
     shown_fx2: [f32; 7],
+    shown_shield: [f32; 2],
+    last_burst: f32,
+    /// The orbs' color the post effect was last given.
+    shown_orb: [f32; 3],
     /// The mark of a row of orbs (x2, x3) by the score, and the seconds it still shows.
     streak: Handle<SkiaLabel>,
     streak_time: f32,
@@ -136,6 +140,8 @@ fn post_effect() -> SkiaShaderEffect {
         .shader_code(shaders::POST)
         .uniform("uFx2", &[0.0, 0.0, 0.0, 0.0])
         .uniform("uRay", &[1.0, 0.55, 0.22])
+        .uniform("uOrb", &[0.62, 0.3, 1.0])
+        .uniform("uShield", &[0.0, 0.0])
         .on_compilation_error(|_me, _app: &mut App, _cx, error: &str| eprintln!("dungeon: post SkSL: {error}"))
 }
 
@@ -339,9 +345,12 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
     let pickup = world.take_pickup();
     let fx = [world.rush(), world.warp, world.flash, world.time];
     let light = world.light();
+    let orb = world.orb_color();
     // The ghost's blackout, plus 2 while its touch is felt (the post effect's haunt).
     let haunt = if world.ghost > 0.0 || world.killer.is_some() { 2.0 } else { 0.0 };
     let fx2 = [world.heal, world.surge_glow, light[0], light[1], light[2], world.orb_pulse, world.ghost + haunt];
+    // The aura fades over the shield's last two seconds.
+    let shield = [(world.shield / 2.0).min(1.0), world.shield_burst];
     let streak = world.streak;
     if let Some(effect) = scene.effect_mut::<SkiaShaderEffect>() {
         effect.set_uniform("uFx", &fx);
@@ -350,8 +359,22 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
             effect.set_uniform("uFx2", &[fx2[0], fx2[1], fx2[5], fx2[6]]);
             effect.set_uniform("uRay", &fx2[2..5]);
         }
+        if shield != app.shown_shield {
+            app.shown_shield = shield;
+            effect.set_uniform("uShield", &shield);
+        }
+        if orb != app.shown_orb {
+            app.shown_orb = orb;
+            effect.set_uniform("uOrb", &orb);
+        }
     }
     scene.mark(Dirty::DRAW);
+    // The shield took a hit: ABSORBED!
+    if shield[1] > app.last_burst && phase == Phase::Playing {
+        (app.notice, app.hint) = (1.3, Hint::None);
+        show_prompt(app, cx, Some(Prompt::Absorbed));
+    }
+    app.last_burst = shield[1];
 
     if phase != app.phase {
         if app.phase == Phase::Countdown && phase == Phase::Playing {
@@ -558,7 +581,7 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
         show_prompt(app, cx, Some(prompt));
     } else if let Some(power) = pickup.filter(|_| phase == Phase::Playing) {
         (app.notice, app.hint) = (1.3, Hint::None);
-        show_prompt(app, cx, Some(if power == HEALTH { Prompt::Health } else { Prompt::Surge }));
+        show_prompt(app, cx, Some(if power == HEALTH { Prompt::Health } else if power == SHIELD { Prompt::Shield } else { Prompt::Surge }));
     } else if app.notice > 0.0 {
         app.notice -= delta;
         if app.notice <= 0.0 {
@@ -606,6 +629,8 @@ enum Prompt {
     Lane,
     Health,
     Surge,
+    Shield,
+    Absorbed,
     Cheer(&'static str),
     /// The one-time lessons: after the first hit, after the first cell lost to the drain, after
     /// the first ghost gone by.
@@ -637,6 +662,8 @@ fn show_prompt(app: &mut App, cx: &mut Cx, prompt: Option<Prompt>) {
             // Health shows during its own green flash: white letters with a green glow stay readable in it.
             Prompt::Health => ("HEALTH UP", [0xFFFF_FFFF, 0xFFF0_FFE8, 0xFFA0_E890], [0.42, 1.0, 0.35]),
             Prompt::Surge => ("SURGE", [0xFFFF_FFFF, 0xFF90_F0FF, 0xFF30_B0FF], [0.5, 0.9, 1.0]),
+            Prompt::Shield => ("SHIELD", GOLD, [1.0, 0.8, 0.3]),
+            Prompt::Absorbed => ("ABSORBED!", GOLD, [1.0, 0.8, 0.3]),
             Prompt::Cheer(text) => (text, GOLD, tint(ACCENT)),
             Prompt::Heal => ("COLLECT ORBS TO HEAL", [0xFFFF_FFFF, 0xFFF0_FFE8, 0xFFA0_E890], [0.42, 1.0, 0.35]),
             Prompt::Drain => ("YOU TIRE AS YOU RUN", [0xFFFF_FFFF, 0xFFF0_FFE8, 0xFFA0_E890], [0.42, 1.0, 0.35]),
@@ -803,6 +830,7 @@ fn help_dialog(app: &mut App) -> Build<SkiaLayout> {
                     thing(narrow, swatch(14, 14, 0xFFC0_60FF, true).shape_type(ShapeType::Circle), "ORB", "A LITTLE HEALTH", GOOD),
                     thing(narrow, swatch(14, 14, 0xFF4D_FF66, true).shape_type(ShapeType::Circle), "GREEN CROSS", "RESTORES HEALTH", GOOD),
                     thing(narrow, swatch(14, 14, 0xFF4D_E6FF, true).shape_type(ShapeType::Circle), "SURGE", "FAST, NOTHING HURTS", GOOD),
+                    thing(narrow, swatch(14, 14, 0xFFFF_CC4D, true).shape_type(ShapeType::Circle), "SHIELD", "10 S: ONE PILLAR OR GHOST", GOOD),
                 ),
                 (
                     section("DO NOT TOUCH", HOT),
