@@ -89,6 +89,21 @@ fn orb_lane(group: i64) -> i32 {
     (hash(group, 1) % 3) as i32 - 1
 }
 
+/// The ghost's lane: any, but never the one lane a double pillar row leaves free, neither the
+/// row just before it (no time to step aside) nor the row just after it (no lane to step into).
+fn ghost_lane(group: i64) -> i32 {
+    let only_free = |i: i64| match row(i) {
+        Row::Pillars(mask) => (-1..=1).filter(|lane| mask & lane_bit(*lane) == 0).collect::<Vec<_>>().first().copied().filter(|_| mask.count_ones() == 2),
+        _ => None,
+    };
+    let (before, after) = (only_free(group * 5), only_free((group + 1) * 5));
+    let mut lane = (hash(group, 10) % 3) as i32 - 1;
+    while Some(lane) == before || Some(lane) == after {
+        lane = if lane == 1 { -1 } else { lane + 1 };
+    }
+    lane
+}
+
 fn lane_bit(lane: i32) -> u8 {
     1 << (lane + 1)
 }
@@ -100,7 +115,7 @@ const JUMPS_FROM: i64 = 90;
 /// Seconds before a hazard its prompt shows (longer while the run is young).
 const HINT_LEAD: f32 = 1.2;
 /// Seconds of running that cost one cell of health.
-const DRAIN_SECONDS: f32 = 3.0;
+const DRAIN_SECONDS: f32 = 4.0;
 
 /// The run is a function of the row number: an event every fifth row, orbs in between.
 fn row(i: i64) -> Row {
@@ -137,9 +152,9 @@ fn row(i: i64) -> Row {
         }
         // Now and then the middle orb of a group is a power-up: health in one group of twelve, a
         // surge in one of twenty-four (it goes through everything: more made the run too easy),
-        // the ghost in one group of four after the first thirty rows, in any lane.
+        // the ghost in about one group of five (21 %) after the first thirty rows, in any lane.
         3 => match hash(group, 6) % 24 {
-            _ if i > 30 && hash(group, 9) % 4 == 0 => Row::Power((hash(group, 10) % 3) as i32 - 1, GHOST),
+            _ if i > 30 && hash(group, 9) % 100 < 21 => Row::Power(ghost_lane(group), GHOST),
             0 | 1 => Row::Power(orb_lane(group), HEALTH),
             2 => Row::Power(orb_lane(group), SURGE),
             _ => Row::Orb(orb_lane(group)),

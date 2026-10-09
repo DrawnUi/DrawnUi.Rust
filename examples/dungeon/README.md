@@ -26,19 +26,21 @@ You run forward by yourself. Stay alive as long as you can.
 - **Ghost**: hangs in any lane. Far away only its eyes burn; as you come near the torches dim,
   the fog thickens, then it reveals itself and lunges. It takes three tenths of your health in a
   blackout; the one that takes the last of it stays over you while you lie there. Change lane.
-  One power row in four after 60 m is a ghost.
+  About one power row in five after 60 m is a ghost, in any lane but never the one lane a double
+  pillar row just before or after it leaves free.
 - **Green cross**: gives a fifth of your health back, in a green aura.
 - **Surge** (cyan arrows): four seconds much faster, and nothing hurts you; rays of light fly
   past along the borders of the screen and fade as the time runs out.
-- Running itself wears you down: a cell of health every three seconds, so the orbs are what keeps
+- Running itself wears you down: a cell of health every four seconds, so the orbs are what keeps
   you going. A pillar takes two tenths of your health, a beam or lava one tenth, a ghost three. The
   run ends at zero. After a hit nothing hurts you for a moment.
 - The run gets faster with distance, and the colors change every 400 units.
 
 A run starts calm: few hazards, pillars before the first jumps, the full share after about 40
 seconds. In that start every hazard comes with a prompt, JUMP or CHANGE LANE; after it, the first
-three of each kind in a session. Once a session: COLLECT ORBS TO HEAL after the first loss of
-health, AVOID GHOSTS after the first ghost gone by; LOW HEALTH under four cells. Every twelve
+three of each kind in a session. Once a session: YOU TIRE AS YOU RUN at the second cell lost,
+COLLECT ORBS TO HEAL after the first hit, AVOID GHOSTS after the first ghost gone by; LOW HEALTH
+under four cells. Every twelve
 seconds without a hit a word of praise shows instead.
 
 A run starts with a countdown. When the health is gone, GAME OVER stays a few seconds (any key

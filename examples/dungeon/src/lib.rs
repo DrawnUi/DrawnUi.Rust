@@ -104,6 +104,7 @@ pub struct App {
     /// first loss of health, the first ghost's touch.
     pending: Option<Prompt>,
     taught_heal: bool,
+    taught_drain: bool,
     taught_ghost: bool,
     /// LOW HEALTH was said; said again after the health came back over the line.
     warned_low: bool,
@@ -462,9 +463,13 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
             }
         }
     }
-    // The bar changes by whole cells (the drain moves the health every frame).
+    // The bar changes by whole cells (the drain moves the health every frame). The second cell
+    // lost in a session explains the drain.
     let lit = (health * 10.0).round() as usize;
     if lit != app.shown_cells {
+        if lit < app.shown_cells && lit <= 8 && !app.taught_drain && phase == Phase::Playing {
+            (app.taught_drain, app.pending) = (true, Some(Prompt::Drain));
+        }
         app.shown_cells = lit;
         // Under four cells: LOW HEALTH, once per fall under the line.
         let low = lit < 4;
@@ -602,8 +607,10 @@ enum Prompt {
     Health,
     Surge,
     Cheer(&'static str),
-    /// The one-time lessons: after the first loss of health, after the first ghost gone by.
+    /// The one-time lessons: after the first hit, after the first cell lost to the drain, after
+    /// the first ghost gone by.
     Heal,
+    Drain,
     Avoid,
     /// Under four cells of health.
     Low,
@@ -632,6 +639,7 @@ fn show_prompt(app: &mut App, cx: &mut Cx, prompt: Option<Prompt>) {
             Prompt::Surge => ("SURGE", [0xFFFF_FFFF, 0xFF90_F0FF, 0xFF30_B0FF], [0.5, 0.9, 1.0]),
             Prompt::Cheer(text) => (text, GOLD, tint(ACCENT)),
             Prompt::Heal => ("COLLECT ORBS TO HEAL", [0xFFFF_FFFF, 0xFFF0_FFE8, 0xFFA0_E890], [0.42, 1.0, 0.35]),
+            Prompt::Drain => ("YOU TIRE AS YOU RUN", [0xFFFF_FFFF, 0xFFF0_FFE8, 0xFFA0_E890], [0.42, 1.0, 0.35]),
             Prompt::Avoid => ("AVOID GHOSTS", [0xFFFF_FFFF, 0xFFD8_E4FF, 0xFF88_A0E0], [0.72, 0.84, 1.0]),
             Prompt::Low => ("LOW HEALTH", [0xFFFF_E0D8, 0xFFFF_6050, 0xFFC0_1810], [1.0, 0.25, 0.2]),
         };
