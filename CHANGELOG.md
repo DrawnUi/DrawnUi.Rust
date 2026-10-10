@@ -35,6 +35,11 @@ version before it. Commits in parentheses.
   ViewportOffsetX / ViewportOffsetY set: a jump, kept inside the content).
 - SkiaSwitch / SkiaCheckbox / SkiaRadioButton `default_value` (DrawnUI DefaultValue): a change sets
   `is_toggled` without running `on_toggled`.
+- SkiaButton `lock_panning` (DrawnUI LockPanning): the button keeps the pans of its press, a scroll
+  under it stays still.
+- SkiaSprite `Mut::set_current_frame` (DrawnUI CurrentFrame set).
+- SkiaEditor `is_focused(true)` on the builder (DrawnUI IsFocused): the editor takes the focus once
+  mounted.
 - SkiaShaderCarousel `on_from_to_changed` (DrawnUI FromToChanged): the transition is between other
   slides; read `transition_from_index` / `transition_to_index` in it.
 - SkiaDecoratedGrid's line defaults are written with its public `horizontal_gradient()` /

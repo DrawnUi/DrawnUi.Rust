@@ -209,6 +209,8 @@ pub struct SkiaEditor {
     text_changed: Option<TextHandler>,
     cursor_moved: Option<MovedHandler>,
     submitted: Option<TextHandler>,
+    /// `is_focused(true)` on the builder: the focus goes to the editor once it is mounted.
+    focus_on_mount: bool,
 }
 
 impl SkiaEditor {
@@ -243,6 +245,7 @@ impl SkiaEditor {
             text_changed: None,
             cursor_moved: None,
             submitted: None,
+            focus_on_mount: false,
         };
         let mut build = Build::new(editor).padding((12, 8)).horizontal_options(LayoutOptions::Fill).use_cache(CacheType::Operations);
         let id = build.id();
@@ -752,6 +755,13 @@ impl Has<LayoutProps> for SkiaEditor {
 }
 
 impl Build<SkiaEditor> {
+    /// True: the editor takes the focus once it is mounted, the keyboard comes up (DrawnUI
+    /// IsFocused). At run time: `Cx::focus`, `is_focused()`.
+    pub fn is_focused(mut self, focused: bool) -> Self {
+        self.control_mut().focus_on_mount = focused;
+        self
+    }
+
     /// Runs after the text changed, by typing or by the app, with the new text (C# TextChanged).
     /// Changes within one frame are reported once, on the next frame.
     pub fn on_text_changed<S: Any>(mut self, mut f: impl FnMut(&mut Mut<'_, SkiaEditor>, &mut S, &mut Cx<'_>, &str) + 'static) -> Self {
@@ -943,6 +953,10 @@ impl Control for SkiaEditor {
 
     /// The text normalized and clamped, the labels updated, the handlers scheduled.
     fn on_props_changed(&mut self, cx: &mut Cx) {
+        if std::mem::take(&mut self.focus_on_mount) {
+            cx.tree.focus_request = Some(Some(self.id));
+            cx.tree.needs_frame = true;
+        }
         let multiline = self.is_multiline();
         let text = &mut self.p.text;
         if text.contains(['\r', '\u{2029}']) || (!multiline && text.contains('\n')) {

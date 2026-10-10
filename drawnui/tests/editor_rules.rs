@@ -527,3 +527,18 @@ fn at_scale_2_presses_and_scrolling_land_on_the_same_characters() {
     let width = x_of(&host, long.chars().count()) - x_of(&host, 0);
     assert!((offset + (width + 4.0 - (600.0 - 48.0))).abs() < 2.0, "{offset} {width}");
 }
+
+/// DrawnUI IsFocused set on the builder: the editor has the focus once it is mounted.
+#[test]
+fn is_focused_on_the_builder_focuses_the_editor_when_mounted() {
+    for focused in [true, false] {
+        let build = move |app: &mut App| SkiaLayout::new().fill().children(SkiaEditor::new().text("abc").is_focused(focused).assign(&mut app.editor));
+        let ui = Ui::new(App::default(), build).font_bytes("FontText", FONT);
+        // A focused editor blinks its caret: frames, not settle.
+        let mut host = Headless::new(ui, 400, 300, 1.0);
+        for _ in 0..3 {
+            frame(&mut host);
+        }
+        assert_eq!(editor(&host).is_focused(), focused);
+    }
+}

@@ -78,6 +78,9 @@ props!(ButtonProps, ButtonBuild, ButtonSet {
     is_disabled / set_is_disabled: bool = false, NONE;
     /// Touch feedback played on Down, in the control's `touch_effect_color`.
     apply_effect / set_apply_effect: SkiaTouchAnimation = SkiaTouchAnimation::Ripple, NONE;
+    /// The button keeps every pan of its press: a scroll under it does not move (DrawnUI
+    /// LockPanning).
+    lock_panning / set_lock_panning: bool = false, NONE;
     /// The look for what the app left unset: fill, corners, font, minimum size, shadow.
     control_style / set_control_style: PrebuiltControlStyle = PrebuiltControlStyle::Unset, MEASURE_APPLY;
 });
@@ -280,6 +283,9 @@ impl Control for SkiaButton {
                 Handled::Yes
             }
             GestureKind::Panning => {
+                if self.p.lock_panning {
+                    return Handled::Yes;
+                }
                 let threshold = PAN_THRESHOLD * cx.base().scale;
                 let moved = gesture.location - self.last_down;
                 if moved.x.abs() > threshold || moved.y.abs() > threshold {

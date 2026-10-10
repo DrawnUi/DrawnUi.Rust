@@ -274,6 +274,16 @@ fn start_stop_and_seek() {
     assert_eq!(shown(&mut host), Color::YELLOW);
     host.frame_after(100.0);
     assert_eq!(shown(&mut host), Color::RED);
+
+    // DrawnUI CurrentFrame set: that frame; -1 or past the end: the last one.
+    host.ui.tree.get_mut(sprite).unwrap().stop();
+    host.ui.tree.get_mut(sprite).unwrap().set_current_frame(2);
+    host.frame_after(16.0);
+    assert_eq!(shown(&mut host), Color::BLUE);
+    assert_eq!(host.ui.tree.find::<SkiaSprite>(sprite).unwrap().current_frame(), 2);
+    host.ui.tree.get_mut(sprite).unwrap().set_current_frame(-1);
+    host.frame_after(16.0);
+    assert_eq!(shown(&mut host), Color::YELLOW);
 }
 
 #[test]

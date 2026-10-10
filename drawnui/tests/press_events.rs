@@ -42,3 +42,22 @@ fn a_tap_reports_down_tapped_and_up_once_each() {
         assert_eq!(host.ui.state.log, ["down 10 5", "tapped", "up 10 5"], "button: {button}");
     }
 }
+
+/// DrawnUI LockPanning: a button that keeps its pans leaves the scroll under it still.
+#[test]
+fn lock_panning_keeps_the_scroll_under_a_button_still() {
+    let scrolled = |lock: bool| {
+        let mut scroll = Handle::default();
+        let button = SkiaButton::new("Hold").fill_x().height_request(200).lock_panning(lock);
+        let content = SkiaLayout::column().fill_x().children((button, SkiaLayout::new().fill_x().height_request(2000)));
+        let built = SkiaScroll::new().fill().content(content).assign(&mut scroll);
+        let ui = Ui::new((), |_| SkiaLayout::new().fill().children(built));
+        let mut host = Headless::new(ui, 200, 300, 1.0);
+        host.settle();
+        host.pan((100.0, 150.0), (100.0, 50.0), 160.0, 10);
+        host.settle();
+        host.ui.tree.find::<SkiaScroll>(scroll).unwrap().viewport_offset_y()
+    };
+    assert!(scrolled(false) < -20.0, "the scroll takes the pan");
+    assert_eq!(scrolled(true), 0.0);
+}

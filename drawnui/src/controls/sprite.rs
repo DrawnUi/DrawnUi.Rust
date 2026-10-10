@@ -368,6 +368,14 @@ impl Mut<'_, SkiaSprite> {
         self.mark(Dirty::DRAW_APPLY);
     }
 
+    /// Shows a played frame, -1 or past the end: the last one; playing goes on from there
+    /// (DrawnUI CurrentFrame set).
+    pub fn set_current_frame(&mut self, frame: i32) {
+        let (last, frame_ms) = (self.play.total.saturating_sub(1), self.frame_duration_ms());
+        let frame = if frame < 0 { last } else { (frame as u32).min(last) };
+        self.seek(frame as f32 * frame_ms);
+    }
+
     /// Shows the frame at `ms` into a run (negative: from the end); playing goes on from there
     /// (C# Seek; upstream's playing animator overrides it at its next frame).
     pub fn seek(&mut self, ms: impl IntoProp<f32>) {
