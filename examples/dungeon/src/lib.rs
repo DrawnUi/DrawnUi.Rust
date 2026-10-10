@@ -18,6 +18,9 @@ use scene::{HEALTH, Hint, Input, Phase, SHIELD, Scene};
 const ACCENT: u32 = 0xFFFF_B060;
 /// What hurts.
 const HOT: u32 = 0xFFFF_3B6B;
+/// A link, and the same under the mouse.
+const LINK: u32 = 0xFF8C_B8FF;
+const LINK_HOVER: u32 = 0xFFD2_E4FF;
 const GOOD: u32 = 0xFF6C_FF5A;
 /// The arrows of the help come from this fallback font.
 const SYMBOLS: &str = "FontSymbols";
@@ -815,6 +818,13 @@ fn dialog(app: &mut App, title: &str, content: impl IntoChildren) -> Build<SkiaL
     ))
 }
 
+/// The help's link text, underlined under the mouse or when tapped (TextSpan has no builder for that).
+fn link_text(underline: bool) -> TextSpan {
+    let mut span = TextSpan::new("MADE WITH DRAWNUI FOR RUST");
+    span.underline = underline;
+    span
+}
+
 /// A heading inside a dialog.
 fn section(text: &str, color: u32) -> Build<SkiaLabel> {
     line(text, 12, color).margin((0, 10, 0, 0))
@@ -879,11 +889,23 @@ fn help_dialog(app: &mut App) -> Build<SkiaLayout> {
                 ),
                 controls(),
             ))),
-            // A link to DrawnUI for Rust, opened in the browser (a new tab on the web).
-            line("MADE WITH DRAWNUI FOR RUST", 11, ACCENT)
+            // A link to DrawnUI for Rust, opened in the browser (a new tab on the web): in the link's
+            // blue, lighter and underlined under the mouse or when tapped.
+            SkiaLabel::new("")
+                .font_size(11)
+                .text_color(Color::new(LINK))
+                .spans((link_text(false),))
                 .margin((0, 12, 0, 0))
                 .accessibility_role(Aria::LINK)
-                .on_tapped(|_me, _app: &mut App, cx| cx.open_url("https://drawnui.net/articles/rust")),
+                .on_hovered(|me, _app: &mut App, _cx, on| {
+                    me.set_text_color(Color::new(if on { LINK_HOVER } else { LINK }));
+                    me.set_spans((link_text(on),));
+                })
+                .on_tapped(|me, _app: &mut App, cx| {
+                    me.set_text_color(Color::new(LINK_HOVER));
+                    me.set_spans((link_text(true),));
+                    cx.open_url("https://drawnui.net/articles/rust");
+                }),
             button("OK")
                 .horizontal_options(LayoutOptions::End)
                 .margin((0, 6, 0, 0))
