@@ -47,12 +47,15 @@ props!(CarouselProps, CarouselBuild, CarouselSet {
 type Handler<V> = Box<dyn FnMut(Raw<'_>, &mut dyn Any, &mut Cx<'_>, V)>;
 type IndexHandler = Handler<usize>;
 type FlagHandler = Handler<bool>;
+type PointHandler = Handler<Point>;
 
 /// What the carousel tells the app, in the order it happened.
 #[derive(Clone, Copy)]
 enum Event {
     Index(usize),
     Transition(bool),
+    /// The slides came to rest, at this position (C# SkiaCarousel.Stopped).
+    Stopped(Point),
     Appearing(usize),
     Disappearing(usize),
 }
@@ -104,6 +107,8 @@ pub struct SkiaCarousel {
     on_transition_changed: Option<FlagHandler>,
     on_item_appearing: Option<IndexHandler>,
     on_item_disappearing: Option<IndexHandler>,
+    on_scrolled: Option<PointHandler>,
+    on_stopped: Option<PointHandler>,
 }
 
 impl Default for SkiaCarousel {
@@ -137,6 +142,8 @@ impl Default for SkiaCarousel {
             events: Vec::new(),
             on_selected_index_changed: None,
             on_transition_changed: None,
+            on_scrolled: None,
+            on_stopped: None,
             on_item_appearing: None,
             on_item_disappearing: None,
         }
@@ -443,6 +450,9 @@ impl SkiaCarousel {
             self.fix_position();
         }
         self.events.push(Event::Transition(value));
+        if !value {
+            self.events.push(Event::Stopped(self.s.position));
+        }
     }
 
     /// React CalculateChildPosition: slide `index` for the current position: its offset from the
@@ -574,6 +584,7 @@ fn tick(id: ControlId, time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> Fr
         wraps |= c.update_slides();
     }
     let moved = std::mem::take(&mut c.moved);
+    let scrolled = moved.then_some(c.s.position);
     let (pixels, remeasure) = (c.pixels(), c.p.dynamic_size && c.events.iter().any(|e| matches!(e, Event::Index(_))));
     let mut events = std::mem::take(&mut c.events);
     if moved {
@@ -585,9 +596,14 @@ fn tick(id: ControlId, time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> Fr
     if remeasure {
         cx.tree.invalidate(id, Dirty::MEASURE);
     }
+    // C# SnappingLayout.Scrolled: the position moved (once a frame).
+    if let Some(position) = scrolled {
+        tick.state_touched |= run(cx, id, state, |c| &mut c.on_scrolled, position);
+    }
     for event in events.drain(..) {
         tick.state_touched |= match event {
             Event::Index(i) => run(cx, id, state, |c| &mut c.on_selected_index_changed, i),
+            Event::Stopped(p) => run(cx, id, state, |c| &mut c.on_stopped, p),
             Event::Appearing(i) => run(cx, id, state, |c| &mut c.on_item_appearing, i),
             Event::Disappearing(i) => run(cx, id, state, |c| &mut c.on_item_disappearing, i),
             Event::Transition(t) => run(cx, id, state, |c| &mut c.on_transition_changed, t),
@@ -892,6 +908,13 @@ fn carousel_part<T: Control>(control: &mut T) -> &mut SkiaCarousel {
     part_mut(control).expect("the control embeds a SkiaCarousel")
 }
 
+fn point_handler<T: Control, S: Any>(mut f: impl FnMut(&mut Mut<'_, T>, &mut S, &mut Cx<'_>, Point) + 'static) -> PointHandler {
+    Box::new(move |me, state, cx, value| {
+        let state = state.downcast_mut::<S>().unwrap_or_else(|| wrong_state::<S>());
+        f(&mut me.typed(), state, cx, value)
+    })
+}
+
 fn index_handler<T: Control, S: Any>(mut f: impl FnMut(&mut Mut<'_, T>, &mut S, &mut Cx<'_>, usize) + 'static) -> IndexHandler {
     Box::new(move |me, state, cx, index| {
         let state = state.downcast_mut::<S>().unwrap_or_else(|| wrong_state::<S>());
@@ -915,6 +938,8 @@ impl<T: Has<CarouselProps>> Build<T> {
         }));
         self
     }
+
+
 
     /// Runs when a slide comes on screen (React ItemAppearing).
     pub fn on_item_appearing<S: Any>(mut self, f: impl FnMut(&mut Mut<'_, T>, &mut S, &mut Cx<'_>, usize) + 'static) -> Self {
@@ -954,5 +979,21 @@ impl Mut<'_, SkiaCarousel> {
     pub fn scroll_to(&mut self, index: usize, animate: bool) {
         self.control_mut().order = Some((index, animate));
         self.mark(Dirty::APPLY);
+    }
+}
+
+impl Build<SkiaCarousel> {
+    /// Runs when the slides move, with their position in points, once a frame (DrawnUI
+    /// SnappingLayout.Scrolled).
+    pub fn on_scrolled<S: Any>(mut self, f: impl FnMut(&mut Mut<'_, SkiaCarousel>, &mut S, &mut Cx<'_>, Point) + 'static) -> Self {
+        carousel_part(self.control_mut()).on_scrolled = Some(point_handler(f));
+        self
+    }
+
+    /// Runs when the slides came to rest, with their position in points (DrawnUI
+    /// SkiaCarousel.Stopped).
+    pub fn on_stopped<S: Any>(mut self, f: impl FnMut(&mut Mut<'_, SkiaCarousel>, &mut S, &mut Cx<'_>, Point) + 'static) -> Self {
+        carousel_part(self.control_mut()).on_stopped = Some(point_handler(f));
+        self
     }
 }

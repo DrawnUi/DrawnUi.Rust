@@ -43,7 +43,8 @@ props!(DrawerProps, DrawerBuild, DrawerSet {
 });
 
 /// A handler that gets the drawer as `me`, the app state untyped, and the open state.
-pub(crate) type FlagHandler = Box<dyn FnMut(Raw<'_>, &mut dyn Any, &mut Cx<'_>, bool)>;
+pub(crate) type FlagHandler = Handler<bool>;
+pub(crate) type Handler<V> = Box<dyn FnMut(Raw<'_>, &mut dyn Any, &mut Cx<'_>, V)>;
 
 pub struct SkiaDrawer {
     /// The children (React: SnappingLayout is a SkiaLayout).
@@ -68,6 +69,12 @@ pub struct SkiaDrawer {
     /// Set by `on_is_open_changed`, or directly by code that holds the app state untyped (the shell).
     pub(crate) on_is_open_changed: Option<FlagHandler>,
     pub(crate) on_state_transition_complete: Option<FlagHandler>,
+    /// The in-transition state the handlers last heard of, and a stop to report.
+    transition_reported: bool,
+    stopped: Option<Point>,
+    on_transition_changed: Option<FlagHandler>,
+    on_scrolled: Option<Handler<Point>>,
+    on_stopped: Option<Handler<Point>>,
 }
 
 impl Default for SkiaDrawer {
@@ -90,6 +97,11 @@ impl Default for SkiaDrawer {
             transition_complete: None,
             on_is_open_changed: None,
             on_state_transition_complete: None,
+            transition_reported: false,
+            stopped: None,
+            on_transition_changed: None,
+            on_scrolled: None,
+            on_stopped: None,
         }
     }
 }
@@ -223,18 +235,28 @@ fn tick(id: ControlId, time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> Fr
     if let Some((position, done)) = d.s.animate(time_ms) {
         d.apply_position(position);
         if done {
-            // React OnAnimationStopped.
+            // React OnAnimationStopped; C# raises Stopped when its animator stops.
             d.update_transition();
             d.update_reported_position();
+            d.stopped = Some(d.s.position);
         }
     }
     // React SnappingLayout.Render.
     d.update_transition();
     let (moved, position) = (std::mem::take(&mut d.moved), d.s.position);
-    let (open_changed, complete) = (d.open_changed.take(), d.transition_complete.take());
+    let (open_changed, complete, stopped) = (d.open_changed.take(), d.transition_complete.take(), d.stopped.take());
+    let transition = (d.s.in_transition != d.transition_reported).then_some(d.s.in_transition);
+    d.transition_reported = d.s.in_transition;
     if moved {
         me.set_translation_x(position.x);
         me.set_translation_y(position.y);
+    }
+    // C# SnappingLayout.Scrolled and TransitionChanged.
+    if moved {
+        tick.state_touched |= run(cx, id, state, |d| &mut d.on_scrolled, position);
+    }
+    if let Some(value) = transition {
+        tick.state_touched |= run(cx, id, state, |d| &mut d.on_transition_changed, value);
     }
     if let Some(open) = open_changed {
         tick.state_touched |= run(cx, id, state, |d| &mut d.on_is_open_changed, open);
@@ -242,16 +264,20 @@ fn tick(id: ControlId, time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> Fr
     if let Some(open) = complete {
         tick.state_touched |= run(cx, id, state, |d| &mut d.on_state_transition_complete, open);
     }
+    if let Some(at) = stopped {
+        tick.state_touched |= run(cx, id, state, |d| &mut d.on_stopped, at);
+    }
     let Some(mut me) = cx.tree.find_mut::<SkiaDrawer>(id) else { return tick };
     let d = me.control_mut();
-    let pending = d.moved || d.open_changed.is_some() || d.transition_complete.is_some();
+    let pending = d.moved || d.open_changed.is_some() || d.transition_complete.is_some() || d.stopped.is_some()
+        || d.s.in_transition != d.transition_reported;
     d.ticking = d.s.is_animating() || pending;
     tick.keep = d.ticking;
     tick
 }
 
 /// Runs one handler with the drawer as `me`, then puts it back, unless it set another one.
-fn run(cx: &mut Cx<'_>, id: ControlId, state: &mut dyn Any, slot: fn(&mut SkiaDrawer) -> &mut Option<FlagHandler>, value: bool) -> bool {
+fn run<V>(cx: &mut Cx<'_>, id: ControlId, state: &mut dyn Any, slot: fn(&mut SkiaDrawer) -> &mut Option<Handler<V>>, value: V) -> bool {
     let Some(mut f) = cx.tree.find_mut::<SkiaDrawer>(id).and_then(|mut me| slot(me.control_mut()).take()) else { return false };
     fire(cx, id, |me, cx| f(me, &mut *state, cx, value));
     if let Some(mut me) = cx.tree.find_mut::<SkiaDrawer>(id) {
@@ -466,6 +492,13 @@ fn drawer_part<T: Control>(control: &mut T) -> &mut SkiaDrawer {
     part_mut(control).expect("the control embeds a SkiaDrawer")
 }
 
+fn value_handler<T: Control, S: Any, V: 'static>(mut f: impl FnMut(&mut Mut<'_, T>, &mut S, &mut Cx<'_>, V) + 'static) -> Handler<V> {
+    Box::new(move |me, state, cx, value| {
+        let state = state.downcast_mut::<S>().unwrap_or_else(|| wrong_state::<S>());
+        f(&mut me.typed(), state, cx, value)
+    })
+}
+
 fn flag_handler<T: Control, S: Any>(mut f: impl FnMut(&mut Mut<'_, T>, &mut S, &mut Cx<'_>, bool) + 'static) -> FlagHandler {
     Box::new(move |me, state, cx, value| {
         let state = state.downcast_mut::<S>().unwrap_or_else(|| wrong_state::<S>());
@@ -479,6 +512,9 @@ impl<T: Has<DrawerProps>> Build<T> {
         drawer_part(self.control_mut()).on_is_open_changed = Some(flag_handler(f));
         self
     }
+
+
+
 
     /// Runs when the drawer came to rest open (true) or closed (React StateTransitionComplete).
     pub fn on_state_transition_complete<S: Any>(mut self, f: impl FnMut(&mut Mut<'_, T>, &mut S, &mut Cx<'_>, bool) + 'static) -> Self {
@@ -495,5 +531,28 @@ impl Mut<'_, SkiaDrawer> {
     /// React Close.
     pub fn close(&mut self) {
         self.set_is_open(false);
+    }
+}
+
+impl Build<SkiaDrawer> {
+    /// Runs when the drawer starts moving (true) and when it came to rest (false) (DrawnUI
+    /// SnappingLayout.TransitionChanged).
+    pub fn on_transition_changed<S: Any>(mut self, f: impl FnMut(&mut Mut<'_, SkiaDrawer>, &mut S, &mut Cx<'_>, bool) + 'static) -> Self {
+        drawer_part(self.control_mut()).on_transition_changed = Some(flag_handler(f));
+        self
+    }
+
+    /// Runs when the drawer moves, with its position in points, once a frame (DrawnUI
+    /// SnappingLayout.Scrolled).
+    pub fn on_scrolled<S: Any>(mut self, f: impl FnMut(&mut Mut<'_, SkiaDrawer>, &mut S, &mut Cx<'_>, Point) + 'static) -> Self {
+        drawer_part(self.control_mut()).on_scrolled = Some(value_handler(f));
+        self
+    }
+
+    /// Runs when an animation of the drawer ended, with its position in points (DrawnUI
+    /// SkiaDrawer.Stopped).
+    pub fn on_stopped<S: Any>(mut self, f: impl FnMut(&mut Mut<'_, SkiaDrawer>, &mut S, &mut Cx<'_>, Point) + 'static) -> Self {
+        drawer_part(self.control_mut()).on_stopped = Some(value_handler(f));
+        self
     }
 }
