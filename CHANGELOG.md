@@ -51,6 +51,11 @@ version before it. Commits in parentheses.
 
 ### Fixed
 
+- The hand cursor showed over everything inside and beside an open SkiaShell popup (its background
+  wrapper takes taps to close it) and over disabled buttons: the cursor now follows the control's own
+  "can interact" answer, as the accessibility snapshot does.
+- `Cx::open_url` did nothing on Android and iOS: Android starts an ACTION_VIEW intent, iOS calls
+  UIApplication `openURL:options:completionHandler:` (type-checked; not run on a device yet).
 - No per-frame checks while content moves or animates: the animators of hidden controls and the
   hover of hidden controls are looked at again only after a change that can show or hide a control
   (`is_visible` set, a mount, a list cell shown or released, a new animator), not every frame; a

@@ -982,6 +982,66 @@ mod android {
         }
     }
 
+    /// `activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)))`: the browser, or
+    /// the app that takes the link, opens it. Nothing happens when no app takes it.
+    pub(super) fn open_url(url: &str) {
+        use jni_sys::{JNIEnv, JavaVM, jobject, jvalue};
+        use std::ptr::null_mut;
+        let Some(app) = super::android_app() else { return };
+        let Ok(url) = std::ffi::CString::new(url) else { return };
+        let (vm, activity) = (app.vm_as_ptr() as *mut JavaVM, app.activity_as_ptr() as jobject);
+        // SAFETY: as `system_insets`: framework classes and methods present at every API level,
+        // from a thread attached to the activity's VM; every call is checked for a thrown
+        // exception before the next one, and the local references are deleted.
+        unsafe {
+            let mut env: *mut JNIEnv = null_mut();
+            let Some(attach) = (**vm).AttachCurrentThread else { return };
+            attach(vm, &mut env as *mut *mut JNIEnv as *mut *mut std::ffi::c_void, null_mut());
+            let e = &**env;
+            let mut locals: Vec<jobject> = Vec::with_capacity(8);
+            let ok = |env: *mut JNIEnv, value: jobject| -> Option<jobject> {
+                if (e.ExceptionCheck?)(env) != 0 {
+                    (e.ExceptionClear?)(env);
+                    return None;
+                }
+                (!value.is_null()).then_some(value)
+            };
+            let mut open = || -> Option<()> {
+                let uri_class = ok(env, (e.FindClass?)(env, c"android/net/Uri".as_ptr()))?;
+                locals.push(uri_class);
+                let parse = (e.GetStaticMethodID?)(env, uri_class, c"parse".as_ptr(), c"(Ljava/lang/String;)Landroid/net/Uri;".as_ptr());
+                ok(env, parse as jobject)?;
+                let text = ok(env, (e.NewStringUTF?)(env, url.as_ptr()))?;
+                locals.push(text);
+                let uri = ok(env, (e.CallStaticObjectMethodA?)(env, uri_class, parse, [jvalue { l: text }].as_ptr()))?;
+                locals.push(uri);
+                let intent_class = ok(env, (e.FindClass?)(env, c"android/content/Intent".as_ptr()))?;
+                locals.push(intent_class);
+                let init = (e.GetMethodID?)(env, intent_class, c"<init>".as_ptr(), c"(Ljava/lang/String;Landroid/net/Uri;)V".as_ptr());
+                ok(env, init as jobject)?;
+                let action = ok(env, (e.NewStringUTF?)(env, c"android.intent.action.VIEW".as_ptr()))?;
+                locals.push(action);
+                let intent = ok(env, (e.NewObjectA?)(env, intent_class, init, [jvalue { l: action }, jvalue { l: uri }].as_ptr()))?;
+                locals.push(intent);
+                let activity_class = ok(env, (e.GetObjectClass?)(env, activity))?;
+                locals.push(activity_class);
+                let start = (e.GetMethodID?)(env, activity_class, c"startActivity".as_ptr(), c"(Landroid/content/Intent;)V".as_ptr());
+                ok(env, start as jobject)?;
+                (e.CallVoidMethodA?)(env, activity, start, [jvalue { l: intent }].as_ptr());
+                // No app takes the link: ActivityNotFoundException, cleared here.
+                ok(env, activity).map(|_| ())
+            };
+            if open().is_none() {
+                log("could not open a link");
+            }
+            if let Some(delete) = e.DeleteLocalRef {
+                for local in locals {
+                    delete(env, local);
+                }
+            }
+        }
+    }
+
     /// The system bars and the display cutout over the window, pixels (left, top, right, bottom):
     /// `getWindow().getDecorView().getRootWindowInsets()`, its `getInsets(systemBars() |
     /// displayCutout())` from API 30, its system window insets before. `None` until the view has
@@ -1085,6 +1145,46 @@ mod android {
 }
 
 /// Opens a link in the system browser, without a shell in between (a `&` in the link stays in it).
+/// Android: an ACTION_VIEW intent; iOS: UIApplication openURL.
+#[cfg(target_os = "android")]
+fn open_url(url: &str) {
+    android::open_url(url);
+}
+
+/// Opens a link in the system browser (UIApplication `openURL:options:completionHandler:`, the
+/// only form iOS 18 still honors).
+#[cfg(target_os = "ios")]
+fn open_url(url: &str) {
+    use objc2::encode::{Encode, Encoding};
+    use objc2::rc::Retained;
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
+    use objc2_foundation::NSString;
+    /// No completion handler: a null block.
+    #[repr(transparent)]
+    struct NoBlock(*const std::ffi::c_void);
+    // SAFETY: a pointer to a block, null here, which the method accepts.
+    unsafe impl Encode for NoBlock {
+        const ENCODING: Encoding = Encoding::Block;
+    }
+    let text = NSString::from_str(url);
+    // SAFETY: Foundation and UIKit class methods with the argument types they declare, on the main
+    // thread (frames end there).
+    unsafe {
+        let link: Option<Retained<AnyObject>> = msg_send![class!(NSURL), URLWithString: &*text];
+        let Some(link) = link else {
+            eprintln!("drawnui: could not open {url}: not a URL");
+            return;
+        };
+        let app: Option<Retained<AnyObject>> = msg_send![class!(UIApplication), sharedApplication];
+        let options: Retained<AnyObject> = msg_send![class!(NSDictionary), dictionary];
+        if let Some(app) = app {
+            let _: () = msg_send![&*app, openURL: &*link, options: &*options, completionHandler: NoBlock(std::ptr::null())];
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn open_url(url: &str) {
     #[cfg(windows)]
     let mut command = std::process::Command::new("rundll32.exe");

@@ -781,6 +781,12 @@ impl Control for PopupWrapper {
         Some(&mut self.layout)
     }
 
+    /// Its tapped handler only closes the popup on a tap beside the content: the background is
+    /// nothing to interact with (no hand over it, no tab stop).
+    fn accessibility_can_interact(&self) -> Option<bool> {
+        Some(false)
+    }
+
     fn on_gesture(&mut self, cx: &mut GestureCx, gesture: &Gesture) -> Handled {
         if gesture.kind == GestureKind::Tapped {
             // Through the content's transform, as C# HitIsInside: a popup scaling in is hit where drawn.

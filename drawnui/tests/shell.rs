@@ -912,3 +912,38 @@ fn pages_keep_out_of_the_safe_area_fullscreen_or_not() {
     assert_eq!(host.rect(content), Rect::new(10.0, 76.0, W - 5.0, H - 30.0));
 }
 
+
+/// The hand shows over what a tap acts on, never over a popup's background (its wrapper takes
+/// taps only to close the popup) nor over a disabled button: the cursor follows the control's own
+/// "can interact" answer, as the accessibility snapshot does (React: accessible tappable controls).
+#[test]
+fn a_popup_background_and_a_disabled_button_show_no_hand() {
+    let mut host = pages();
+    let id = host.ui.state.shell;
+    let (mut text, mut go, mut off) = (Handle::<SkiaLabel>::default(), Handle::<SkiaButton>::default(), Handle::<SkiaButton>::default());
+    let card = SkiaLayout::column()
+        .width_request(200)
+        .background_color(Color::WHITE)
+        .children((
+            SkiaLabel::new("Plain text").assign(&mut text),
+            SkiaButton::new("Go").assign(&mut go).on_tapped(|_me, _app: &mut App, _cx| {}),
+            SkiaButton::new("Off").is_disabled(true).assign(&mut off).on_tapped(|_me, _app: &mut App, _cx| {}),
+        ));
+    let close = PopupOptions { close_when_background_tapped: true, ..PopupOptions::default() };
+    host.ui.tree.cx().open_popup(id, card, close);
+    host.settle();
+    let at = |host: &mut Host, id: ControlId| {
+        let rect = host.rect(id);
+        host.hover(rect.center_x(), rect.center_y());
+        host.ui.cursor()
+    };
+    assert_eq!(at(&mut host, go.id()), Cursor::Pointer, "a button");
+    assert_eq!(at(&mut host, text.id()), Cursor::Default, "text in the popup");
+    assert_eq!(at(&mut host, off.id()), Cursor::Default, "a disabled button");
+    host.hover(5.0, 5.0);
+    assert_eq!(host.ui.cursor(), Cursor::Default, "the background beside the popup");
+    // A tap there still closes the popup.
+    host.tap(5.0, 5.0);
+    host.settle();
+    assert_eq!(shell(&host).popups_count(), 0);
+}

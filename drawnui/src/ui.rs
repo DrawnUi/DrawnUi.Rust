@@ -1261,7 +1261,9 @@ impl<S: 'static> Ui<S> {
         std::mem::swap(over, over_next);
         self.update_hovered();
         let Ui { tree, over, .. } = self;
-        // The cursor: the deepest control with an answer, else the hand over anything tappable.
+        // The cursor: the deepest control with an answer, else the hand over anything that takes a
+        // tap, by the same "can interact" answer as the accessibility snapshot (a disabled button,
+        // a popup's background: no hand).
         let mut cursor = Cursor::Default;
         for &id in over.iter().rev() {
             let Some(node) = tree.node(id) else { continue };
@@ -1269,7 +1271,8 @@ impl<S: 'static> Ui<S> {
                 cursor = c;
                 break;
             }
-            let interactive = node.base.p.accessibility_can_interact.unwrap_or(node.handlers.tapped.is_some());
+            let can_interact = node.base.p.accessibility_can_interact.or_else(|| node.kind.as_deref().and_then(|k| k.accessibility_can_interact()));
+            let interactive = can_interact.unwrap_or(node.handlers.tapped.is_some());
             if interactive {
                 cursor = Cursor::Pointer;
                 break;
