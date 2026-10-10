@@ -947,3 +947,23 @@ fn a_popup_background_and_a_disabled_button_show_no_hand() {
     host.settle();
     assert_eq!(shell(&host).popups_count(), 0);
 }
+
+/// A hash typed into the address bar, or a plain `#/route` link, makes a new browser entry
+/// without the shell's depth (the host reports 0): the shell goes to that hash, it is no Back to
+/// the root. A real Back to the first entry (no hash) still goes home.
+#[test]
+fn a_typed_hash_on_a_page_opens_that_page() {
+    let mut host = browser("");
+    let id = host.ui.state.shell;
+    host.ui.tree.cx().go_to(id, "a", false);
+    host.settle();
+    host.take_history();
+    browse(&mut host, "#/b", 0);
+    assert_eq!(stack(&host), ["b"]);
+    assert_eq!(host.take_history(), [HistoryOp::Replace { depth: 1, hash: Some("#/b".into()) }]);
+    // Back: the entry "a" was pushed with depth 1, then the first one.
+    browse(&mut host, "#/a", 1);
+    assert_eq!(stack(&host), ["a"]);
+    browse(&mut host, "", 0);
+    assert_eq!(stack(&host), Vec::<String>::new());
+}

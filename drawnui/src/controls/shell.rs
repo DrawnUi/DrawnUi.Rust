@@ -1325,7 +1325,13 @@ fn back_through_history(cx: &mut Cx, id: ControlId, kind: HistoryKind) -> bool {
 fn history_moved(cx: &mut Cx, id: ControlId, state: &mut dyn Any, depth: u32, hash: &str) {
     let Some(s) = shell(cx.tree, id) else { return };
     let count = s.history.len() as u32;
-    if depth < count {
+    // An entry of ours shows the stack it was pushed with. A hash typed into the address bar or a
+    // plain `#/route` link makes a new entry without our depth (the host reports 0): that is a
+    // move to its hash, not a Back to the root (React reads it as a Back).
+    let target = parse_hash(s, hash);
+    let pages = s.history.iter().take(depth as usize).filter(|k| **k == HistoryKind::Page).count();
+    let ours = target.iter().map(String::as_str).eq(s.navigation_stack().take(pages));
+    if depth < count && ours {
         while let Some(kind) = shell(cx.tree, id).filter(|s| s.history.len() as u32 > depth).and_then(|s| s.history.pop()) {
             let done = match kind {
                 HistoryKind::Popup => match shell(cx.tree, id).and_then(|s| s.popups.last_mut()) {
@@ -1363,7 +1369,6 @@ fn history_moved(cx: &mut Cx, id: ControlId, state: &mut dyn Any, depth: u32, ha
         }
         return;
     }
-    let target = parse_hash(s, hash);
     if depth == count && target.iter().map(String::as_str).eq(s.navigation_stack()) {
         return;
     }
