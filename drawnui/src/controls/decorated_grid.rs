@@ -27,9 +27,9 @@ fn line(along_x: bool) -> SkiaGradient {
 
 props!(DecoratedGridProps, DecoratedGridBuild, DecoratedGridSet {
     /// Painted between rows over the whole `row_spacing`, over black; `None` paints nothing there.
-    horizontal_line / set_horizontal_line: Option<Box<SkiaGradient>> = Some(Box::new(line(true))), DRAW;
+    horizontal_line / set_horizontal_line: Option<Box<SkiaGradient>> = Some(Box::new(SkiaDecoratedGrid::horizontal_gradient())), DRAW;
     /// Painted between columns over the whole `column_spacing`; `None` paints nothing there.
-    vertical_line / set_vertical_line: Option<Box<SkiaGradient>> = Some(Box::new(line(false))), DRAW;
+    vertical_line / set_vertical_line: Option<Box<SkiaGradient>> = Some(Box::new(SkiaDecoratedGrid::vertical_gradient())), DRAW;
 });
 
 /// A Grid filling the width, with lines in its spacing.

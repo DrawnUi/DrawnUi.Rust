@@ -12,6 +12,14 @@ version before it. Commits in parentheses.
   data or a binding (`String`) works as an `Aria` constant does, which stays free
   (`Cow<'static, str>`, as DrawnUI's string AccessibilityRole).
 
+### Added
+
+- A scroll's content, header, footer and refresh indicator can be set or removed at run time:
+  `Cx::set_scroll_content`, `set_scroll_header`, `set_scroll_footer`, `set_refresh_indicator`
+  (DrawnUI's settable SkiaScroll.Content / Header / Footer / RefreshIndicator).
+- SkiaDecoratedGrid's line defaults are written with its public `horizontal_gradient()` /
+  `vertical_gradient()`, so code that copies a default can reset to it.
+
 ### Breaking
 
 - `AccessibilityNode::role` and `live` are `Cow<'static, str>`: compare `&*node.role`.

@@ -1790,6 +1790,61 @@ impl<T: Has<ScrollProps>> Build<T> {
 }
 
 impl Cx<'_> {
+    /// Sets or, with `None`, removes the scroll's content at run time (DrawnUI `SkiaScroll.Content`).
+    pub fn set_scroll_content(&mut self, scroll: impl Into<ControlId>, content: Option<Detached>) {
+        self.set_scroll_slot(scroll.into(), |slots| &mut slots.content, content);
+    }
+
+    /// Sets or removes the scroll's header at run time (DrawnUI `SkiaScroll.Header`); see `header`.
+    pub fn set_scroll_header(&mut self, scroll: impl Into<ControlId>, header: Option<Detached>) {
+        self.set_scroll_slot(scroll.into(), |slots| &mut slots.header, header);
+    }
+
+    /// Sets or removes the scroll's footer at run time (DrawnUI `SkiaScroll.Footer`).
+    pub fn set_scroll_footer(&mut self, scroll: impl Into<ControlId>, footer: Option<Detached>) {
+        self.set_scroll_slot(scroll.into(), |slots| &mut slots.footer, footer);
+    }
+
+    /// Sets or removes the scroll's refresh indicator at run time (DrawnUI
+    /// `SkiaScroll.RefreshIndicator`); see `refresh_indicator`.
+    pub fn set_refresh_indicator(&mut self, scroll: impl Into<ControlId>, indicator: Option<Detached>) {
+        self.set_scroll_slot(scroll.into(), |slots| &mut slots.indicator, indicator);
+    }
+
+    /// A slot is a child index: a new child takes the old one's place, a new slot goes last, a
+    /// removed one moves the slots after it up.
+    fn set_scroll_slot(&mut self, scroll: ControlId, pick: fn(&mut Slots) -> &mut Option<usize>, child: Option<Detached>) {
+        let Some(at) = self.tree.find_mut::<SkiaScroll>(scroll).map(|mut s| *pick(&mut s.control_mut().slots)) else { return };
+        let old = at.and_then(|at| self.tree.children(scroll).get(at).copied());
+        let now = match (old, child) {
+            (Some(old), Some(child)) => {
+                self.replace_child(old, child);
+                at
+            }
+            (Some(old), None) => {
+                self.tree.remove_now(old);
+                if let (Some(at), Some(mut me)) = (at, self.tree.find_mut::<SkiaScroll>(scroll)) {
+                    let slots = &mut me.control_mut().slots;
+                    for slot in [&mut slots.content, &mut slots.header, &mut slots.footer, &mut slots.indicator].into_iter().flatten() {
+                        if *slot > at {
+                            *slot -= 1;
+                        }
+                    }
+                }
+                None
+            }
+            (None, Some(child)) => {
+                let id = self.add_child(scroll, child);
+                self.tree.children(scroll).iter().position(|c| *c == id)
+            }
+            (None, None) => return,
+        };
+        if let Some(mut me) = self.tree.find_mut::<SkiaScroll>(scroll) {
+            *pick(&mut me.control_mut().slots) = now;
+        }
+        self.tree.invalidate(scroll, crate::types::Dirty::MEASURE);
+    }
+
     /// Runs `change` on a mounted scroll, then writes its offset and starts its frames.
     fn scroll_with(&mut self, id: ControlId, change: impl FnOnce(&mut SkiaScroll)) {
         let Some(mut me) = self.tree.find_mut::<SkiaScroll>(id) else { return };
