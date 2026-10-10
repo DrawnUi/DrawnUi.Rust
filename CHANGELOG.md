@@ -20,6 +20,8 @@ version before it. Commits in parentheses.
 - `on_down` / `on_up` on every control (DrawnUI SkiaButton Down / Up): a press and its release, with
   the point in the control's points; the control gets them when it takes the press or no child under
   it does. A tap gives Down, Tapped, Up (the recognizer's order; C# raises Up before Tapped).
+- SkiaSvg `on_success` / `on_error` (DrawnUI Success / Error): the picture of a source or markup is
+  there, or could not be loaded or parsed; on the next frame, with the source.
 - `Mut::set_scale` and `ControlProps::scale()` (DrawnUI `Scale`: sets scale_x and scale_y together,
   reads the smaller), beside the builder's `scale`.
 - SkiaCarousel `on_scrolled` / `on_stopped`; SkiaDrawer `on_scrolled` / `on_stopped` /

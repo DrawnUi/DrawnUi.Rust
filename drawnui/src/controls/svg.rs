@@ -6,8 +6,8 @@
 //! A file is loaded once however many controls show it: a control finds the picture, or the load
 //! in flight, on the other controls showing that file; the arriving bytes go to every control
 //! still waiting for them. Nothing is kept once no control shows the file.
-// ponytail: no Success / Error handlers (the demo uses none), no font for text inside an SVG on
-// the web (Skia's default font manager is empty there).
+// ponytail: no font for text inside an SVG on the web (Skia's default font manager is empty
+// there).
 
 use skia_safe::{
     BlendMode, ClipOp, Color, Contains, FilterMode, ISize, Image, ImageInfo, MipmapMode, Paint, Rect, SamplingOptions,
@@ -18,11 +18,14 @@ use skia_safe::{
     },
 };
 
+use std::any::Any;
+
+use crate::animators::{self, FrameTick};
 use crate::control::{Control, Has, LayoutCx, PaintCx, part, part_mut};
-use crate::controls::image::{DrawImageAlignment, TransformAspect, rescale_aspect};
+use crate::controls::image::{DrawImageAlignment, Loaded, TransformAspect, rescale_aspect};
 use crate::controls::sprite::picture_size;
 use crate::props;
-use crate::tree::{Build, Cx, Tree};
+use crate::tree::{Build, ControlId, Cx, Handle, Tree, wrong_state};
 use crate::types::{CacheType, Dirty, IntoProp};
 
 props!(SvgProps, SvgBuild, SvgSet {
@@ -57,18 +60,41 @@ pub struct SkiaSvg {
     error: bool,
     /// Anti-aliased, with the tint.
     paint: Paint,
+    /// For the frame animator that runs the handlers: `on_props_changed` gets no id.
+    id: Option<ControlId>,
+    /// A load or parse ended: true = the picture is there (DrawnUI Success), false = Error.
+    loaded: Option<bool>,
+    on_success: Option<Loaded>,
+    on_error: Option<Loaded>,
 }
 
 impl SkiaSvg {
     /// An SVG file, loaded by the host. Cached as Operations, as upstream.
     #[allow(clippy::new_ret_no_self)]
     pub fn new(source: impl IntoProp<String>) -> Build<SkiaSvg> {
-        Build::new(SkiaSvg::default()).source(source).use_cache(CacheType::Operations)
+        Self::build().source(source)
     }
 
     /// Inline markup instead of a file.
     pub fn from_string(svg: impl IntoProp<String>) -> Build<SkiaSvg> {
-        Build::new(SkiaSvg::default()).svg_string(svg).use_cache(CacheType::Operations)
+        Self::build().svg_string(svg)
+    }
+
+    fn build() -> Build<SkiaSvg> {
+        let mut build = Build::new(SkiaSvg::default()).use_cache(CacheType::Operations);
+        let id = build.id();
+        build.control_mut().id = Some(id);
+        build
+    }
+
+    /// A load or parse ended: its handler runs on the next frame, with the app state.
+    fn report(&mut self, tree: &mut Tree, ok: bool) {
+        let has = if ok { self.on_success.is_some() } else { self.on_error.is_some() };
+        if let (true, Some(id)) = (has, self.id)
+            && self.loaded.replace(ok).is_none()
+        {
+            animators::start_frame(tree, id, fire);
+        }
     }
 
     /// The file is on its way.
@@ -169,7 +195,55 @@ fn deliver(tree: &mut Tree, url: &str, bytes: &[u8]) {
     }
     for id in arrived {
         tree.invalidate(id, Dirty::MEASURE);
+        let Some(node) = tree.node_mut(id) else { continue };
+        let Some(mut kind) = node.kind.take() else { continue };
+        if let Some(svg) = part_mut::<SkiaSvg>(&mut *kind) {
+            svg.report(tree, dom.is_some());
+        }
+        if let Some(node) = tree.node_mut(id) {
+            node.kind = Some(kind);
+        }
     }
+}
+
+/// Runs the Success or Error handler of a load that ended, with the source (DrawnUI SkiaSvg
+/// Success / Error). Handlers leave the control while they run.
+fn fire(id: ControlId, _time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> FrameTick {
+    let mut tick = FrameTick { keep: false, state_touched: false };
+    let Some(mut me) = cx.tree.find_mut::<SkiaSvg>(id) else { return tick };
+    let svg = me.control_mut();
+    let Some(ok) = svg.loaded.take() else { return tick };
+    let source = if svg.p.svg_string.is_empty() { svg.p.source.clone() } else { String::new() };
+    let Some(mut handler) = (if ok { svg.on_success.take() } else { svg.on_error.take() }) else { return tick };
+    handler(state, cx, &source);
+    if let Some(mut me) = cx.tree.find_mut::<SkiaSvg>(id) {
+        let svg = me.control_mut();
+        let slot = if ok { &mut svg.on_success } else { &mut svg.on_error };
+        slot.get_or_insert(handler);
+    }
+    tick.state_touched = true;
+    tick
+}
+
+impl Build<SkiaSvg> {
+    /// Runs when the picture of the current source or markup is there (DrawnUI Success), on the
+    /// next frame. The last argument is the source ("" for markup).
+    pub fn on_success<S: Any>(mut self, f: impl FnMut(Handle<SkiaSvg>, &mut S, &mut Cx<'_>, &str) + 'static) -> Self {
+        let me = self.handle();
+        self.control_mut().on_success = Some(loaded(me, f));
+        self
+    }
+
+    /// Runs when the source could not be loaded or the markup not parsed (DrawnUI Error).
+    pub fn on_error<S: Any>(mut self, f: impl FnMut(Handle<SkiaSvg>, &mut S, &mut Cx<'_>, &str) + 'static) -> Self {
+        let me = self.handle();
+        self.control_mut().on_error = Some(loaded(me, f));
+        self
+    }
+}
+
+fn loaded<S: Any>(me: Handle<SkiaSvg>, mut f: impl FnMut(Handle<SkiaSvg>, &mut S, &mut Cx<'_>, &str) + 'static) -> Loaded {
+    Box::new(move |state, cx, source| f(me, state.downcast_mut::<S>().unwrap_or_else(|| wrong_state::<S>()), cx, source))
 }
 
 impl Has<SvgProps> for SkiaSvg {
@@ -195,6 +269,7 @@ impl Control for SkiaSvg {
         self.resolved.clone_from(wanted);
         if !self.p.svg_string.is_empty() {
             let dom = Dom::from_bytes(self.p.svg_string.as_bytes(), crate::fonts::font_mgr()).ok();
+            self.report(cx.tree, dom.is_some());
             return self.take(dom);
         }
         self.take(None);
@@ -204,6 +279,7 @@ impl Control for SkiaSvg {
         }
         let (dom, flying) = shared(cx.tree, &self.resolved);
         if dom.is_some() {
+            self.report(cx.tree, true);
             return self.take(dom);
         }
         self.loading = true;
