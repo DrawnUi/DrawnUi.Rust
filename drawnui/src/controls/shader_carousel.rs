@@ -302,8 +302,9 @@ impl Build<SkiaShaderCarousel> {
     /// `transition_from_index` / `transition_to_index`.
     pub fn on_from_to_changed<S: Any>(mut self, mut f: impl FnMut(Handle<SkiaShaderCarousel>, &mut S, &mut Cx<'_>) + 'static) -> Self {
         let me = self.handle();
-        self.control_mut().on_from_to_changed =
-            Some(Box::new(move |state, cx| f(me, state.downcast_mut::<S>().unwrap_or_else(|| wrong_state::<S>()), cx)));
+        let shader = self.control_mut();
+        shader.carousel.reports_from_to = true;
+        shader.on_from_to_changed = Some(Box::new(move |state, cx| f(me, state.downcast_mut::<S>().unwrap_or_else(|| wrong_state::<S>()), cx)));
         self
     }
 }

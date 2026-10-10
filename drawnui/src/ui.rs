@@ -275,6 +275,8 @@ pub struct Ui<S: 'static> {
     last_pointer: Option<Point>,
     /// A scroll, carousel or drawer moved its content in the last frame: hover waits.
     hover_paused: bool,
+    /// `Tree::visibility_epoch` as hover last looked for hidden hovered controls.
+    hover_visibility: u64,
     cursor: Cursor,
     cursor_changed: bool,
     /// The last text input area told to the host (`None` = closed), and whether it changed.
@@ -390,6 +392,7 @@ impl<S: 'static> Ui<S> {
             hovered_next: Vec::with_capacity(8),
             last_pointer: None,
             hover_paused: false,
+            hover_visibility: 0,
             cursor: Cursor::Default,
             cursor_changed: false,
             text_input: None,
@@ -575,11 +578,11 @@ impl<S: 'static> Ui<S> {
         if self.fonts_pending > 0 {
             return false;
         }
-        let animating = animators::running(&self.tree);
-        let long_press = self.recognizer.long_press_due().is_some_and(|due| due <= self.tree.time_ms);
-        // A change under a hidden ancestor asks for no frame: nothing of it can be seen.
-        let changed = self.tree.queue.iter().any(|&id| !self.tree.hidden_above(id));
-        self.state_dirty || self.tree.needs_frame || animating || changed || !self.input.is_empty() || long_press
+        let long_press = || self.recognizer.long_press_due().is_some_and(|due| due <= self.tree.time_ms);
+        // A change under a hidden ancestor asks for no frame: nothing of it can be seen. Looked at
+        // last, so nothing walks the tree while something else keeps the frames coming.
+        let changed = || self.tree.queue.iter().any(|&id| !self.tree.hidden_above(id));
+        self.state_dirty || self.tree.needs_frame || !self.input.is_empty() || animators::running(&self.tree) || long_press() || changed()
     }
 
     /// The frame time a sleeping animator, a timer, a pending long press or the accessibility
@@ -1356,8 +1359,11 @@ impl<S: 'static> Ui<S> {
             }
             true
         };
-        if self.hovered.iter().any(|&id| !shown(Some(id))) {
-            self.tree.hover_check = true;
+        if self.hover_visibility != tree.visibility_epoch {
+            self.hover_visibility = tree.visibility_epoch;
+            if self.hovered.iter().any(|&id| !shown(Some(id))) {
+                self.tree.hover_check = true;
+            }
         }
         if !std::mem::take(&mut self.tree.hover_check) || self.last_pointer.is_none() || self.recognizer.is_pressed() {
             return;
@@ -1440,6 +1446,7 @@ impl<S: 'static> Ui<S> {
         self.apply_focus_request();
         self.update_fps_labels();
         layout::commit(&mut self.tree);
+        animators::follow_visibility(&mut self.tree, time_ms);
 
         let root = self.tree.root;
         if let Some(root) = root {

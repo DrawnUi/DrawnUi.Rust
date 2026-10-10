@@ -440,8 +440,12 @@ fn bind_cell(bind: &mut Bind, cell: &mut Cell, cx: &mut LayoutCx, index: usize) 
 /// Shows a cell for a row, or hides a released one from paint and hit testing.
 fn show(cx: &mut LayoutCx, id: ControlId, index: Option<usize>) {
     if let Some(node) = cx.tree.node_mut(id) {
+        let changed = node.base.p.is_visible != index.is_some();
         node.base.p.is_visible = index.is_some();
         node.base.context_index = index;
+        if changed {
+            cx.tree.visibility_epoch += 1;
+        }
     }
 }
 

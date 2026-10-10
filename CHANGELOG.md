@@ -46,6 +46,11 @@ version before it. Commits in parentheses.
 
 ### Fixed
 
+- No per-frame checks while content moves or animates: the animators of hidden controls and the
+  hover of hidden controls are looked at again only after a change that can show or hide a control
+  (`is_visible` set, a mount, a list cell shown or released, a new animator), not every frame; a
+  frame that something else asks for walks no ancestors for queued changes; SkiaShaderCarousel looks
+  at its transition while moving only with an `on_from_to_changed` handler.
 - A side or bottom drawer dragged and held still before the release closed (or opened): any speed
   toward the next snap point went there, also a resting fingertip's drift. Every snapping control
   now counts a release under 100 points per second as no speed, as the carousel already did

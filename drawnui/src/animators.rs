@@ -189,6 +189,8 @@ fn start(
     let (start_ms, value, finished, frame, paused) = (None, run.from, None, None, None);
     let wake_ms = if run.delay_ms > 0.0 { tree.time_ms + run.delay_ms as f64 } else { 0.0 };
     tree.animators.push(Animator { id, control, kind, run, start_ms, value, update, overlay, finished, frame, wake_ms, paused, hidden: None });
+    // The new animator's control may be hidden already.
+    tree.visibility_epoch += 1;
     AnimationId(id)
 }
 
@@ -226,8 +228,14 @@ pub(crate) fn next_wake(tree: &Tree) -> Option<f64> {
 
 /// Pauses the animators of hidden controls (the control or an ancestor) and lets those shown
 /// again go on, as C# DrawnView pauses and resumes them: a hidden animation draws nothing, so it
-/// must not keep the canvas drawing.
-fn follow_visibility(tree: &mut Tree, now: f64) {
+/// must not keep the canvas drawing. Looks only after a change that can show or hide a control:
+/// at the start of the animators' tick and after the frame's layout, where `is_visible` changes are
+/// counted.
+pub(crate) fn follow_visibility(tree: &mut Tree, now: f64) {
+    if tree.animators_visibility == tree.visibility_epoch {
+        return;
+    }
+    tree.animators_visibility = tree.visibility_epoch;
     for i in 0..tree.animators.len() {
         let hidden = tree.hidden(tree.animators[i].control);
         let a = &mut tree.animators[i];

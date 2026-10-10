@@ -145,6 +145,9 @@ impl Dirty {
     pub const APPLY: Dirty = Dirty(8);
     pub const MEASURE_APPLY: Dirty = Dirty(1 | 8);
     pub const DRAW_APPLY: Dirty = Dirty(2 | 8);
+    /// `is_visible` changed: what follows visibility looks again (`Tree::visibility_epoch`).
+    pub(crate) const VISIBILITY: Dirty = Dirty(16);
+    pub(crate) const MEASURE_VISIBILITY: Dirty = Dirty(1 | 16);
 
     pub fn contains(self, other: Dirty) -> bool {
         self.0 & other.0 == other.0 && other.0 != 0

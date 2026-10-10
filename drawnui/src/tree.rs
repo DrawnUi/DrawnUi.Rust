@@ -313,7 +313,7 @@ base_props! {
     row / set_row: i32 = 0, MEASURE;
     column_span / set_column_span: i32 = 1, MEASURE;
     row_span / set_row_span: i32 = 1, MEASURE;
-    is_visible / set_is_visible: bool = true, MEASURE;
+    is_visible / set_is_visible: bool = true, MEASURE_VISIBILITY;
     /// Points beyond the visible area, on each side, that still count as visible for a control
     /// that realizes only what is visible.
     virtualisation_inflated / set_virtualisation_inflated: f32 = 0.0, MEASURE;
@@ -616,6 +616,12 @@ pub struct Tree {
     /// Controls that move their content by themselves (`Control::moves_content`: scrolls,
     /// carousels, drawers): while one moves, hover waits.
     pub(crate) movers: Vec<ControlId>,
+    /// Counts the changes that can show or hide a control (`is_visible` set, a mount, a list
+    /// cell shown or released): what follows visibility looks again only after one, never on
+    /// every frame.
+    pub(crate) visibility_epoch: u64,
+    /// `visibility_epoch` as the animators last followed it.
+    pub(crate) animators_visibility: u64,
 }
 
 impl Tree {
@@ -666,6 +672,7 @@ impl Tree {
             self.movers.push(d.id);
         }
         self.hover_check = true;
+        self.visibility_epoch += 1;
         self.nodes[index] = Some(Node {
             id: d.id,
             parent,

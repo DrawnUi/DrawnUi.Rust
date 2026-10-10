@@ -109,6 +109,9 @@ pub struct SkiaCarousel {
     on_item_disappearing: Option<IndexHandler>,
     on_scrolled: Option<PointHandler>,
     on_stopped: Option<PointHandler>,
+    /// A shader carousel with an `on_from_to_changed` handler: only then is its transition
+    /// looked at while the position moves.
+    pub(crate) reports_from_to: bool,
 }
 
 impl Default for SkiaCarousel {
@@ -144,6 +147,7 @@ impl Default for SkiaCarousel {
             on_transition_changed: None,
             on_scrolled: None,
             on_stopped: None,
+            reports_from_to: false,
             on_item_appearing: None,
             on_item_disappearing: None,
         }
@@ -585,6 +589,7 @@ fn tick(id: ControlId, time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> Fr
     }
     let moved = std::mem::take(&mut c.moved);
     let scrolled = moved.then_some(c.s.position);
+    let from_to = moved && c.reports_from_to;
     let (pixels, remeasure) = (c.pixels(), c.p.dynamic_size && c.events.iter().any(|e| matches!(e, Event::Index(_))));
     let mut events = std::mem::take(&mut c.events);
     if moved {
@@ -601,7 +606,7 @@ fn tick(id: ControlId, time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> Fr
         tick.state_touched |= run(cx, id, state, |c| &mut c.on_scrolled, position);
     }
     // A shader carousel tells when its transition is between other slides.
-    if scrolled.is_some() {
+    if from_to {
         tick.state_touched |= crate::controls::shader_carousel::report_from_to(cx, id, state);
     }
     for event in events.drain(..) {
