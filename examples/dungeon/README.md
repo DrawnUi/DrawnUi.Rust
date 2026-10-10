@@ -33,9 +33,9 @@ You run forward by yourself. Stay alive as long as you can.
 - **Green cross**: gives 15 percent of your health back, in a green aura.
 - **Surge** (cyan arrows): four seconds much faster, and nothing hurts you; rays of light fly
   past along the borders of the screen and fade as the time runs out.
-- **Shield** (golden): for ten seconds the next pillar or ghost costs nothing (beams and lava
-  still burn); a golden aura at the borders while it holds, a golden flash and ABSORBED! when it
-  takes the hit.
+- **Shield** (golden): SHIELD ON, and for ten seconds the next pillar or ghost costs nothing (beams
+  and lava still burn); a golden aura at the borders while it holds, a golden flash and ABSORBED!
+  when it takes the hit.
 - Running itself wears you down: a cell of health every four seconds, so the orbs are what keeps
   you going. A pillar takes two tenths of your health, a beam or lava one tenth, a ghost three. The
   run ends at zero. After a hit nothing hurts you for a moment.
@@ -49,8 +49,8 @@ under four cells. Every twelve
 seconds without a hit a word of praise shows instead.
 
 A run starts with a countdown. When the health is gone, GAME OVER stays over the still living
-dungeon until a key or a tap (TAP OR PRESS SPACE TO RESTART): a new run starts and the GAME OVER
-picture burns away over it.
+dungeon until a key or a tap (TAP OR PRESS SPACE TO CONTINUE), then its picture burns away over
+the title's run.
 
 The title screen plays the game by itself until you start.
 

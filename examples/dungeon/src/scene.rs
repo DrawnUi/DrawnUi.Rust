@@ -448,12 +448,6 @@ impl World {
         if self.phase == Phase::Over { -self.dead_timer } else { 0.0 }
     }
 
-    /// A new run straight from GAME OVER; its picture burns away over the new run.
-    pub fn restart_run(&mut self) {
-        self.start();
-        self.burn = 1.0;
-    }
-
     /// The number the countdown shows: 3, 2, 1.
     pub fn count(&self) -> Option<u32> {
         (self.phase == Phase::Countdown).then(|| self.count.ceil().max(1.0) as u32)

@@ -87,14 +87,14 @@ pub struct App {
     /// Over everything after GAME OVER: its frozen picture, burning away.
     curtain: Handle<SkiaLayout>,
     curtain_on: bool,
-    /// A key or a tap left GAME OVER: one frame for the curtain to take its picture, then the
-    /// new run (or the title, after an escape).
+    /// A key or a tap left GAME OVER or the view from outside: one frame for the curtain to take
+    /// its picture, then the title.
     leaving: u8,
     /// GAME OVER has stood long enough to take a key or a tap (a press in panic does not skip it).
     over_ready: bool,
     /// The last press was a finger: the texts speak of taps only.
     touched: bool,
-    /// "TAP OR PRESS SPACE TO RESTART" under GAME OVER (the title's caption style), and whether it shows.
+    /// "TAP OR PRESS SPACE TO CONTINUE" under GAME OVER (the title's caption style), and whether it shows.
     restart: Handle<SkiaLabel>,
     restart_shown: bool,
     shown_burn: f32,
@@ -131,6 +131,9 @@ pub struct App {
 const CHEERS: [&str; 8] = ["WELL DONE!", "NICE RUN!", "YOU ARE KILLING IT!", "UNSTOPPABLE!", "ON FIRE!", "FLAWLESS!", "KEEP GOING!", "SMOOTH!"];
 /// Seconds of clean running between two cheers.
 const CHEER_EVERY: f32 = 12.0;
+
+/// GAME OVER and the caption under it (55 points below) go up by this, to stand centered as one block.
+const GAME_OVER_LIFT: f32 = 20.0;
 
 /// Points of sideways drag per lane.
 const PAN_STEP: f32 = 44.0;
@@ -177,7 +180,7 @@ fn act(app: &mut App, cx: &mut Cx, left: bool, right: bool, jump: bool) {
             app.input.right |= right;
             app.input.jump |= jump;
         }
-        // Any key or tap leaves GAME OVER (a new run) or the view from outside (the title).
+        // Any key or tap leaves GAME OVER or the view from outside for the title.
         Phase::Over if app.over_ready && app.leaving == 0 => app.leaving = 2,
         _ => {}
     }
@@ -346,16 +349,14 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
     // A frame that came late (a hidden tab) is not a jump through the walls.
     world.step(delta.min(0.05), &mut app.input);
     // Leaving GAME OVER: this frame the curtain shows and takes its picture of it (the scene stays
-    // live under GAME OVER until then), the next one starts the new run under the burning curtain.
+    // live under GAME OVER until then), the next one goes to the title under the burning curtain.
     let mut closing = false;
     if app.leaving > 0 {
         app.leaving -= 1;
         if app.leaving > 0 {
             closing = true;
-        } else if world.escaped {
-            world.to_title();
         } else {
-            world.restart_run();
+            world.to_title();
         }
     }
     app.over_ready = world.over_for() > 0.6;
@@ -440,7 +441,7 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
         }
     }
     // The curtain: shown the frame GAME OVER is left, it keeps that picture (its shader takes its
-    // texture once), then burns it away over the new run (or the title's).
+    // texture once), then burns it away over the title's run.
     let curtain_on = closing || burn > 0.0;
     let hole = if closing { 0.0 } else { 1.0 - burn };
     if let Some(mut curtain) = cx.get_mut(app.curtain) {
@@ -483,6 +484,8 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
         if let Some(mut layer) = cx.get_mut(app.count) {
             layer.set_is_visible(show != -1);
             layer.set_opacity(1.0);
+            // GAME OVER and the caption under it are centered as one block.
+            layer.set_translation_y(if show == -2 { -GAME_OVER_LIFT } else { 0.0 });
             if let Some(effect) = layer.effect_mut::<SkiaShaderEffect>() {
                 effect.set_uniform("uTint", &if show == -3 { tint(ACCENT) } else { [1.0, 0.16, 0.04] });
             }
@@ -637,7 +640,7 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
     if restart != app.restart_shown {
         app.restart_shown = restart;
         if let Some(mut label) = cx.get_mut(app.restart) {
-            label.set_text(if MOBILE || app.touched { "TAP TO RESTART" } else { "TAP OR PRESS SPACE TO RESTART" });
+            label.set_text(if MOBILE || app.touched { "TAP TO CONTINUE" } else { "TAP OR PRESS SPACE TO CONTINUE" });
             label.set_opacity(if restart { 1.0 } else { 0.0 });
         }
     }
@@ -696,7 +699,7 @@ fn show_prompt(app: &mut App, cx: &mut Cx, prompt: Option<Prompt>) {
             // Health shows during its own green flash: white letters with a green glow stay readable in it.
             Prompt::Health => ("HEALTH UP", [0xFFFF_FFFF, 0xFFF0_FFE8, 0xFFA0_E890], [0.42, 1.0, 0.35]),
             Prompt::Surge => ("SURGE", [0xFFFF_FFFF, 0xFF90_F0FF, 0xFF30_B0FF], [0.5, 0.9, 1.0]),
-            Prompt::Shield => ("SHIELD", GOLD, [1.0, 0.8, 0.3]),
+            Prompt::Shield => ("SHIELD ON", GOLD, [1.0, 0.8, 0.3]),
             Prompt::Absorbed => ("ABSORBED!", GOLD, [1.0, 0.8, 0.3]),
             Prompt::Cheer(text) => (text, GOLD, tint(ACCENT)),
             Prompt::Heal => ("COLLECT ORBS TO HEAL", [0xFFFF_FFFF, 0xFFF0_FFE8, 0xFFA0_E890], [0.42, 1.0, 0.35]),
@@ -876,7 +879,11 @@ fn help_dialog(app: &mut App) -> Build<SkiaLayout> {
                 ),
                 controls(),
             ))),
-            line("DRAWNUI FOR RUST SAMPLE", 11, ACCENT).margin((0, 12, 0, 0)),
+            // A link to DrawnUI for Rust, opened in the browser (a new tab on the web).
+            line("MADE WITH DRAWNUI FOR RUST", 11, ACCENT)
+                .margin((0, 12, 0, 0))
+                .accessibility_role(Aria::LINK)
+                .on_tapped(|_me, _app: &mut App, cx| cx.open_url("https://drawnui.net/articles/rust")),
             button("OK")
                 .horizontal_options(LayoutOptions::End)
                 .margin((0, 6, 0, 0))
@@ -1051,6 +1058,7 @@ fn build(app: &mut App) -> Build<SkiaShell> {
     let restart = centered("", 11, 0x99FF_FFFF)
         .vertical_options(LayoutOptions::Center)
         .margin((0, 110, 0, 0))
+        .translation_y(-GAME_OVER_LIFT)
         .opacity(0.0)
         .input_transparent(true)
         .assign(&mut app.restart);
