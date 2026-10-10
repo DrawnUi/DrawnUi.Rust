@@ -17,6 +17,9 @@ version before it. Commits in parentheses.
 - A scroll's content, header, footer and refresh indicator can be set or removed at run time:
   `Cx::set_scroll_content`, `set_scroll_header`, `set_scroll_footer`, `set_refresh_indicator`
   (DrawnUI's settable SkiaScroll.Content / Header / Footer / RefreshIndicator).
+- `on_down` / `on_up` on every control (DrawnUI SkiaButton Down / Up): a press and its release, with
+  the point in the control's points; the control gets them when it takes the press or no child under
+  it does. A tap gives Down, Tapped, Up (the recognizer's order; C# raises Up before Tapped).
 - `Mut::set_scale` and `ControlProps::scale()` (DrawnUI `Scale`: sets scale_x and scale_y together,
   reads the smaller), beside the builder's `scale`.
 - SkiaCarousel `on_scrolled` / `on_stopped`; SkiaDrawer `on_scrolled` / `on_stopped` /

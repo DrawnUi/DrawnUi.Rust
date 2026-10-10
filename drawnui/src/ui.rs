@@ -29,6 +29,7 @@ pub(crate) type ContextMenuHandler = Box<dyn FnMut(Raw<'_>, &mut dyn Any, &mut C
 pub(crate) type KeyHandler = Box<dyn FnMut(Raw<'_>, &mut dyn Any, &mut Cx<'_>, &KeyEvent<'_>) -> bool>;
 pub(crate) type FocusHandler = Box<dyn FnMut(Raw<'_>, &mut dyn Any, &mut Cx<'_>, bool)>;
 pub(crate) type GestureHandler = Box<dyn FnMut(Raw<'_>, &mut dyn Any, &mut Cx<'_>, &Gesture) -> bool>;
+pub(crate) type PressHandler = Box<dyn FnMut(Raw<'_>, &mut dyn Any, &mut Cx<'_>, Point)>;
 
 /// The per-control input handlers besides `tapped`, boxed together on the node.
 #[derive(Default)]
@@ -43,6 +44,9 @@ pub(crate) struct InputHandlers {
     pub hovered: Option<FocusHandler>,
     /// Sees every gesture first (`Build::consume_gestures`).
     pub consume_gestures: Option<GestureHandler>,
+    /// `Build::on_down` / `on_up`: a press and its release reached the control.
+    pub down: Option<PressHandler>,
+    pub up: Option<PressHandler>,
     /// Gets every key while mounted (`Build::listen_keys`).
     pub listen_keys: bool,
     /// Gets the browser's history moves while mounted (`Build::listen_history`).
@@ -1124,7 +1128,7 @@ impl<S: 'static> Ui<S> {
         let claimed_before = self.tree.focus_request.is_some();
         self.tree.gesture = Some(gesture);
         let routing = Routing { state: &mut self.state, state_dirty: &mut self.state_dirty, over: &mut self.over_next, by_z: &mut self.by_z };
-        let consumed = Router { tree: &mut self.tree, r: routing }.route(control, &gesture, point);
+        let consumed = Router { tree: &mut self.tree, r: routing, pressed: None }.route(control, &gesture, point);
         self.tree.gesture = None;
         self.tree.needs_frame = true;
         if !claimed_before && self.tree.focus_request.is_none() && consumed.is_some() {
@@ -1237,7 +1241,7 @@ impl<S: 'static> Ui<S> {
             self.process_gesture(plain_gesture(GestureKind::Pointer, location, time_ms));
         }
         let Ui { tree, state, state_dirty, over, over_next, by_z, .. } = self;
-        let mut router = Router { tree: &mut *tree, r: Routing { state, state_dirty, over: over_next, by_z } };
+        let mut router = Router { tree: &mut *tree, r: Routing { state, state_dirty, over: over_next, by_z }, pressed: None };
         for i in 0..router.r.over.len() {
             let id = router.r.over[i];
             if !over.contains(&id) {
@@ -1668,7 +1672,7 @@ impl<S: 'static> Ui<S> {
         let root = self.tree.root?;
         let claimed_before = self.tree.focus_request.is_some();
         let routing = Routing { state: &mut self.state, state_dirty: &mut self.state_dirty, over: &mut self.over_next, by_z: &mut self.by_z };
-        let mut router = Router { tree: &mut self.tree, r: routing };
+        let mut router = Router { tree: &mut self.tree, r: routing, pressed: None };
         if gesture.kind == GestureKind::Down {
             self.owner = None;
         } else if let Some(owner) = self.owner
@@ -1890,12 +1894,15 @@ impl Routing<'_> {
 
 /// `GestureCx::route_children`: the children pass of `Router::route` for `id` at `point`.
 pub(crate) fn route_children(tree: &mut Tree, routing: &mut Routing<'_>, id: ControlId, gesture: &Gesture, point: Point) -> Option<ControlId> {
-    Router { tree, r: routing.reborrow() }.route_children(id, gesture, point)
+    Router { tree, r: routing.reborrow(), pressed: None }.route_children(id, gesture, point)
 }
 
 struct Router<'a> {
     tree: &'a mut Tree,
     r: Routing<'a>,
+    /// The control whose `on_down` / `on_up` ran for this gesture: an Up replayed to the press's
+    /// owner and then routed by its place reaches it twice, its handler runs once.
+    pressed: Option<ControlId>,
 }
 
 impl Router<'_> {
@@ -1927,7 +1934,10 @@ impl Router<'_> {
                 node.kind = Some(kind);
             }
             match handled {
-                Handled::Yes => return Some(id),
+                Handled::Yes => {
+                    self.fire_press(id, gesture.kind, point);
+                    return Some(id);
+                }
                 Handled::Tapped => {
                     self.fire_tapped(id, point);
                     return Some(id);
@@ -1941,6 +1951,8 @@ impl Router<'_> {
             return Some(consumed);
         }
 
+        // No child took the press: it is this control's (C# SkiaButton / SkiaHotspot Down, Up).
+        self.fire_press(id, gesture.kind, point);
         match gesture.kind {
             GestureKind::Tapped if self.fire_tapped(id, point) => return Some(id),
             GestureKind::LongPressing if self.fire_long_pressing(id, point) => return Some(id),
@@ -2076,6 +2088,33 @@ impl Router<'_> {
         consumed
     }
 
+    /// Runs the control's `on_down` or `on_up` for a Down or an Up, with the point in its own
+    /// points.
+    fn fire_press(&mut self, id: ControlId, kind: GestureKind, point: Point) {
+        if !matches!(kind, GestureKind::Down | GestureKind::Up) || self.pressed == Some(id) {
+            return;
+        }
+        let Some(node) = self.tree.node(id) else { return };
+        let has = node.handlers.input.as_ref().is_some_and(|h| if kind == GestureKind::Down { h.down.is_some() } else { h.up.is_some() });
+        if !has {
+            return;
+        }
+        let (rect, scale) = (node.base.rect, node.base.scale.max(0.1));
+        let at = Point::new((point.x - rect.left) / scale, (point.y - rect.top) / scale);
+        self.pressed = Some(id);
+        self.fire(id, point, |raw, state, cx, handlers| {
+            let input = handlers.input.as_deref_mut();
+            let handler = input.and_then(|h| if kind == GestureKind::Down { h.down.as_mut() } else { h.up.as_mut() });
+            match handler {
+                Some(handler) => {
+                    handler(raw, state, cx, at);
+                    true
+                }
+                None => false,
+            }
+        });
+    }
+
     fn fire_long_pressing(&mut self, id: ControlId, point: Point) -> bool {
         self.fire(id, point, |raw, state, cx, handlers| match handlers.input.as_deref_mut().and_then(|h| h.long_pressing.as_mut()) {
             Some(long_pressing) => {
@@ -2146,6 +2185,25 @@ impl<T: Control> Build<T> {
     }
 
     /// The press stayed on the control for `LONG_PRESS_MS` without moving (DrawnUI LongPressing).
+    /// A press reached the control, with its point in the control's points (DrawnUI SkiaButton
+    /// Down). The control gets it when it takes the press, or when no child under it took it.
+    pub fn on_down<S: Any>(mut self, mut f: impl FnMut(&mut crate::Mut<'_, T>, &mut S, &mut Cx<'_>, Point) + 'static) -> Self {
+        self.input().down = Some(Box::new(move |raw, state, cx, at| {
+            let state = state.downcast_mut::<S>().unwrap_or_else(|| crate::tree::wrong_state::<S>());
+            f(&mut raw.typed(), state, cx, at)
+        }));
+        self
+    }
+
+    /// The press was released over the control (DrawnUI SkiaButton Up).
+    pub fn on_up<S: Any>(mut self, mut f: impl FnMut(&mut crate::Mut<'_, T>, &mut S, &mut Cx<'_>, Point) + 'static) -> Self {
+        self.input().up = Some(Box::new(move |raw, state, cx, at| {
+            let state = state.downcast_mut::<S>().unwrap_or_else(|| crate::tree::wrong_state::<S>());
+            f(&mut raw.typed(), state, cx, at)
+        }));
+        self
+    }
+
     pub fn on_long_pressing<S: Any>(mut self, mut f: impl FnMut(&mut crate::Mut<'_, T>, &mut S, &mut Cx<'_>) + 'static) -> Self {
         self.input().long_pressing = Some(Box::new(move |raw, state, cx| {
             let state = state.downcast_mut::<S>().unwrap_or_else(|| crate::tree::wrong_state::<S>());
