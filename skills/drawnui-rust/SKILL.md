@@ -14,13 +14,16 @@ The repository's `templates/app` is a complete starter (every file below, an ico
 script): copy it and rename `myapp`. By hand:
 
 `Cargo.toml`: drawnui from crates.io. It brings Skia as `drawnui-skia-safe` (rust-skia's skia-safe
-0.153.3 plus SkMesh) and `drawnui-skia-bindings`; the app uses it as `drawnui::skia`. Never add
+0.153 plus SkMesh) and `drawnui-skia-bindings`; the app uses it as `drawnui::skia`. Never add
 skia-safe or skia-bindings to the app: a program can link one Skia only. The desktop and the
 browser need no `[patch]`.
 
+`cargo add drawnui` takes the newest preview; by hand:
+
 ```toml
 [dependencies]
-drawnui = "0.1.0-preview.6"
+# The newest 0.1.0 preview; `cargo update` moves a project to a newer one.
+drawnui = "0.1.0-preview"
 
 [profile.release]
 lto = "thin"

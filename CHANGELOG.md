@@ -4,7 +4,7 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.7 (crates.io, 2026-10-10)
 
 ### Changed
 
@@ -69,6 +69,12 @@ version before it. Commits in parentheses.
   ellipsis: its Auto row took the height of a first measure at the grid's whole width. A child on
   a single Auto row is offered the height the row can still grow to, and the row grows to it
   (C# 7cf1007c). A vertical Fill child on such a row is measured once more (unbounded, for the row).
+
+### Toolchain
+
+The same as 0.1.0-preview.6: the Skia crates stay at 0.153.6; built and tested with Rust 1.94.1.
+The install examples (README, the skill, the templates) now name `drawnui = "0.1.0-preview"`, the
+newest preview, instead of one version.
 
 ## 0.1.0-preview.6 (crates.io, 2026-10-08)
 
