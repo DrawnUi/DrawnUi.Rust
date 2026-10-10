@@ -4,7 +4,7 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.8 (crates.io, 2026-10-10)
 
 ### Fixed
 
@@ -12,6 +12,10 @@ version before it. Commits in parentheses.
   while a page was open went back to the root instead of opening that hash (the new browser entry
   has no depth of the shell's, read as 0 = a Back to the first entry). An entry is now taken as a
   Back only when its hash is the stack it was pushed with.
+
+### Toolchain
+
+The same as 0.1.0-preview.7: the Skia crates stay at 0.153.6.
 
 ## 0.1.0-preview.7 (crates.io, 2026-10-10)
 
