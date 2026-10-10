@@ -4,7 +4,7 @@
 //! any picture (one load per source, cached there): the sprite embeds a `SkiaImage` for that.
 //! Frames step on a frame animator that sleeps until the next frame is due: no frames in between,
 //! nothing allocated per step.
-// ponytail: no SpritePlacementConfig, no Started / Finished handlers, no hit box that follows the
+// ponytail: no SpritePlacementConfig, no hit box that follows the
 // drawn frame, no trimming of transparent frame borders (upstream draws the trimmed part at its
 // place in the fitted frame, so the pixels are the same; only the placement config and the hit
 // box use the trimmed rect).
@@ -76,7 +76,13 @@ struct Playback {
     started_ms: f64,
     /// Position playback started from.
     offset: f64,
+    /// Playing started or ended, not reported yet (DrawnUI Started / Finished).
+    started_due: bool,
+    finished_due: bool,
 }
+
+/// Started / Finished: the app state and the tree, the sprite reached through its handle.
+type Handler = Box<dyn FnMut(&mut dyn Any, &mut Cx<'_>)>;
 
 /// Plays a sprite sheet (DrawnUI SkiaSprite).
 pub struct SkiaSprite {
@@ -89,6 +95,8 @@ pub struct SkiaSprite {
     id: Option<ControlId>,
     play: Playback,
     paint: Paint,
+    on_started: Option<Handler>,
+    on_finished: Option<Handler>,
 }
 
 impl SkiaSprite {
@@ -99,7 +107,7 @@ impl SkiaSprite {
         // it arrives: the frame size is the control's aspect.
         let mut image = SkiaImage::default();
         (image.remeasure_on_arrival, image.p.aspect) = (true, TransformAspect::None);
-        let sprite = SkiaSprite { image, p: SpriteProps::default(), id: None, play: Playback::default(), paint: Paint::default() };
+        let sprite = SkiaSprite { image, p: SpriteProps::default(), id: None, play: Playback::default(), paint: Paint::default(), on_started: None, on_finished: None };
         let mut build = Build::new(sprite).source(source);
         let id = build.id();
         build.control_mut().id = Some(id);
@@ -212,6 +220,9 @@ impl SkiaSprite {
 
     /// Plays from `offset`, starting now; the frame animator sleeps until the next frame is due.
     fn play(&mut self, tree: &mut Tree, id: ControlId) {
+        // Started again while it plays: that run ends first (DrawnUI Finished, then Started).
+        self.play.finished_due |= self.play.playing;
+        self.play.started_due = true;
         (self.play.pending, self.play.playing, self.play.started_ms) = (false, true, tree.time_ms);
         self.show(self.frame_at(self.play.offset));
         if !std::mem::replace(&mut self.play.ticking, true) {
@@ -219,6 +230,18 @@ impl SkiaSprite {
         }
         let next = self.next_frame(self.play.offset);
         animators::sleep(tree, id, next);
+        // After the sleep, which puts every frame animator of the control to sleep.
+        self.report(tree, id);
+    }
+
+    /// Started or Finished is due: a frame animator runs the handlers on the next frame.
+    fn report(&mut self, tree: &mut Tree, id: ControlId) {
+        let due = (self.play.started_due && self.on_started.is_some()) || (self.play.finished_due && self.on_finished.is_some());
+        if due {
+            animators::start_frame(tree, id, fire);
+        } else {
+            (self.play.started_due, self.play.finished_due) = (false, false);
+        }
     }
 
     /// Frame time the frame after the one at `position` is due.
@@ -234,7 +257,7 @@ impl SkiaSprite {
         let run = (position / duration + 1e-9).floor();
         if self.p.repeat >= 0 && run > self.p.repeat as f64 {
             // As upstream the position stops at the end of the range, which is the first frame.
-            (self.play.playing, self.play.offset) = (false, 0.0);
+            (self.play.playing, self.play.offset, self.play.finished_due) = (false, 0.0, true);
             return (self.show(self.frame_at(duration)), None);
         }
         (self.show(self.frame_at(position)), Some(self.next_frame(position)))
@@ -279,12 +302,41 @@ fn tick(id: ControlId, time_ms: f64, _state: &mut dyn Any, cx: &mut Cx<'_>) -> F
         false => (false, None),
     };
     sprite.play.ticking = next.is_some();
+    // The last run ended: Finished on the next frame, when anyone listens.
+    let finished = std::mem::take(&mut sprite.play.finished_due) && sprite.on_finished.is_some();
+    sprite.play.finished_due = finished;
     if changed {
         me.mark(Dirty::DRAW);
     }
     if let Some(next) = next {
         animators::sleep(cx.tree, id, next);
         result.keep = true;
+    }
+    if finished {
+        animators::start_frame(cx.tree, id, fire);
+    }
+    result
+}
+
+/// Runs the Started / Finished handlers that are due (Finished first), with the app state.
+fn fire(id: ControlId, _time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> FrameTick {
+    let mut result = FrameTick { keep: false, state_touched: false };
+    for finished in [true, false] {
+        let Some(mut me) = cx.tree.find_mut::<SkiaSprite>(id) else { return result };
+        let sprite = me.control_mut();
+        let due = if finished { std::mem::take(&mut sprite.play.finished_due) } else { std::mem::take(&mut sprite.play.started_due) };
+        if !due {
+            continue;
+        }
+        let slot = if finished { &mut sprite.on_finished } else { &mut sprite.on_started };
+        let Some(mut handler) = slot.take() else { continue };
+        handler(state, cx);
+        result.state_touched = true;
+        if let Some(mut me) = cx.tree.find_mut::<SkiaSprite>(id) {
+            let sprite = me.control_mut();
+            let slot = if finished { &mut sprite.on_finished } else { &mut sprite.on_started };
+            slot.get_or_insert(handler);
+        }
     }
     result
 }
@@ -302,15 +354,18 @@ impl Mut<'_, SkiaSprite> {
     /// Plays from the first frame (C# Start). Before the sheet is there it plays when it arrives.
     pub fn start(&mut self) {
         let play = &mut self.control_mut().play;
+        // Started again while it plays: that run ends first (Finished, then Started).
+        play.finished_due |= play.playing;
         (play.pending, play.playing, play.offset) = (true, false, 0.0);
         self.mark(Dirty::DRAW_APPLY);
     }
 
-    /// Stops on the frame it shows (C# Stop).
+    /// Stops on the frame it shows (C# Stop); a playing sprite reports Finished.
     pub fn stop(&mut self) {
         let play = &mut self.control_mut().play;
+        play.finished_due |= play.playing;
         (play.pending, play.playing) = (false, false);
-        self.mark(Dirty::DRAW);
+        self.mark(Dirty::DRAW_APPLY);
     }
 
     /// Shows the frame at `ms` into a run (negative: from the end); playing goes on from there
@@ -350,6 +405,8 @@ impl Control for SkiaSprite {
         } else if self.play.playing {
             // Another speed or length: the next frame is computed now.
             animators::sleep(cx.tree, id, 0.0);
+        } else if self.play.finished_due {
+            self.report(cx.tree, id);
         }
     }
 
@@ -403,6 +460,21 @@ impl Build<SkiaSprite> {
         self.control_mut().image.on_success = Some(Box::new(move |state, cx, source| {
             f(me, state.downcast_mut::<S>().unwrap_or_else(|| wrong_state::<S>()), cx, source)
         }));
+        self
+    }
+
+    /// Runs when playing starts (DrawnUI Started), on the next frame.
+    pub fn on_started<S: Any>(mut self, mut f: impl FnMut(Handle<SkiaSprite>, &mut S, &mut Cx<'_>) + 'static) -> Self {
+        let me = self.handle();
+        self.control_mut().on_started = Some(Box::new(move |state, cx| f(me, state.downcast_mut::<S>().unwrap_or_else(|| wrong_state::<S>()), cx)));
+        self
+    }
+
+    /// Runs when playing ends: after the last run, and when it is stopped or started again while
+    /// it plays (DrawnUI Finished), on the next frame.
+    pub fn on_finished<S: Any>(mut self, mut f: impl FnMut(Handle<SkiaSprite>, &mut S, &mut Cx<'_>) + 'static) -> Self {
+        let me = self.handle();
+        self.control_mut().on_finished = Some(Box::new(move |state, cx| f(me, state.downcast_mut::<S>().unwrap_or_else(|| wrong_state::<S>()), cx)));
         self
     }
 

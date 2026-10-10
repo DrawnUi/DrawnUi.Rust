@@ -57,6 +57,8 @@ struct App {
     failed: Vec<String>,
     /// `total_frames` as the success handler saw it.
     frames_when_loaded: u32,
+    /// Started / Finished, in order.
+    played: Vec<&'static str>,
 }
 
 /// The sprite in a 64 x 64 box at (20, 20) on white, its sheet delivered before the first frame shows.
@@ -438,4 +440,32 @@ fn cost_of_a_frame_step() {
             println!("160 pt sprite at scale 2, {place}, sprite {cache:?}: {micros:.0} us per stepped frame");
         }
     }
+}
+
+/// DrawnUI Started / Finished: playing starts; it ends after the last run, or when it is stopped
+/// or started again while it plays (Finished, then Started).
+#[test]
+fn started_and_finished_report_playing() {
+    let sprite = ten_fps("sheet4x1.png")
+        .repeat(0)
+        .on_started(|_me, app: &mut App, _cx| app.played.push("started"))
+        .on_finished(|_me, app: &mut App, _cx| app.played.push("finished"));
+    let mut host = sprite_host(sprite);
+    host.frame_after(16.0);
+    assert_eq!(host.ui.state.played, ["started"]);
+    host.frame_after(550.0);
+    host.frame_after(16.0);
+    assert_eq!(host.ui.state.played, ["started", "finished"], "after its one run");
+
+    host.ui.tree.get_mut(host.ui.state.sprite).unwrap().start();
+    host.frame_after(16.0);
+    host.frame_after(16.0);
+    host.ui.tree.get_mut(host.ui.state.sprite).unwrap().start();
+    host.frame_after(16.0);
+    host.frame_after(16.0);
+    host.ui.tree.get_mut(host.ui.state.sprite).unwrap().stop();
+    host.frame_after(16.0);
+    host.frame_after(16.0);
+    let tail = &host.ui.state.played[2..];
+    assert_eq!(tail, ["started", "finished", "started", "finished"], "started, restarted, stopped");
 }

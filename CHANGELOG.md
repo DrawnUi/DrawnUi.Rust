@@ -22,6 +22,8 @@ version before it. Commits in parentheses.
   it does. A tap gives Down, Tapped, Up (the recognizer's order; C# raises Up before Tapped).
 - SkiaSvg `on_success` / `on_error` (DrawnUI Success / Error): the picture of a source or markup is
   there, or could not be loaded or parsed; on the next frame, with the source.
+- SkiaSprite `on_started` / `on_finished` (DrawnUI Started / Finished): playing starts; it ends
+  after the last run, or when stopped or started again while it plays (Finished, then Started).
 - `Mut::set_scale` and `ControlProps::scale()` (DrawnUI `Scale`: sets scale_x and scale_y together,
   reads the smaller), beside the builder's `scale`.
 - SkiaCarousel `on_scrolled` / `on_stopped`; SkiaDrawer `on_scrolled` / `on_stopped` /
