@@ -160,15 +160,15 @@ fn defaults_feed_the_node_and_presentation_hides_a_control() {
     // Top to bottom; the card's inner label is presentation.
     assert_eq!(labels, ["Sound", "Muted", "Open settings", "Read by default", "Heading"]);
     let sound = node(&host, "Sound");
-    assert_eq!((sound.role, sound.is_pressed, sound.can_interact), (Aria::SWITCH, Some(false), true));
+    assert_eq!((&*sound.role, sound.is_pressed, sound.can_interact), (Aria::SWITCH, Some(false), true));
     // Points at scale 2.
     assert_eq!(sound.rect, Rect::new(0.0, 0.0, 30.0, 15.0));
     assert!(!node(&host, "Muted").can_interact);
     let card = node(&host, "Open settings");
-    assert_eq!((card.role, card.hint.as_str(), card.can_interact), (Aria::BUTTON, "A card that acts as a button", true));
+    assert_eq!((&*card.role, card.hint.as_str(), card.can_interact), (Aria::BUTTON, "A card that acts as a button", true));
     assert_eq!(node(&host, "Read by default").role, Aria::TEXT);
     let heading = node(&host, "Heading");
-    assert_eq!((heading.role, heading.live, heading.can_interact), (Aria::HEADING, Aria::LIVE_POLITE, false));
+    assert_eq!((&*heading.role, &*heading.live, heading.can_interact), (Aria::HEADING, Aria::LIVE_POLITE, false));
 
     // The state follows at the next rebuild.
     host.ui.state.on.set(true);
@@ -299,4 +299,22 @@ fn overlay_focus_scrolls_the_node_into_view_and_takes_the_keys() {
     assert!(host.press_key("ArrowRight"));
     assert!(!host.press_key("KeyA"));
     assert_eq!(host.ui.state.keys, ["row 8 ArrowRight", "row 8 KeyA"]);
+}
+
+#[test]
+fn a_role_and_live_region_can_come_from_data() {
+    // The same text an app reads from data or a binding (as DrawnUI's AccessibilityRole string),
+    // not only an `Aria` constant; set at build time and at run time.
+    let (role, live) = (String::from("button"), String::from("polite"));
+    let card = SkiaShape::new().width_request(100).height_request(40).accessibility_label("Card").accessibility_role(role).accessibility_live(live);
+    let id = card.id();
+    let ui = Ui::new((), move |_| SkiaLayout::new().fill().children(card)).font_bytes("Default", FONT);
+    let mut host = enabled(ui, 300, 300, 1.0);
+    let card = node(&host, "Card");
+    assert_eq!((&*card.role, &*card.live), (Aria::BUTTON, Aria::LIVE_POLITE));
+
+    host.ui.tree.any_mut(id).unwrap().set_accessibility_role(String::from("switch"));
+    host.frame_after(INTERVAL);
+    host.settle();
+    assert_eq!(&*node(&host, "Card").role, Aria::SWITCH);
 }

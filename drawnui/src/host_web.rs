@@ -346,8 +346,8 @@ pub extern "C" fn dui_poll_output(s: *mut WebState) -> *const c_char {
             let named = n.can_interact || !crate::ui::said_by_child(&nodes, n);
             let pressed = n.is_pressed.map_or(-1, |p| p as i32);
             let (r, label, hint) = (n.rect, if named { clean(&n.label) } else { String::new() }, clean(&n.hint));
-            let interactive = if n.can_interact { "1" } else if crate::ui::is_control_role(n.role) { "-" } else { "0" };
-            let (id, role, live) = (n.id, n.role, n.live);
+            let interactive = if n.can_interact { "1" } else if crate::ui::is_control_role(&n.role) { "-" } else { "0" };
+            let (id, role, live) = (n.id, &n.role, &n.live);
             let (left, top, width, height) = (r.left, r.top, r.width(), r.height());
             let group = n.group.map_or(String::new(), |(g, i)| format!("{g}:{i}"));
             // A range control's value: now, min, max and the text read instead of the number.

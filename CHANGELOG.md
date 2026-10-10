@@ -6,6 +6,16 @@ version before it. Commits in parentheses.
 
 ## Unreleased
 
+### Changed
+
+- `accessibility_role` and `accessibility_live` take any text, not only a constant: a role from
+  data or a binding (`String`) works as an `Aria` constant does, which stays free
+  (`Cow<'static, str>`, as DrawnUI's string AccessibilityRole).
+
+### Breaking
+
+- `AccessibilityNode::role` and `live` are `Cow<'static, str>`: compare `&*node.role`.
+
 ### Fixed
 
 - A side or bottom drawer dragged and held still before the release closed (or opened): any speed

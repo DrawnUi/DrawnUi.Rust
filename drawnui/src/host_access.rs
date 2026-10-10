@@ -43,7 +43,7 @@ pub(crate) fn tree(title: &str, nodes: &[AccessibilityNode], scale: f64, focus: 
     let mut out = Vec::with_capacity(nodes.len() + 1);
     out.push((ROOT, window));
     for n in nodes {
-        let role = role(n.role);
+        let role = role(&n.role);
         let mut node = Node::new(role);
         // A text's words are its value: AccessKit names a Label from it (UI Automation Name), and
         // a label set on it would be read as nothing.
@@ -68,7 +68,7 @@ pub(crate) fn tree(title: &str, nodes: &[AccessibilityNode], scale: f64, focus: 
         if n.can_interact {
             node.add_action(Action::Click);
             node.add_action(Action::Focus);
-        } else if crate::ui::is_control_role(n.role) {
+        } else if crate::ui::is_control_role(&n.role) {
             node.set_disabled();
         }
         // A scroll pages along the axes its content moves (Android picks the axis by orientation).
@@ -106,7 +106,7 @@ pub(crate) fn tree(title: &str, nodes: &[AccessibilityNode], scale: f64, focus: 
         if let Some(pressed) = n.is_pressed {
             node.set_toggled(if pressed { Toggled::True } else { Toggled::False });
         }
-        match n.live {
+        match &*n.live {
             Aria::LIVE_POLITE => node.set_live(Live::Polite),
             Aria::LIVE_ASSERTIVE => node.set_live(Live::Assertive),
             _ => {}
@@ -179,7 +179,7 @@ mod tests {
         AccessibilityNode {
             id,
             control: ControlId { index: id, generation: 0 },
-            role,
+            role: role.into(),
             label: label.to_owned(),
             hint: String::new(),
             rect: skia_safe::Rect::from_xywh(0.0, id as f32 * 10.0, 100.0, 10.0),
@@ -187,7 +187,7 @@ mod tests {
             is_pressed: None,
             value: None,
             scrolls: (false, false),
-            live: "",
+            live: "".into(),
             text_lines: Vec::new(),
             parent,
             group: None,

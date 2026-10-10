@@ -358,7 +358,7 @@ base_props! {
     lock_focus / set_lock_focus: bool = false, NONE;
     /// ARIA role (`Aria::BUTTON`, ...); set, the control is in the accessibility tree.
     /// `Aria::PRESENTATION` keeps it out even when a default applies.
-    accessibility_role / set_accessibility_role: &'static str = "", NONE;
+    accessibility_role / set_accessibility_role: std::borrow::Cow<'static, str> = std::borrow::Cow::Borrowed(""), NONE;
     /// Spoken label; empty = the control's own text (`Control::accessibility_label`).
     accessibility_label / set_accessibility_label: String = String::new(), NONE;
     accessibility_hint / set_accessibility_hint: String = String::new(), NONE;
@@ -372,7 +372,7 @@ base_props! {
     /// the control: never on gesture-driven controls.
     accessibility_text_selectable / set_accessibility_text_selectable: bool = false, NONE;
     /// aria-live: `Aria::LIVE_POLITE` or `Aria::LIVE_ASSERTIVE`; changes are announced.
-    accessibility_live / set_accessibility_live: &'static str = "", NONE;
+    accessibility_live / set_accessibility_live: std::borrow::Cow<'static, str> = std::borrow::Cow::Borrowed(""), NONE;
 }
 
 impl<T: Control> Build<T> {

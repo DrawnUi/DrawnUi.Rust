@@ -173,7 +173,7 @@ pub struct AccessibilityNode {
     /// Stable identity for the overlay; `App::accessibility_activate` takes it.
     pub id: u32,
     pub control: ControlId,
-    pub role: &'static str,
+    pub role: std::borrow::Cow<'static, str>,
     pub label: String,
     pub hint: String,
     /// On the canvas, in points.
@@ -185,7 +185,7 @@ pub struct AccessibilityNode {
     pub value: Option<AccessibilityValue>,
     /// A scroll's node: the axes its content can move along (horizontal, vertical).
     pub scrolls: (bool, bool),
-    pub live: &'static str,
+    pub live: std::borrow::Cow<'static, str>,
     /// Its text lines when the control has `accessibility_text_selectable`; empty otherwise.
     pub text_lines: Vec<AccessibilityTextLine>,
     /// The nearest node above it (`id`), `None` under the root: a screen reader's tree nests
@@ -770,7 +770,7 @@ impl<S: 'static> Ui<S> {
         let mut at = nodes.iter().find(|n| n.control == control)?.parent;
         while let Some(id) = at {
             let node = nodes.iter().find(|n| n.id == id)?;
-            if GROUP_ROLES.contains(&node.role) {
+            if GROUP_ROLES.contains(&&*node.role) {
                 return Some(node.control);
             }
             at = node.parent;
@@ -1524,9 +1524,11 @@ impl<S: 'static> Ui<S> {
             };
             let (p, kind) = (&node.base.p, node.kind.as_deref());
             // Set on the control, else the app's default for its type, else the control's own.
-            let role = match p.accessibility_role {
-                "" => kind.and_then(|k| type_role(&self.accessibility_roles, k).or_else(|| k.accessibility_role())).unwrap_or(""),
-                role => role,
+            let role = match &*p.accessibility_role {
+                "" => std::borrow::Cow::Borrowed(
+                    kind.and_then(|k| type_role(&self.accessibility_roles, k).or_else(|| k.accessibility_role())).unwrap_or(""),
+                ),
+                _ => p.accessibility_role.clone(),
             };
             if !role.is_empty() && role != Aria::PRESENTATION {
                 let rect = matrix.map_rect(node.base.rect).0;
@@ -1550,7 +1552,7 @@ impl<S: 'static> Ui<S> {
                         is_pressed: p.accessibility_is_pressed.or_else(|| kind.and_then(|k| k.accessibility_is_pressed())),
                         value: kind.and_then(|k| k.accessibility_value()),
                         scrolls: self.tree.find::<crate::controls::scroll::SkiaScroll>(id).map_or((false, false), |s| s.scroll_axes()),
-                        live: p.accessibility_live,
+                        live: p.accessibility_live.clone(),
                         text_lines: match (p.accessibility_text_selectable, kind) {
                             (true, Some(k)) => k.accessibility_text_lines(scale),
                             _ => Vec::new(),
@@ -1585,7 +1587,7 @@ impl<S: 'static> Ui<S> {
             let (mut at, mut group) = (list[i].parent, None);
             while let Some(id) = at {
                 let Some(node) = list.iter().find(|n| n.id == id) else { break };
-                if GROUP_ROLES.contains(&node.role) {
+                if GROUP_ROLES.contains(&&*node.role) {
                     group = Some(node.control);
                     break;
                 }

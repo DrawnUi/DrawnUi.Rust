@@ -491,7 +491,7 @@ mod tests {
         showing(&host, &format!("Nodes in the overlay: {} · focused: none · last activated: sound", page.nodes));
         let nodes = host.ui.accessibility_nodes();
         let sound = nodes.iter().find(|n| n.label == "Sound").expect("a Sound node");
-        assert_eq!((sound.role, sound.is_pressed), (Aria::BUTTON, Some(false)));
+        assert_eq!((&*sound.role, sound.is_pressed), (Aria::BUTTON, Some(false)));
         let settings = nodes.iter().find(|n| n.label == "Open settings").expect("the settings card");
         assert!(settings.can_interact);
         assert!(!nodes.iter().any(|n| n.role == Aria::PRESENTATION));

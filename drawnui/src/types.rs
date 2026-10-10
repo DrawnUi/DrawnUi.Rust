@@ -185,6 +185,18 @@ impl IntoProp<String> for &str {
         self.to_owned()
     }
 }
+/// A text that is a constant most of the time (an `Aria` role) and comes from data the rest:
+/// a constant costs nothing, a `String` is kept as it is.
+impl IntoProp<std::borrow::Cow<'static, str>> for &'static str {
+    fn into_prop(self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed(self)
+    }
+}
+impl IntoProp<std::borrow::Cow<'static, str>> for String {
+    fn into_prop(self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Owned(self)
+    }
+}
 impl IntoProp<Option<Color>> for Color {
     fn into_prop(self) -> Option<Color> {
         Some(self)
