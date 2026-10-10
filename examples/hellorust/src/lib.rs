@@ -10,7 +10,7 @@ use catalog::SAMPLES;
 
 /// The publish counter shown in the root page footer (as HelloReact's `publish.ts`): one more on
 /// every publish to hellorust.drawnui.net.
-pub const PUBLISH: u32 = 10;
+pub const PUBLISH: u32 = 11;
 
 /// A color from `0xRRGGBB`, the way the C# pages write `Color.Parse("#RRGGBB")`.
 pub const fn hex(rgb: u32) -> Color {
