@@ -29,6 +29,8 @@ version before it. Commits in parentheses.
 - SkiaCarousel `on_scrolled` / `on_stopped`; SkiaDrawer `on_scrolled` / `on_stopped` /
   `on_transition_changed` (DrawnUI SnappingLayout.Scrolled and TransitionChanged, Stopped): the
   position in points, once a frame while it moves; where it came to rest.
+- SkiaShaderCarousel `on_from_to_changed` (DrawnUI FromToChanged): the transition is between other
+  slides; read `transition_from_index` / `transition_to_index` in it.
 - SkiaDecoratedGrid's line defaults are written with its public `horizontal_gradient()` /
   `vertical_gradient()`, so code that copies a default can reset to it.
 

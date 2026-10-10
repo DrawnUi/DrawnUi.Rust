@@ -175,3 +175,37 @@ fn every_slide_shows_at_rest_also_the_last_of_a_looped_carousel() {
         assert_eq!(host.pixel(90, 50), COLORS[index], "slide {index}");
     }
 }
+
+/// DrawnUI FromToChanged: runs when the transition is between other slides.
+#[test]
+fn from_to_changed_runs_when_the_slides_of_the_transition_change() {
+    register_shader_source("fade.sksl", FADE);
+    let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let log = seen.clone();
+    let mut carousel = Handle::default();
+    let slides: Vec<_> = COLORS.iter().map(|c| SkiaLayout::new().background_color(*c).use_cache(CacheType::Image)).collect();
+    let built = SkiaShaderCarousel::new()
+        .horizontal_options(LayoutOptions::Start)
+        .width_request(100)
+        .height_request(60)
+        .margin(Thickness::new(40.0, 20.0, 0.0, 0.0))
+        .transition_shader("fade.sksl")
+        .children(slides)
+        .assign(&mut carousel)
+        .on_from_to_changed(move |me, _app: &mut (), cx| {
+            let c = cx.find::<SkiaShaderCarousel>(me).unwrap();
+            log.borrow_mut().push((c.transition_from_index(), c.transition_to_index()));
+        });
+    let ui = Ui::new((), |_| SkiaLayout::new().fill().children(built)).background(Color::BLACK);
+    let mut host = Headless::new(ui, 200, 100, 1.0);
+    host.settle();
+    seen.borrow_mut().clear();
+    // To the second slide and past it: the transition goes 0 -> 1, then 1 -> 2.
+    host.ui.tree.get_mut(carousel).unwrap().go_next();
+    host.settle();
+    host.ui.tree.get_mut(carousel).unwrap().go_next();
+    host.settle();
+    let seen = seen.borrow();
+    assert!(seen.contains(&(Some(1), Some(2))), "{seen:?}");
+    assert!(seen.windows(2).all(|w| w[0] != w[1]), "only changes: {seen:?}");
+}

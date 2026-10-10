@@ -18,7 +18,7 @@ use crate::controls::layout::LayoutProps;
 use crate::controls::snapping_layout::SnappingProps;
 use crate::effects::{CachedTexture, SkiaEffect, SkiaShaderEffect};
 use crate::props;
-use crate::tree::{Build, Container, ControlId, Cx, Handle, Mut};
+use crate::tree::{Build, Container, ControlId, Cx, Handle, Mut, wrong_state};
 use crate::types::{CacheType, Dirty, LayoutOptions};
 
 props!(ShaderCarouselProps, ShaderCarouselBuild, ShaderCarouselSet {
@@ -41,6 +41,9 @@ pub struct SkiaShaderCarousel {
     wrapped: Cell<bool>,
     /// The last transition: kept while a carousel that is not looped bounces past an end.
     last: Cell<Option<(usize, usize, f32)>>,
+    /// The slides `on_from_to_changed` was last told of.
+    reported: Option<(usize, usize)>,
+    on_from_to_changed: Option<Box<dyn FnMut(&mut dyn Any, &mut Cx<'_>)>>,
 }
 
 impl SkiaShaderCarousel {
@@ -55,6 +58,8 @@ impl SkiaShaderCarousel {
             applied: Default::default(),
             wrapped: Cell::new(false),
             last: Cell::new(None),
+            reported: None,
+            on_from_to_changed: None,
         };
         let mut build = Build::new(carousel)
             .horizontal_options(LayoutOptions::Fill)
@@ -271,5 +276,34 @@ impl SkiaEffect for CarouselTransition {
 
     fn shader_mut(&mut self) -> Option<&mut SkiaShaderEffect> {
         Some(&mut self.shader)
+    }
+}
+
+/// After the slides moved (the carousel's tick): when the slides of the transition are other ones,
+/// `on_from_to_changed` runs (DrawnUI SkiaShaderCarousel.FromToChanged). True when it ran.
+pub(crate) fn report_from_to(cx: &mut Cx<'_>, id: ControlId, state: &mut dyn Any) -> bool {
+    let Some(mut me) = cx.tree.find_mut::<SkiaShaderCarousel>(id) else { return false };
+    let shader = me.control_mut();
+    let now = shader.transition().map(|t| (t.0, t.1));
+    if now == shader.reported {
+        return false;
+    }
+    shader.reported = now;
+    let Some(mut handler) = shader.on_from_to_changed.take() else { return false };
+    handler(state, cx);
+    if let Some(mut me) = cx.tree.find_mut::<SkiaShaderCarousel>(id) {
+        me.control_mut().on_from_to_changed.get_or_insert(handler);
+    }
+    true
+}
+
+impl Build<SkiaShaderCarousel> {
+    /// Runs when the transition is between other slides (DrawnUI FromToChanged): read them with
+    /// `transition_from_index` / `transition_to_index`.
+    pub fn on_from_to_changed<S: Any>(mut self, mut f: impl FnMut(Handle<SkiaShaderCarousel>, &mut S, &mut Cx<'_>) + 'static) -> Self {
+        let me = self.handle();
+        self.control_mut().on_from_to_changed =
+            Some(Box::new(move |state, cx| f(me, state.downcast_mut::<S>().unwrap_or_else(|| wrong_state::<S>()), cx)));
+        self
     }
 }

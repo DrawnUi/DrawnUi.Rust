@@ -600,6 +600,10 @@ fn tick(id: ControlId, time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> Fr
     if let Some(position) = scrolled {
         tick.state_touched |= run(cx, id, state, |c| &mut c.on_scrolled, position);
     }
+    // A shader carousel tells when its transition is between other slides.
+    if scrolled.is_some() {
+        tick.state_touched |= crate::controls::shader_carousel::report_from_to(cx, id, state);
+    }
     for event in events.drain(..) {
         tick.state_touched |= match event {
             Event::Index(i) => run(cx, id, state, |c| &mut c.on_selected_index_changed, i),
