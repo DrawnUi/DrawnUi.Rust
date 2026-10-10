@@ -302,7 +302,7 @@ impl Default for World {
             y: 0.0,
             vy: 0.0,
             lane: 0,
-            speed: 16.0,
+            speed: 12.0,
             time: 0.0,
             orbs: 0,
             health: 1.0,
@@ -547,7 +547,7 @@ impl World {
             }
             Phase::Attract => {
                 input = self.pilot(dt);
-                self.speed = 16.0;
+                self.speed = 12.0;
                 // The title's run never shows the end: it starts over before the exit's light
                 // (which begins 600 units before the door).
                 if self.z >= EXIT - 700.0 {
@@ -555,7 +555,7 @@ impl World {
                 }
             }
             Phase::Playing => {
-                self.speed = (12.0 + self.z as f32 * 0.012).min(24.0);
+                self.speed = (10.0 + self.z as f32 * 0.012).min(24.0);
                 self.run_time += dt;
                 // The run wears the runner down: a cell of health every DRAIN_SECONDS. The orbs
                 // are what keeps it up.
@@ -1020,7 +1020,7 @@ mod tests {
         for _ in 0..60 * 30 {
             let mut input = world.pilot(1.0 / 60.0);
             world.step(1.0 / 60.0, &mut input);
-            assert_eq!(world.health, 1.0, "hit at {} (row {:?})", world.z, row((world.z / 2.0) as i64));
+            assert_eq!(world.hits, 0, "hit at {} (row {:?})", world.z, row((world.z / 2.0) as i64));
         }
         assert!(world.orbs > 20, "orbs {}", world.orbs);
     }
