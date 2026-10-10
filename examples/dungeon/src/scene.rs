@@ -31,9 +31,10 @@ const REBASE: f64 = 40.0;
 /// Floats per vertex: position 2, then three float4.
 const FLOATS: usize = 14;
 /// How long GAME OVER stays, and how long its frozen picture takes to burn away over the title.
-const OVER_SECONDS: f32 = 3.7;
 /// The dungeon ends here: a doorway of light. The last hazards stand 100 units before it.
 pub const EXIT: f64 = 3000.0;
+/// From this far before the door the way out is in sight (the corridor is straight by then).
+const EXIT_SIGHT: f64 = 300.0;
 const EXIT_ROW: i64 = (EXIT / 2.0) as i64;
 const BURN_SECONDS: f32 = 1.4;
 /// A zone of one palette.
@@ -273,6 +274,10 @@ pub struct World {
     /// The runner reached the exit: the run ends in light, not on the floor. `run_time`: seconds
     /// of the run; `best_time`: the fastest escape of the session; `escape`: 0 to 1, the white-out.
     pub escaped: bool,
+    /// How far the world outside the door is lifted toward white (eyes used to the dark): the
+    /// darker the corridor around the runner, the more. 0.3 where the opening comes into sight,
+    /// 0.15 at the door, settling to 0 in about a second out there (full contrast).
+    pub glare: f32,
     pub run_time: f32,
     pub best_time: Option<f32>,
     pub escape: f32,
@@ -329,6 +334,7 @@ impl Default for World {
             shield: 0.0,
             shield_burst: 0.0,
             escaped: false,
+            glare: 0.3,
             run_time: 0.0,
             best_time: None,
             escape: 0.0,
@@ -409,7 +415,7 @@ impl World {
         (self.health, self.invulnerable, self.surge, self.pace, self.fall) = (1.0, 0.0, 0.0, 1.0, 0.0);
         self.collected.clear();
         (self.ghost, self.killer, self.dread, self.revealed, self.ghosts_passed, self.hits) = (0.0, None, 0.0, None, 0, 0);
-        (self.escaped, self.run_time, self.escape) = (false, 0.0, 0.0);
+        (self.escaped, self.run_time, self.escape, self.glare) = (false, 0.0, 0.0, 0.3);
         (self.shield, self.shield_burst) = (0.0, 0.0);
         (self.streak, self.last_orb, self.orb_pulse) = (0, -10, 0.0);
         self.phase = phase;
@@ -437,9 +443,15 @@ impl World {
         self.burn = 1.0;
     }
 
-    /// GAME OVER has stood a moment: its picture is taken, to burn away when the player leaves it.
-    pub fn closing(&self) -> bool {
-        self.phase == Phase::Over && !self.escaped && self.dead_timer <= -(OVER_SECONDS - 0.15)
+    /// Seconds GAME OVER (or the view from outside) has been standing.
+    pub fn over_for(&self) -> f32 {
+        if self.phase == Phase::Over { -self.dead_timer } else { 0.0 }
+    }
+
+    /// A new run straight from GAME OVER; its picture burns away over the new run.
+    pub fn restart_run(&mut self) {
+        self.start();
+        self.burn = 1.0;
     }
 
     /// The number the countdown shows: 3, 2, 1.
@@ -456,6 +468,8 @@ impl World {
         self.heal = (self.heal - dt * 1.1).max(0.0);
         self.ghost = (self.ghost - dt * 0.7).max(0.0);
         self.shield_burst = (self.shield_burst - dt * 1.4).max(0.0);
+        let glare = if self.z >= EXIT { 0.0 } else { 0.15 + 0.15 * ((EXIT - self.z) / EXIT_SIGHT).clamp(0.0, 1.0) as f32 };
+        self.glare += (glare - self.glare) * (1.0 - (-dt * 2.0).exp());
         if self.phase == Phase::Playing {
             self.shield = (self.shield - dt).max(0.0);
         }
@@ -792,7 +806,13 @@ impl Control for Scene {
             (world.z - base) as f32,
         ];
         let d = world.z as f32;
-        let bend = (0.0032 * (d * 0.011).sin() + 0.0016 * (d * 0.027 + 1.3).sin(), 0.0018 * (d * 0.007 + 0.5).sin() - 0.0006);
+        // The corridor straightens over 600 to 300 units before the exit: from there the way out
+        // is dead ahead, and the long stretch to it is drawn as straight quads.
+        let straight = ((EXIT - EXIT_SIGHT - world.z) / 300.0).clamp(0.0, 1.0) as f32;
+        let bend = (
+            (0.0032 * (d * 0.011).sin() + 0.0016 * (d * 0.027 + 1.3).sin()) * straight,
+            (0.0018 * (d * 0.007 + 0.5).sin() - 0.0006) * straight,
+        );
         let mut builder = Builder {
             out: &mut vertices,
             camera,
@@ -810,11 +830,14 @@ impl Control for Scene {
         }
         let Some(buffer) = meshes::make_vertex_buffer(bytes(&vertices)) else { return };
         let bright = dim * (1.0 + 0.7 * exit_light);
+        // Near the exit the air clears (daylight), so the opening reads from far.
+        let ramp = ((world.z - (EXIT - 600.0)) / 600.0).clamp(0.0, 1.0) as f32;
         let uniforms = [
             world.time, camera[0], camera[1], camera[2],
             torch[0] * bright, torch[1] * bright, torch[2] * bright, (EXIT - base) as f32,
             accent[0], accent[1], accent[2], exit_light,
-            fog[0], fog[1], fog[2], 0.028 + 0.08 * world.dread,
+            fog[0], fog[1], fog[2], 0.028 * (1.0 - 0.4 * ramp) + 0.08 * world.dread,
+            world.glare, 0.0, 0.0, 0.0,
         ];
         let mesh = Mesh::make(spec.clone(), Mode::Triangles, buffer, count, 0, Data::new_copy(bytes(&uniforms)), &[], bounds);
         let mesh = match mesh {
@@ -900,26 +923,27 @@ impl Builder<'_> {
         const W: f32 = HALF_WIDTH;
         const H: f32 = HEIGHT;
         let first = (world.z / 2.0).floor() as i64;
-        // Past the door there is no dungeon: the world outside, one wide quad far off (sky, sun,
-        // clouds, mountains in the shader), and the stone floor going on as a terrace.
-        let outside = EXIT_ROW + 45;
-        if (first..first + VISIBLE).contains(&outside) {
-            let z = (outside as f64 * 2.0 - base) as f32;
-            self.quad([[-400.0, -40.0, z], [400.0, -40.0, z], [400.0, 200.0, z], [-400.0, 200.0, z]], 13.0, [0.0; 4], [0.0, 0.0, -1.0], 0.0);
+        // The way out, once in sight: the corridor simply ends, open. Behind the opening, the
+        // world outside (one wide quad far off: sky, sun, clouds, mountains in the shader) and the
+        // stone floor going on as a terrace; the stretch of corridor past the drawn rows up to the
+        // door as four long quads (the corridor is straight by then).
+        let door = EXIT_ROW as f64 * 2.0 - base;
+        if world.z >= EXIT - EXIT_SIGHT {
+            let sky = (door + 90.0) as f32;
+            self.quad([[-400.0, -40.0, sky], [400.0, -40.0, sky], [400.0, 200.0, sky], [-400.0, 200.0, sky]], 13.0, [0.0; 4], [0.0, 0.0, -1.0], 0.0);
+            let (t0, t1) = (door as f32, (door + 24.0) as f32);
+            self.quad([[-30.0, 0.0, t0], [30.0, 0.0, t0], [30.0, 0.0, t1], [-30.0, 0.0, t1]], 0.0, [0.0; 4], [0.0, 1.0, 0.0], 0.0);
+            let near = first + VISIBLE;
+            if near < EXIT_ROW {
+                let (z0, z1) = ((near as f64 * 2.0 - base) as f32, door as f32);
+                self.quad([[-W, 0.0, z0], [W, 0.0, z0], [W, 0.0, z1], [-W, 0.0, z1]], 0.0, [0.0; 4], [0.0, 1.0, 0.0], 0.0);
+                self.quad([[-W, H, z0], [W, H, z0], [W, H, z1], [-W, H, z1]], 1.0, [0.0; 4], [0.0, -1.0, 0.0], 0.0);
+                self.quad([[-W, 0.0, z0], [-W, 0.0, z1], [-W, H, z1], [-W, H, z0]], 2.0, [0.0; 4], [1.0, 0.0, 0.0], 0.0);
+                self.quad([[W, 0.0, z0], [W, 0.0, z1], [W, H, z1], [W, H, z0]], 2.0, [0.0; 4], [-1.0, 0.0, 0.0], 0.0);
+            }
         }
         for i in (first..first + VISIBLE).rev() {
             if i >= EXIT_ROW {
-                // A terrace of twelve rows, then the drop to the valley: farther rows would be
-                // lifted over the horizon by the corridor's bend (depth squared).
-                let z0 = (i as f64 * 2.0 - base) as f32;
-                if i < EXIT_ROW + 12 {
-                    self.quad([[-30.0, 0.0, z0], [30.0, 0.0, z0], [30.0, 0.0, z0 + SEG], [-30.0, 0.0, z0 + SEG]], 0.0, [0.0; 4], [0.0, 1.0, 0.0], 0.0);
-                }
-                // The way out: the corridor's opening at its end, solid daylight (it hides the
-                // world behind it until the runner is through).
-                if i == EXIT_ROW {
-                    self.quad([[-W, 0.0, z0], [W, 0.0, z0], [W, H, z0], [-W, H, z0]], 11.0, [0.0; 4], [0.0, 0.0, -1.0], 0.0);
-                }
                 continue;
             }
             let z0 = (i as f64 * 2.0 - base) as f32;

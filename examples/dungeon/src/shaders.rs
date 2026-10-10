@@ -21,6 +21,7 @@ uniform float4 uTC;     // time, camera xyz
 uniform float4 uTorch;  // torch color, z of the exit
 uniform float4 uAccent; // lava, runes; the exit's light (0 to 1)
 uniform float4 uFog;    // color, density
+uniform float4 uOut;    // how far the world outside the door is lifted toward white
 
 float hash(float2 p) { return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453); }
 
@@ -79,7 +80,16 @@ float2 main(const Varyings v, out half4 color) {
     float t = uTC.x;
     float3 V = uTC.yzw - P;
     float dist = length(V);
-    float fog = 1.0 - exp(-dist * uFog.w);
+    // Past the door the air is clear: only the corridor's stretch of the way is fogged, and
+    // daylight pierces it a little.
+    float outside = step(uTorch.w, P.z);
+    float fogDist = mix(dist, dist * max(uTorch.w - uTC.w, 0.0) / max(P.z - uTC.w, 0.001), outside);
+    float fog = (1.0 - exp(-fogDist * uFog.w)) * (1.0 - 0.3 * outside);
+    // Seen from the dark corridor the world outside is brighter and flatter: lifted toward white.
+    // The corridor's air in front of it glows with the daylight: veiled toward warm white, not
+    // toward the dungeon's gray fog.
+    float lift = uOut.x * outside;
+    float3 daylight = float3(1.0, 0.97, 0.9);
 
     if (mat > 4.5) {
         float2 c = uv * 2.0 - 1.0;
@@ -87,7 +97,6 @@ float2 main(const Varyings v, out half4 color) {
         float edge = 1.0 - smoothstep(0.6, 1.0, r2);
         float3 e;
         float solid = 0.0;
-        float nofog = 0.0;
         if (mat < 5.5) {
             float pulse = 0.85 + 0.15 * sin(t * 6.0 + seed * 40.0);
             e = uAccent.gbr * (exp(-r2 * 7.0) * 1.8 + exp(-r2 * 2.2) * 0.35) * pulse + float3(1.0) * exp(-r2 * 45.0);
@@ -140,15 +149,6 @@ float2 main(const Varyings v, out half4 color) {
             float mountain = 1.0 - smoothstep(ridge - 0.004, ridge + 0.004, h);
             float3 rock = mix(float3(0.32, 0.34, 0.48), horizon, 0.45 + 0.4 * smoothstep(0.0, ridge, h));
             e = mix(sky, rock, mountain) + float3(1.0, 0.93, 0.8) * sun * (1.0 - mountain * 0.7);
-            solid = 1.0;
-            nofog = 1.0;
-        } else if (mat > 10.5) {
-            // The way out: the opening itself, blown-out daylight, brightest in the middle;
-            // solid, and seen through the fog from far.
-            float r = length(c);
-            float pulse = 0.94 + 0.06 * sin(t * 2.0);
-            e = float3(1.0, 0.92, 0.7) * (2.2 + 1.6 * exp(-r * r * 2.0)) * pulse;
-            e /= max(1.0 - fog, 0.25);
             solid = 1.0;
         } else if (mat > 9.5) {
             // The dungeon ghost, a spectre: a pointed hood over a dark hollow with two burning eyes,
@@ -206,7 +206,9 @@ float2 main(const Varyings v, out half4 color) {
             e = pc * (ring * 1.5 * beat + sign * 2.2 + exp(-r2 * 2.5) * 0.4) + float3(1.0) * sign * 0.8;
             e *= edge;
         }
-        e *= 1.0 - fog * (1.0 - nofog);
+        e = solid > 0.5 ? mix(e, float3(1.0), lift) : e;
+        // Additive sprites fade out in the fog; solid ones (the world outside) fade into it.
+        e = solid > 0.5 ? mix(e, mix(uFog.rgb, daylight, outside), fog) : e * (1.0 - fog);
         color = half4(half3(e), half(solid));
         return v.position;
     }
@@ -274,8 +276,9 @@ float2 main(const Varyings v, out half4 color) {
     float toExit = max(uTorch.w - P.z, 0.0);
     float sun = uAccent.w * exp(-toExit * 0.012) * (0.3 + 0.7 * max(n.z, 0.0) + 0.55 * abs(n.x) + 0.35 * max(n.y, 0.0));
     lit += float3(1.0, 0.9, 0.7) * sun * 2.4;
-    float3 c = mix(base * lit + emis, uFog.rgb, fog);
-    color = half4(half3(1.0 - exp(-c * 1.6)), 1.0);
+    float3 c = mix(base * lit + emis, uFog.rgb, fog * (1.0 - outside));
+    float3 tc = mix(1.0 - exp(-c * 1.6), daylight, fog * outside);
+    color = half4(half3(mix(tc, float3(1.0), lift)), 1.0);
     return v.position;
 }";
 

@@ -20,9 +20,11 @@ You run forward by yourself. Stay alive as long as you can.
 - **Orbs**: a little health each (ten fill one cell). They come in rows of three: the third of a
   row taken without a miss counts double. The orbs lead to the lane the next pillars leave free.
 - **The distance is the score**: how far you got, top left, in meters. The dungeon ends at
-  3000 m: the last hazards stand at 2900 m, the corridor brightens toward the daylight at its end,
-  and out of the door the run is over: YOU ESCAPED! with your time; the title keeps the session's
-  best. That screen stays until a key or a tap.
+  3000 m: the last hazards stand at 2900 m, the corridor straightens and brightens toward the
+  daylight at its end, and the outside shows through the open doorway, bright and hazy from the
+  dark (eyes used to the dark), clearer as you come. Out of the door the run is over: YOU
+  ESCAPED! with your time; the title keeps the session's best. That screen stays until a key or a
+  tap.
 - **Ghost**: hangs in any lane. Far away only its eyes burn; as you come near the torches dim,
   the fog thickens, then it reveals itself and lunges. It takes three tenths of your health in a
   blackout; the one that takes the last of it stays over you while you lie there. Change lane.
@@ -46,8 +48,9 @@ COLLECT ORBS TO HEAL after the first hit, AVOID GHOSTS after the first ghost gon
 under four cells. Every twelve
 seconds without a hit a word of praise shows instead.
 
-A run starts with a countdown. When the health is gone, GAME OVER stays until any key or tap,
-then its picture burns away over the title's run.
+A run starts with a countdown. When the health is gone, GAME OVER stays over the still living
+dungeon until a key or a tap (TAP OR PRESS SPACE TO RESTART): a new run starts and the GAME OVER
+picture burns away over it.
 
 The title screen plays the game by itself until you start.
 

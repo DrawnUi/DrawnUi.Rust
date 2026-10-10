@@ -87,6 +87,16 @@ pub struct App {
     /// Over everything after GAME OVER: its frozen picture, burning away.
     curtain: Handle<SkiaLayout>,
     curtain_on: bool,
+    /// A key or a tap left GAME OVER: one frame for the curtain to take its picture, then the
+    /// new run (or the title, after an escape).
+    leaving: u8,
+    /// GAME OVER has stood long enough to take a key or a tap (a press in panic does not skip it).
+    over_ready: bool,
+    /// The last press was a finger: the texts speak of taps only.
+    touched: bool,
+    /// "TAP OR PRESS SPACE TO RESTART" under GAME OVER (the title's caption style), and whether it shows.
+    restart: Handle<SkiaLabel>,
+    restart_shown: bool,
     shown_burn: f32,
     /// The health flash, the surge, the color of its rays, the orb pulse and the ghost's flash
     /// the post effect was last given; the shield (held, burst) likewise.
@@ -167,12 +177,8 @@ fn act(app: &mut App, cx: &mut Cx, left: bool, right: bool, jump: bool) {
             app.input.right |= right;
             app.input.jump |= jump;
         }
-        // GAME OVER need not be waited out.
-        Phase::Over => {
-            if let Some(mut scene) = cx.get_mut(app.scene) {
-                scene.control_mut().world.to_title();
-            }
-        }
+        // Any key or tap leaves GAME OVER (a new run) or the view from outside (the title).
+        Phase::Over if app.over_ready && app.leaving == 0 => app.leaving = 2,
         _ => {}
     }
 }
@@ -214,6 +220,11 @@ fn key_down(app: &mut App, cx: &mut Cx, event: &KeyEvent) -> bool {
     if matches!(event.key, "Enter" | "NumpadEnter" | "Space") && cx.accessibility_focused().is_some() {
         return false;
     }
+    // GAME OVER takes any key (F1 still opens the help).
+    if app.phase == Phase::Over && !app.paused && event.key != "F1" {
+        act(app, cx, false, false, true);
+        return true;
+    }
     match event.key {
         // In a dialog, Enter and Space press its main button.
         "Enter" | "NumpadEnter" | "Space" if app.paused => close_dialog(app, cx),
@@ -249,7 +260,7 @@ fn key_up(app: &mut App, event: &KeyEvent) -> bool {
 /// The pointer, a finger or the mouse alike: a drag steers, a tap jumps.
 fn gesture(app: &mut App, cx: &mut Cx, gesture: &Gesture, scale: f32) -> bool {
     match gesture.kind {
-        GestureKind::Down => (app.swiped, app.pan_steps) = (false, 0),
+        GestureKind::Down => (app.swiped, app.pan_steps, app.touched) = (false, 0, gesture.touch),
         // A drag steers, with a finger or the mouse: a lane for every `PAN_STEP` points the
         // pointer has gone sideways since the press, there and back.
         GestureKind::Panning => {
@@ -334,6 +345,20 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
     let world = &mut scene.control_mut().world;
     // A frame that came late (a hidden tab) is not a jump through the walls.
     world.step(delta.min(0.05), &mut app.input);
+    // Leaving GAME OVER: this frame the curtain shows and takes its picture of it (the scene stays
+    // live under GAME OVER until then), the next one starts the new run under the burning curtain.
+    let mut closing = false;
+    if app.leaving > 0 {
+        app.leaving -= 1;
+        if app.leaving > 0 {
+            closing = true;
+        } else if world.escaped {
+            world.to_title();
+        } else {
+            world.restart_run();
+        }
+    }
+    app.over_ready = world.over_for() > 0.6;
     let (phase, orbs, health, hint, young) = (world.phase, world.orbs(), world.health, world.hint(), world.young());
     let (escaped, run_time, best_time, hits) = (world.escaped, world.run_time, world.best_time, world.hits);
     let world_killer = world.killer;
@@ -341,7 +366,7 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
     let ghosts_passed = world.ghosts_passed;
     let meters = world.distance() / 10 * 10;
     let count = world.count();
-    let (burn, closing) = (world.burn, world.closing());
+    let burn = world.burn;
     let pickup = world.take_pickup();
     let fx = [world.rush(), world.warp, world.flash, world.time];
     let light = world.light();
@@ -414,8 +439,8 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
             score.set_opacity(opacity);
         }
     }
-    // The curtain: shown a moment before GAME OVER ends, it keeps that picture (its shader takes
-    // its texture once), then burns it away over the title's run.
+    // The curtain: shown the frame GAME OVER is left, it keeps that picture (its shader takes its
+    // texture once), then burns it away over the new run (or the title's).
     let curtain_on = closing || burn > 0.0;
     let hole = if closing { 0.0 } else { 1.0 - burn };
     if let Some(mut curtain) = cx.get_mut(app.curtain) {
@@ -606,6 +631,15 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
             young || app.taught[i] <= 3
         });
         show_prompt(app, cx, show.then_some(prompt));
+    }
+    // Under GAME OVER, once it takes a key: how to go on (any key works, Space is the one named).
+    let restart = phase == Phase::Over && !escaped && app.over_ready && app.leaving == 0;
+    if restart != app.restart_shown {
+        app.restart_shown = restart;
+        if let Some(mut label) = cx.get_mut(app.restart) {
+            label.set_text(if MOBILE || app.touched { "TAP TO RESTART" } else { "TAP OR PRESS SPACE TO RESTART" });
+            label.set_opacity(if restart { 1.0 } else { 0.0 });
+        }
     }
     // The prompt jumps in like the countdown, then its glow beats.
     if app.prompt_pop > 0.0 || app.prompt_time > 0.0 {
@@ -1014,6 +1048,12 @@ fn build(app: &mut App) -> Build<SkiaShell> {
                 .accessibility_live("assertive")
                 .assign(&mut app.count_label),
         );
+    let restart = centered("", 11, 0x99FF_FFFF)
+        .vertical_options(LayoutOptions::Center)
+        .margin((0, 110, 0, 0))
+        .opacity(0.0)
+        .input_transparent(true)
+        .assign(&mut app.restart);
     let curtain = SkiaLayer::new().fill().is_visible(false).input_transparent(true).assign(&mut app.curtain).visual_effect(
         SkiaShaderEffect::new()
             .shader_code(shaders::CURTAIN)
@@ -1127,6 +1167,7 @@ fn build(app: &mut App) -> Build<SkiaShell> {
             prompt,
             count,
             title,
+            restart,
             curtain,
             SkiaBackdrop::new().blur(1.5).background_color(Color::new(0x7300_0000)).fill().input_transparent(true).is_visible(false).assign(&mut app.veil),
         )))
