@@ -967,3 +967,24 @@ fn a_typed_hash_on_a_page_opens_that_page() {
     browse(&mut host, "", 0);
     assert_eq!(stack(&host), Vec::<String>::new());
 }
+
+/// A popup that blocks the gestures below it: the page's buttons under its background take no
+/// tap, so they show no hand either.
+#[test]
+fn a_button_under_a_popup_background_shows_no_hand() {
+    let mut go = Handle::<SkiaButton>::default();
+    let mut host = host_of(|app| {
+        let root = SkiaLayer::new().fill().background_color(Color::BLUE).children(
+            SkiaButton::new("Under").width_request(120).height_request(40).margin(Thickness::new(10.0, 10.0, 0.0, 0.0)).assign(&mut go).on_tapped(|_me, _app: &mut App, _cx| {}),
+        );
+        events(routes(SkiaShell::new().assign(&mut app.shell))).root(root)
+    });
+    let r = host.rect(go);
+    host.hover(r.center_x(), r.center_y());
+    assert_eq!(host.ui.cursor(), Cursor::Pointer, "the page's button before the popup");
+    let id = host.ui.state.shell;
+    host.ui.tree.cx().open_popup(id, SkiaShape::new().width_request(200).height_request(100), PopupOptions::default());
+    host.settle();
+    host.hover(r.center_x() + 1.0, r.center_y());
+    assert_eq!(host.ui.cursor(), Cursor::Default, "under the popup's background");
+}
