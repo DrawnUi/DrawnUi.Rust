@@ -17,6 +17,8 @@ version before it. Commits in parentheses.
 - A scroll's content, header, footer and refresh indicator can be set or removed at run time:
   `Cx::set_scroll_content`, `set_scroll_header`, `set_scroll_footer`, `set_refresh_indicator`
   (DrawnUI's settable SkiaScroll.Content / Header / Footer / RefreshIndicator).
+- `Mut::set_scale` and `ControlProps::scale()` (DrawnUI `Scale`: sets scale_x and scale_y together,
+  reads the smaller), beside the builder's `scale`.
 - SkiaCarousel `on_scrolled` / `on_stopped`; SkiaDrawer `on_scrolled` / `on_stopped` /
   `on_transition_changed` (DrawnUI SnappingLayout.Scrolled and TransitionChanged, Stopped): the
   position in points, once a frame while it moves; where it came to rest.

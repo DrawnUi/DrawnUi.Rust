@@ -236,6 +236,12 @@ impl<T: ?Sized> Mut<'_, T> {
     pub fn control_mut(&mut self) -> &mut T {
         self.control
     }
+    /// Sets scale_x and scale_y together (DrawnUI `Scale`).
+    pub fn set_scale(&mut self, v: impl IntoProp<f32>) {
+        let v = v.into_prop();
+        self.set_scale_x(v);
+        self.set_scale_y(v);
+    }
     pub fn mark(&mut self, dirty: Dirty) {
         if dirty.is_empty() {
             return;
@@ -393,6 +399,13 @@ impl<T: Control> Build<T> {
     pub fn scale(self, v: impl IntoProp<f32>) -> Self {
         let v = v.into_prop();
         self.scale_x(v).scale_y(v)
+    }
+}
+
+impl ControlProps {
+    /// DrawnUI `Scale`: the smaller of scale_x and scale_y (set both with `scale` / `set_scale`).
+    pub fn scale(&self) -> f32 {
+        self.scale_x.min(self.scale_y)
     }
 }
 
