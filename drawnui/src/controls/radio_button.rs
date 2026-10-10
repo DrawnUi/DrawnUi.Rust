@@ -222,8 +222,7 @@ impl Control for SkiaRadioButton {
         if self.toggle.needs_content() {
             self.build_content(cx);
         }
-        let came_on = self.toggle.p.is_toggled && self.toggle.reported() != Some(true);
-        self.toggle.take_change(cx);
+        let came_on = self.toggle.take_change(cx);
         if came_on {
             for other in self.others_on(cx) {
                 if let Some(mut radio) = cx.tree.find_mut::<SkiaRadioButton>(other) {

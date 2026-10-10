@@ -334,3 +334,38 @@ fn radio_groups_by_name_and_by_parent() {
     assert!(!host.ui.tree.base(tagged(&host.ui.tree, host.ui.state.ids[3], "On")).unwrap().p.is_visible);
 }
 
+
+/// DrawnUI DefaultValue: sets the state without Toggled, at build and when it changes.
+#[test]
+fn default_value_sets_the_state_without_on_toggled() {
+    let mut host = host(1.0, |app: &mut App| {
+        let switch = SkiaSwitch::new()
+            .default_value(true)
+            .observe(|me, app: &App| me.set_default_value(app.style != PrebuiltControlStyle::Windows))
+            .on_toggled(|_me, app: &mut App, _cx, value| app.toggled.push((0, value)));
+        let radio = |on: bool| SkiaRadioButton::new("R").group_name("d").default_value(on);
+        let (a, b) = (radio(true), radio(false));
+        app.ids = vec![switch.id(), a.id(), b.id()];
+        SkiaLayout::column().padding(20).children((switch, a, b))
+    });
+    let on = |host: &Headless<App>, i: usize| host.ui.tree.find::<SkiaToggle>(host.ui.state.ids[i]).unwrap().p.is_toggled;
+    assert!(on(&host, 0) && on(&host, 1) && !on(&host, 2));
+
+    host.ui.state.style = PrebuiltControlStyle::Windows;
+    host.ui.state_changed();
+    host.settle();
+    assert!(!on(&host, 0), "a new default value is the state");
+    assert!(host.ui.state.toggled.is_empty(), "{:?}", host.ui.state.toggled);
+
+    // A radio given an "on" default turns the others of its group off.
+    let b = host.ui.state.ids[2];
+    host.ui.tree.find_mut::<SkiaRadioButton>(b).unwrap().set_default_value(true);
+    host.settle();
+    assert!(!on(&host, 1) && on(&host, 2));
+
+    // Taps still run on_toggled.
+    let r = host.rect(host.ui.state.ids[0]);
+    host.tap(r.center_x(), r.center_y());
+    host.settle();
+    assert_eq!(host.ui.state.toggled, vec![(0, true)]);
+}

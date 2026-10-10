@@ -29,6 +29,12 @@ version before it. Commits in parentheses.
 - SkiaCarousel `on_scrolled` / `on_stopped`; SkiaDrawer `on_scrolled` / `on_stopped` /
   `on_transition_changed` (DrawnUI SnappingLayout.Scrolled and TransitionChanged, Stopped): the
   position in points, once a frame while it moves; where it came to rest.
+- SkiaScroll `max_velocity`, `max_bounce_velocity`, `rubber_effect`, `rubber_damping`,
+  `change_distance_panned`, `scrolling_speed_ms`, `auto_scrolling_speed_ms` (DrawnUI properties of the
+  same names and defaults; they were fixed values), and `Cx::set_viewport_offset_x` / `_y` (DrawnUI
+  ViewportOffsetX / ViewportOffsetY set: a jump, kept inside the content).
+- SkiaSwitch / SkiaCheckbox / SkiaRadioButton `default_value` (DrawnUI DefaultValue): a change sets
+  `is_toggled` without running `on_toggled`.
 - SkiaShaderCarousel `on_from_to_changed` (DrawnUI FromToChanged): the transition is between other
   slides; read `transition_from_index` / `transition_to_index` in it.
 - SkiaDecoratedGrid's line defaults are written with its public `horizontal_gradient()` /

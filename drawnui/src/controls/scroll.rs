@@ -26,22 +26,10 @@ const SCROLL_VELOCITY_THRESHOLD: f32 = 5.0;
 /// A release slower than this does not fling. Points per second times the scale, as upstream.
 const THRESHOLD_SWIPE_ON_UP: f32 = 20.0;
 const MIN_VELOCITY: f32 = 1.5;
-/// Limits of the pan velocity and of the velocity a bounce starts with, points per second.
-const MAX_VELOCITY: f32 = 3000.0;
-const MAX_BOUNCE_VELOCITY: f32 = 500.0;
 /// The share of each move the content follows at once; the rest is carried into the next move.
 const PAN_SMOOTHING: f32 = 0.85;
-/// Rubber band: how soft it is. It stretches over the viewport at most (React), where C# uses
-/// 100 points times the scale.
-const RUBBER_EFFECT: f32 = 0.55;
 /// The rubber band of a viewport without a size (React RubberBandClamp onEmpty).
 const RUBBER_ON_EMPTY: f32 = 40.0;
-/// The spring of the bounce back is built from it (DrawnUI RubberDamping).
-const RUBBER_DAMPING: f32 = 0.55;
-/// Duration of a snap and of the way back after a refresh (DrawnUI AutoScrollingSpeedMs).
-const AUTO_SCROLLING_SPEED_MS: f32 = 600.0;
-/// Duration of a wheel step (DrawnUI ScrollingSpeedMs).
-const SCROLLING_SPEED_MS: f32 = 400.0;
 /// A fling slower than this (points per second) for three frames in a row is over.
 const FLING_VALUE_THRESHOLD: f64 = 1.85;
 
@@ -105,6 +93,21 @@ props!(ScrollProps, ScrollBuild, ScrollSet {
     friction_scrolled / set_friction_scrolled: f32 = 0.3, NONE;
     /// Multiplies the release velocity of a fling.
     change_velocity_scrolled / set_change_velocity_scrolled: f32 = 1.33, NONE;
+    /// Multiplies the distance a pan moves the content.
+    change_distance_panned / set_change_distance_panned: f32 = 1.0, NONE;
+    /// Limit of the release velocity, points per second.
+    max_velocity / set_max_velocity: f32 = 3000.0, NONE;
+    /// Limit of the velocity a bounce starts with, points per second.
+    max_bounce_velocity / set_max_bounce_velocity: f32 = 500.0, NONE;
+    /// How far the content can be pulled past an edge: higher = further. It stretches over the
+    /// viewport at most (React), where C# uses 100 points times the scale.
+    rubber_effect / set_rubber_effect: f32 = 0.55, NONE;
+    /// The spring of the bounce back is built from it: mass 1 + it, damping ratio (1 + it) / 2.
+    rubber_damping / set_rubber_damping: f32 = 0.55, NONE;
+    /// Milliseconds of a wheel step.
+    scrolling_speed_ms / set_scrolling_speed_ms: f32 = 400.0, NONE;
+    /// Milliseconds of a snap and of the way back after a refresh.
+    auto_scrolling_speed_ms / set_auto_scrolling_speed_ms: f32 = 600.0, NONE;
     /// A pan that moves more across the scroll axis than along it does not scroll.
     ignore_wrong_direction / set_ignore_wrong_direction: bool = false, NONE;
     /// Off: pans and the wheel do not scroll, code still does.
@@ -268,8 +271,9 @@ pub(crate) struct Bounce {
 }
 
 impl Bounce {
-    fn new(origin: f32, displacement: f32, velocity: f32) -> Self {
-        Self::with_spring(origin, displacement, velocity, 1.0 + RUBBER_DAMPING, 200.0, 0.5 * (1.0 + RUBBER_DAMPING))
+    /// ponytail: the underdamped spring only; a `rubber_damping` of 1 and more is taken just below it.
+    fn new(origin: f32, displacement: f32, velocity: f32, damping: f32) -> Self {
+        Self::with_spring(origin, displacement, velocity, 1.0 + damping, 200.0, (0.5 * (1.0 + damping)).min(0.999))
     }
 
     /// The spring of DrawnUI `Spring(mass, stiffness, damping ratio)`, from `displacement` and
@@ -618,7 +622,7 @@ impl SkiaScroll {
         self.p.snap_to_children != SnapToChildrenType::Disabled && !self.snapped && !self.is_user_focused && !self.is_animating()
     }
 
-    /// React Snap: the viewport goes on, over `AUTO_SCROLLING_SPEED_MS`, until the child under the
+    /// React Snap: the viewport goes on, over `auto_scrolling_speed_ms`, until the child under the
     /// snap point stands on it with its middle, its start or its end. `hit` is that child: its
     /// start and end along the axis, layout pixels. Not for less than 2 points.
     fn snap(&mut self, hit: Option<(usize, f32, f32)>) {
@@ -636,7 +640,7 @@ impl SkiaScroll {
         }
         *(if horizontal { &mut to.x } else { &mut to.y }) = target;
         self.snapped = true;
-        self.scroll_to(to, AUTO_SCROLLING_SPEED_MS);
+        self.scroll_to(to, self.p.auto_scrolling_speed_ms);
     }
 
     /// The nearest offset inside the content.
@@ -708,7 +712,7 @@ impl SkiaScroll {
             }
         } else if !self.offset.is_zero() {
             self.was_refreshing = false;
-            self.scroll_to(Point::default(), AUTO_SCROLLING_SPEED_MS);
+            self.scroll_to(Point::default(), self.p.auto_scrolling_speed_ms);
             // The app set it between frames: React starts the way back at once, its first frame is
             // the next one at 0 s. Taken during that frame here: the way back counts from it.
             (self.x.start_ms, self.y.start_ms) = (Some(time_ms), Some(time_ms));
@@ -833,7 +837,7 @@ impl SkiaScroll {
         if dim == 0.0 {
             dim = RUBBER_ON_EMPTY;
         }
-        hard + over.signum() * (1.0 - 1.0 / (over.abs() * RUBBER_EFFECT / dim + 1.0)) * dim
+        hard + over.signum() * (1.0 - 1.0 / (over.abs() * self.p.rubber_effect / dim + 1.0)) * dim
     }
 
     fn stop_scrolling(&mut self) {
@@ -903,8 +907,9 @@ impl SkiaScroll {
     fn bounce(&mut self, horizontal: bool, to: f32, velocity: f32) {
         let displacement = *self.along(horizontal) - to;
         if displacement != 0.0 || velocity != 0.0 {
-            let velocity = velocity.clamp(-MAX_BOUNCE_VELOCITY, MAX_BOUNCE_VELOCITY);
-            self.axis(horizontal).start(Motion::Bounce(Bounce::new(to, displacement, velocity)));
+            let velocity = velocity.clamp(-self.p.max_bounce_velocity, self.p.max_bounce_velocity);
+            let bounce = Bounce::new(to, displacement, velocity, self.p.rubber_damping);
+            self.axis(horizontal).start(Motion::Bounce(bounce));
         }
     }
 
@@ -930,7 +935,7 @@ impl SkiaScroll {
             && self.p.bounces
         {
             // Cut at the edge: what is left of its speed goes into a bounce (DrawnUI BounceIfNeeded).
-            let velocity = velocity.clamp(-MAX_BOUNCE_VELOCITY, MAX_BOUNCE_VELOCITY);
+            let velocity = velocity.clamp(-self.p.max_bounce_velocity, self.p.max_bounce_velocity);
             if velocity.abs() > THRESHOLD_SWIPE_ON_UP * self.scale {
                 self.bounce(horizontal, edge, velocity);
             }
@@ -1112,7 +1117,7 @@ impl SkiaScroll {
         self.snap_due = self.p.snap_to_children != SnapToChildrenType::Disabled;
         self.accumulator.capture(self.velocity, gesture.time_ms);
 
-        let (before, moved) = (self.offset, gesture.delta * (1.0 / self.scale));
+        let (before, moved) = (self.offset, gesture.delta * (self.p.change_distance_panned / self.scale));
         let step = self.panning_last_delta + (moved - self.panning_last_delta) * PAN_SMOOTHING;
         self.panning_last_delta = step;
         self.panning_offset += step;
@@ -1151,7 +1156,7 @@ impl SkiaScroll {
             return Handled::No;
         }
         // A press that was taken away settles in place: the moves before it start no fling.
-        let speed = self.accumulator.final_velocity(cx.tree.time_ms, MAX_VELOCITY);
+        let speed = self.accumulator.final_velocity(cx.tree.time_ms, self.p.max_velocity);
         let released = if gesture.cancelled { Point::default() } else { speed };
         self.accumulator.clear();
         let velocity = released * self.p.change_velocity_scrolled;
@@ -1227,8 +1232,9 @@ impl SkiaScroll {
         } else {
             self.snap_due = self.p.snap_to_children != SnapToChildrenType::Disabled;
             if to != current {
+                let ms = self.p.scrolling_speed_ms;
                 let axis = self.axis(horizontal);
-                axis.start(Motion::Step(Step { from: current, to, ms: SCROLLING_SPEED_MS }));
+                axis.start(Motion::Step(Step { from: current, to, ms }));
                 // From the event's time, not the next frame's: a fast swipe sends an event before
                 // every frame, and each frame drew a fresh glide at progress 0, so the content
                 // stood still until the events thinned out.
@@ -1872,6 +1878,24 @@ impl Cx<'_> {
         self.scroll_with(scroll.into(), |scroll| {
             scroll.order = None;
             scroll.scroll_to(Point::new(x, y), ms);
+        })
+    }
+
+    /// Jumps to a horizontal viewport offset in points, kept inside the content (DrawnUI
+    /// ViewportOffsetX set); the vertical one stays.
+    pub fn set_viewport_offset_x(&mut self, scroll: impl Into<ControlId>, x: f32) {
+        self.scroll_with(scroll.into(), |scroll| {
+            scroll.order = None;
+            scroll.scroll_to(Point::new(x, scroll.offset.y), 0.0);
+        })
+    }
+
+    /// Jumps to a vertical viewport offset in points, kept inside the content (DrawnUI
+    /// ViewportOffsetY set); the horizontal one stays.
+    pub fn set_viewport_offset_y(&mut self, scroll: impl Into<ControlId>, y: f32) {
+        self.scroll_with(scroll.into(), |scroll| {
+            scroll.order = None;
+            scroll.scroll_to(Point::new(scroll.offset.x, y), 0.0);
         })
     }
 

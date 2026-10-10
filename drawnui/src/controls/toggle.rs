@@ -19,6 +19,8 @@ use crate::types::Dirty;
 props!(ToggleProps, ToggleBuild, ToggleSet {
     /// The state. Set from code it changes the look and runs `on_toggled` like a tap does.
     is_toggled / set_is_toggled: bool = false, APPLY;
+    /// A change sets `is_toggled` to it without running `on_toggled` (DrawnUI DefaultValue).
+    default_value / set_default_value: bool = false, APPLY;
     /// The look the content is built with. Changing it on a mounted control rebuilds the content.
     control_style / set_control_style: PrebuiltControlStyle = PrebuiltControlStyle::Unset, APPLY;
     /// A switch moves its thumb over 200 ms; off, it jumps.
@@ -54,6 +56,8 @@ pub struct SkiaToggle {
     reported: Option<bool>,
     /// A change `on_toggled` has not reported yet.
     pending: Option<bool>,
+    /// `default_value` as it was last applied.
+    default_seen: bool,
     /// The style the content was built for.
     built: Option<PrebuiltControlStyle>,
     /// Size requests the style set (width, height, minimum height): a rebuild releases only these.
@@ -70,6 +74,7 @@ impl SkiaToggle {
             on_toggled: None,
             reported: None,
             pending: None,
+            default_seen: false,
             built: None,
             pinned: [false; 3],
         }
@@ -90,11 +95,6 @@ impl SkiaToggle {
             ToggleColor::FrameOff => (self.p.color_frame_off, Color::from_rgb(0xA9, 0xA9, 0xA9)),
         };
         set.or(style_default).unwrap_or(base)
-    }
-
-    /// `is_toggled` as `on_toggled` last saw it; `None` before the first apply.
-    pub(crate) fn reported(&self) -> Option<bool> {
-        self.reported
     }
 
     /// True when the content must be built (first time) or built again (another style).
@@ -158,16 +158,23 @@ impl SkiaToggle {
         }
     }
 
-    /// Whether `is_toggled` changed since the last call. When it did (not at the first call),
-    /// `on_toggled` runs at the start of the next frame, before the observers.
+    /// Whether `is_toggled` came on since the last call (the first call counts). When it changed
+    /// (not at the first call, nor by `default_value`), `on_toggled` runs at the start of the
+    /// next frame, before the observers.
     pub(crate) fn take_change(&mut self, cx: &mut Cx) -> bool {
+        let silent = self.default_seen != self.p.default_value;
+        if silent {
+            self.default_seen = self.p.default_value;
+            self.p.is_toggled = self.p.default_value;
+        }
         let value = self.p.is_toggled;
-        let changed = self.reported.is_some_and(|reported| reported != value);
+        let came_on = value && self.reported != Some(true);
+        let changed = !silent && self.reported.is_some_and(|reported| reported != value);
         self.reported = Some(value);
         if changed && self.on_toggled.is_some() && self.pending.replace(value).is_none() {
             animators::start_frame(cx.tree, self.id, fire);
         }
-        changed
+        came_on
     }
 
     /// The tap of every toggle: flips the state; `on_tapped` runs too.
