@@ -103,8 +103,8 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
                         .on_tapped(|_me, app: &mut App, _cx| app.a11y.last_activated = "favorite"),
                     SkiaButton::new("Disabled")
                         .background_color(hex(0x495057))
-                        .is_disabled(true)
-                        .accessibility_hint("IsDisabled: no tab stop, not activatable"),
+                        .responds_to_gestures(false)
+                        .accessibility_hint("RespondsToGestures=false: no tab stop, not activatable"),
                 )),
             ),
         ),

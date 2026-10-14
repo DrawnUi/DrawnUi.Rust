@@ -5,7 +5,7 @@
 
 use skia_safe::Color;
 
-use crate::control::{Control, GestureCx, Handled, Has, part};
+use crate::control::{Control, GestureCx, Handled, Has, blocked_gesture, part};
 use crate::controls::control_style::PrebuiltControlStyle;
 use crate::controls::label::{LabelBuild, LabelSet, SkiaLabel};
 use crate::controls::layout::{LayoutProps, SkiaLayout};
@@ -236,8 +236,11 @@ impl Control for SkiaRadioButton {
 
     /// Only an untoggled button takes a tap: it comes on.
     fn on_gesture(&mut self, cx: &mut GestureCx, gesture: &Gesture) -> Handled {
+        if !self.toggle.p.responds_to_gestures {
+            return blocked_gesture(gesture.kind);
+        }
         match gesture.kind {
-            GestureKind::Tapped if !self.toggle.p.is_toggled && self.toggle.p.responds_to_gestures => {
+            GestureKind::Tapped if !self.toggle.p.is_toggled => {
                 self.toggle.p.is_toggled = true;
                 cx.invalidate(Dirty::APPLY);
                 Handled::Tapped

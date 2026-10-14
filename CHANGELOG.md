@@ -4,6 +4,27 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## Unreleased
+
+### Changed
+
+- `responds_to_gestures` is the one switch that turns a control's input off, and accessibility
+  follows it (DrawnUI 6w, DrawnUi.Net 31e5e564). SkiaButton has it now; its `is_disabled` /
+  `set_is_disabled` stay as deprecated aliases of the opposite.
+
+### Breaking
+
+- SkiaButton's `p.is_disabled` field is gone: read `p.responds_to_gestures` (the builder and setter
+  keep working, deprecated).
+
+### Fixed
+
+- A tap on a switched-off button, switch, checkbox or radio fell through to the control under it. It
+  now stops there and does nothing: the press, the tap, the long press and the context menu are taken;
+  moves, the wheel and hover pass on. No pressed state, no tapped / `on_down` / `on_up` handler (the
+  press handlers follow the control's "can interact" answer). A scroll, drawer or carousel that is off
+  still lets its content take taps.
+
 ## 0.1.0-preview.8 (crates.io, 2026-10-10)
 
 ### Fixed

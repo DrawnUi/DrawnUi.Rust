@@ -8,7 +8,7 @@ use std::any::Any;
 use skia_safe::Color;
 
 use crate::animators::{self, FrameTick};
-use crate::control::{Control, GestureCx, Handled, Has, part_mut};
+use crate::control::{Control, GestureCx, Handled, Has, blocked_gesture, part_mut};
 use crate::controls::control_style::PrebuiltControlStyle;
 use crate::controls::layout::{LayoutProps, SkiaLayout};
 use crate::gestures::{Gesture, GestureKind};
@@ -239,6 +239,9 @@ impl Control for SkiaToggle {
     }
 
     fn on_gesture(&mut self, cx: &mut GestureCx, gesture: &Gesture) -> Handled {
+        if !self.p.responds_to_gestures {
+            return blocked_gesture(gesture.kind);
+        }
         match gesture.kind {
             GestureKind::Tapped => self.tap(cx),
             _ => Handled::No,

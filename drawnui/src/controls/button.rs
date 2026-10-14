@@ -6,13 +6,13 @@
 
 use skia_safe::{Color, ImageFilter, Paint, PaintStyle, Path, Point, RRect, Rect, Size};
 
-use crate::control::{Control, GestureCx, Handled, Has, LayoutCx, PaintCx};
+use crate::control::{Control, GestureCx, Handled, Has, LayoutCx, PaintCx, blocked_gesture};
 use crate::controls::control_style::PrebuiltControlStyle;
 use crate::controls::label::{LabelSet, SkiaLabel};
 use crate::controls::layout::{LayoutProps, SkiaLayout};
 use crate::gestures::{Gesture, GestureKind};
 use crate::{paint, props};
-use crate::tree::{Build, Cx, Handle};
+use crate::tree::{Build, Cx, Handle, Mut};
 use crate::types::{Dirty, LayoutOptions, SkiaShadow, Thickness};
 use crate::ui::Aria;
 
@@ -75,7 +75,10 @@ props!(ButtonProps, ButtonBuild, ButtonSet {
     corner_radius / set_corner_radius: f32 = 8.0, DRAW;
     stroke_color / set_stroke_color: Color = Color::TRANSPARENT, DRAW;
     stroke_width / set_stroke_width: f32 = 0.0, DRAW;
-    is_disabled / set_is_disabled: bool = false, NONE;
+    /// Off: the button takes no input. A tap on it does nothing and stops there (moves, the wheel
+    /// and hover pass on); keyboard and screen readers see it disabled (DrawnUI RespondsToGestures;
+    /// `is_disabled` is its obsolete opposite).
+    responds_to_gestures / set_responds_to_gestures: bool = true, NONE;
     /// Touch feedback played on Down, in the control's `touch_effect_color`.
     apply_effect / set_apply_effect: SkiaTouchAnimation = SkiaTouchAnimation::Ripple, NONE;
     /// The button keeps every pan of its press: a scroll under it does not move (DrawnUI
@@ -225,9 +228,9 @@ impl Control for SkiaButton {
         (!self.p.text.is_empty()).then(|| self.p.text.as_str().into())
     }
 
-    /// A disabled button is no tab stop (React DefaultAccessibilityCanInteract).
+    /// A button switched off is no tab stop and is reported disabled.
     fn accessibility_can_interact(&self) -> Option<bool> {
-        Some(!self.p.is_disabled)
+        Some(self.p.responds_to_gestures)
     }
 
     /// The ripple stays inside the rounded frame.
@@ -264,8 +267,12 @@ impl Control for SkiaButton {
     }
 
     fn on_gesture(&mut self, cx: &mut GestureCx, gesture: &Gesture) -> Handled {
-        if self.p.is_disabled {
-            return Handled::No;
+        if !self.p.responds_to_gestures {
+            // Switched off during a press: it is let go.
+            if gesture.kind == GestureKind::Up && self.had_down {
+                self.release(cx);
+            }
+            return blocked_gesture(gesture.kind);
         }
         match gesture.kind {
             GestureKind::Down => {
@@ -304,5 +311,21 @@ impl Control for SkiaButton {
             GestureKind::Wheel => Handled::No,
             _ => Handled::No,
         }
+    }
+}
+
+impl Build<SkiaButton> {
+    /// The opposite of `responds_to_gestures` (DrawnUI's obsolete IsDisabled).
+    #[deprecated(note = "use responds_to_gestures(false)")]
+    pub fn is_disabled(self, disabled: bool) -> Self {
+        self.responds_to_gestures(!disabled)
+    }
+}
+
+impl Mut<'_, SkiaButton> {
+    /// The opposite of `set_responds_to_gestures` (DrawnUI's obsolete IsDisabled).
+    #[deprecated(note = "use set_responds_to_gestures(false)")]
+    pub fn set_is_disabled(&mut self, disabled: bool) {
+        self.set_responds_to_gestures(!disabled);
     }
 }

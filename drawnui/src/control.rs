@@ -31,6 +31,17 @@ pub enum Handled {
     By(ControlId),
 }
 
+/// What a control switched off for the user (`responds_to_gestures` false) answers (DrawnUI
+/// BlockedGestureResult): the press, the tap, the long press and the context menu stop at it and do
+/// nothing; moves, the wheel and hover pass on.
+pub(crate) fn blocked_gesture(kind: crate::gestures::GestureKind) -> Handled {
+    use crate::gestures::GestureKind::*;
+    match kind {
+        Down | Tapped | LongPressing | ContextMenu => Handled::Yes,
+        _ => Handled::No,
+    }
+}
+
 pub trait Control: Any {
     /// The embedded base part (the C# base class), if any.
     fn inner(&self) -> Option<&dyn Control> {

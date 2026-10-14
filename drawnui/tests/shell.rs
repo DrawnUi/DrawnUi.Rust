@@ -927,7 +927,7 @@ fn a_popup_background_and_a_disabled_button_show_no_hand() {
         .children((
             SkiaLabel::new("Plain text").assign(&mut text),
             SkiaButton::new("Go").assign(&mut go).on_tapped(|_me, _app: &mut App, _cx| {}),
-            SkiaButton::new("Off").is_disabled(true).assign(&mut off).on_tapped(|_me, _app: &mut App, _cx| {}),
+            SkiaButton::new("Off").responds_to_gestures(false).assign(&mut off).on_tapped(|_me, _app: &mut App, _cx| {}),
         ));
     let close = PopupOptions { close_when_background_tapped: true, ..PopupOptions::default() };
     host.ui.tree.cx().open_popup(id, card, close);

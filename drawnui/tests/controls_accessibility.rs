@@ -148,7 +148,7 @@ fn defaults_feed_the_node_and_the_inner_label_stays_out() {
     assert_eq!((slider.label.as_str(), value(slider)), ("", (25.0, 0.0, 100.0, 1.0, "")));
 
     let mut button = host.ui.tree.find_mut::<SkiaButton>(host.ui.state.ids[0]).unwrap();
-    button.set_is_disabled(true);
+    button.set_responds_to_gestures(false);
     button.set_accessibility_label("Custom");
     host.frame_after(INTERVAL);
     host.frame_after(INTERVAL);

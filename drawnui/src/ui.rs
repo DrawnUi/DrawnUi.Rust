@@ -2106,7 +2106,9 @@ impl Router<'_> {
         }
         let Some(node) = self.tree.node(id) else { return };
         let has = node.handlers.input.as_ref().is_some_and(|h| if kind == GestureKind::Down { h.down.is_some() } else { h.up.is_some() });
-        if !has {
+        // A control switched off for the user (the one "can interact" answer) runs no press handlers.
+        let can_interact = node.base.p.accessibility_can_interact.or_else(|| node.kind.as_deref().and_then(|k| k.accessibility_can_interact()));
+        if !has || can_interact == Some(false) {
             return;
         }
         let (rect, scale) = (node.base.rect, node.base.scale.max(0.1));
