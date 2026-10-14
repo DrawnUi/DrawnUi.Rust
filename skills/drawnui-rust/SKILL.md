@@ -378,6 +378,24 @@ still reach the soft keyboard and the accessibility overlay. Use it for full-scr
 `Enabled` (the default) leaves the page what the app does not use (the wheel) and the page's CSS
 decides touch panning. Native hosts ignore it.
 
+## Switching input off
+
+`responds_to_gestures(false)` is the one switch that turns a control off for the user: a button,
+switch, checkbox, radio, slider, scroll, drawer or carousel. A tap on a switched-off button, toggle or
+radio stops there and does nothing (no pressed look, no `on_tapped`, `on_down` or `on_up`); moves, the
+wheel and hover pass on, so a scroll under it still scrolls. Keyboard and screen readers see it
+disabled (no Tab stop, reported unavailable), and a change at run time reaches them. A scroll, drawer
+or carousel that is off only stops moving itself: its content still takes taps. SkiaButton's old
+`is_disabled(true)` / `set_is_disabled(true)` still work but are deprecated; code that read the
+button's `p.is_disabled` field reads `p.responds_to_gestures` (its opposite) since 0.1.0-preview.9.
+
+## Touch on iPhone: a slow drag may stall, then jump
+
+On iOS a slow drag can stop for a few seconds and then jump to where the finger is: the system holds
+the touch's moves while it decides whether it is a system swipe (home, Control Center, back). Native
+apps see the same; it is not an engine bug. Do not smooth or drop the first move that arrives after
+the stall: it is where the finger really is.
+
 ## Screen readers: name every control
 
 Screen readers (Narrator, VoiceOver, TalkBack, Orca, browsers) read the controls' roles, names and

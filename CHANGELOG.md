@@ -17,6 +17,11 @@ version before it. Commits in parentheses.
 - SkiaButton's `p.is_disabled` field is gone: read `p.responds_to_gestures` (the builder and setter
   keep working, deprecated).
 
+### Docs
+
+- The public skill (`skills/drawnui-rust`) covers switching input off and the iPhone's slow-drag stall
+  (the system holds a touch's moves while it decides on a system swipe; not an engine bug).
+
 ### Fixed
 
 - A tap on a switched-off button, switch, checkbox or radio fell through to the control under it. It
