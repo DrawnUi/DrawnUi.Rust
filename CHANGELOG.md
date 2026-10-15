@@ -4,7 +4,7 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.9 (crates.io, 2026-10-15)
 
 ### Changed
 
@@ -29,6 +29,10 @@ version before it. Commits in parentheses.
   moves, the wheel and hover pass on. No pressed state, no tapped / `on_down` / `on_up` handler (the
   press handlers follow the control's "can interact" answer). A scroll, drawer or carousel that is off
   still lets its content take taps.
+
+### Toolchain
+
+The same as 0.1.0-preview.8: the Skia crates stay at 0.153.6.
 
 ## 0.1.0-preview.8 (crates.io, 2026-10-10)
 
