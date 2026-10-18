@@ -202,6 +202,10 @@ pub fn run(title: &str, size: (f64, f64), make: fn() -> Box<dyn App>) {
     let event_loop = builder.build().expect("no event loop");
     // Hidden until the screen-reader adapter is made (it must come before the window shows).
     let attributes = WindowAttributes::default().with_title(title).with_visible(false);
+    // DRAWNUI_NO_ACTIVATE=1: the window opens behind the one in use, without taking the keyboard
+    // (Windows: shown with SW_SHOWNOACTIVATE, no taskbar flash). For runs started by tools while
+    // someone works on the machine; apps activate as usual.
+    let attributes = attributes.with_active(std::env::var_os("DRAWNUI_NO_ACTIVATE").is_none_or(|v| v != "1"));
     // iOS, Android: the window is the screen (winit would make a UIWindow of the size asked for).
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     let attributes = attributes.with_inner_size(LogicalSize::new(size.0, size.1));

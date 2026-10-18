@@ -36,6 +36,8 @@ version before it. Commits in parentheses.
   picture another thread can replay, `Base::content_epoch` says when it changed. Such a child is
   never painted on screen, takes no gestures and has no accessibility node.
   `PaintCx::child_count` / `child` / `child_base`.
+- `DRAWNUI_NO_ACTIVATE=1` (desktop): the window opens without taking the foreground or flashing
+  in the taskbar, for runs that scripts or test tools start while someone works at the machine.
 - Pinch and turn (C# `Manipulation`): while two or more fingers are down, Panning carries
   `Gesture::manipulation` (`scale`, `rotation`, their totals, the center, `touches_count`);
   `Gesture::touches` counts the fingers; a second finger makes the press no tap. The hosts send the

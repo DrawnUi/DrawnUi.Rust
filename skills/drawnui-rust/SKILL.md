@@ -160,6 +160,11 @@ delay the first frame (see Emoji and symbols).
 (other features) on Visual Studio 18 (2026) needs a rust-skia with VS 18 detection; without it
 bindgen fails with `'cassert' file not found`.
 
+Runs started by scripts or test tools while someone works at the machine: set
+`DRAWNUI_NO_ACTIVATE=1` in the app's environment. The window then opens behind the one in use,
+without taking the keyboard or flashing in the taskbar, and draws as usual. Without it an app
+takes the foreground when it opens, as any app does.
+
 ## Linux build
 
 The desktop host of Windows: winit (X11 and Wayland) + glutin, OpenGL. Packages (Ubuntu names):
