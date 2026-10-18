@@ -373,6 +373,25 @@ fn color_filter(p: &ImageProps, background: Option<Color>) -> Option<ColorFilter
     Some(color_filters::matrix_row_major(&matrix, None))
 }
 
+impl ImageProps {
+    /// The paint SkiaImage draws its bitmap with: anti-aliasing plus the filters of the effect
+    /// properties (`effect`, `blur` and the color adjustments; the app's own
+    /// `paint_color_filter` / `paint_image_filter` win). `background` is the color under the
+    /// picture (the tint effects blend with it), `scale` pixels per point. For a control that
+    /// draws other pictures (a camera frame) exactly as SkiaImage would.
+    pub fn build_paint(&self, background: Option<Color>, scale: f32) -> Paint {
+        let mut paint = Paint::default();
+        paint.set_anti_alias(true);
+        let own_color = self.paint_color_filter.get().cloned();
+        paint.set_color_filter(own_color.or_else(|| color_filter(self, background)));
+        let sigma = self.blur * scale;
+        let blur = || image_filters::blur((sigma, sigma), TileMode::Mirror, None, None);
+        let own_image = self.paint_image_filter.get().cloned();
+        paint.set_image_filter(own_image.or_else(|| (sigma > 0.0).then(blur).flatten()));
+        paint
+    }
+}
+
 impl SkiaImage {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(source: impl IntoProp<String>) -> Build<SkiaImage> {
@@ -419,19 +438,6 @@ impl SkiaImage {
         let zoom = self.p.zoom_x.max(self.p.zoom_y).max(1.0);
         let side = |pixels: f32| if pixels.is_finite() { (pixels * zoom).ceil() as u32 } else { 0 };
         (side(width), side(height))
-    }
-
-    /// Anti-aliasing plus the filters of the effect properties. The app's own filters win.
-    fn build_paint(&self, background: Option<Color>, scale: f32) -> Paint {
-        let mut paint = Paint::default();
-        paint.set_anti_alias(true);
-        let own_color = self.p.paint_color_filter.get().cloned();
-        paint.set_color_filter(own_color.or_else(|| color_filter(&self.p, background)));
-        let sigma = self.p.blur * scale;
-        let blur = || image_filters::blur((sigma, sigma), TileMode::Mirror, None, None);
-        let own_image = self.p.paint_image_filter.get().cloned();
-        paint.set_image_filter(own_image.or_else(|| (sigma > 0.0).then(blur).flatten()));
-        paint
     }
 
     /// Asks the manager for the current source in a box of `width` x `height` pixels: once per
@@ -515,7 +521,7 @@ impl Control for SkiaImage {
 
     fn on_props_changed(&mut self, _cx: &mut Cx) {
         let Built { background, scale, .. } = *self.paint.get_mut();
-        self.paint.get_mut().paint = self.build_paint(background, scale);
+        self.paint.get_mut().paint = self.p.build_paint(background, scale);
     }
 
     fn paint(&self, cx: &mut PaintCx) {
@@ -526,7 +532,7 @@ impl Control for SkiaImage {
             (built.background, built.scale) != (background, cx.scale)
         };
         if stale {
-            let paint = self.build_paint(background, cx.scale);
+            let paint = self.p.build_paint(background, cx.scale);
             *self.paint.borrow_mut() = Built { paint, background, scale: cx.scale };
         }
         let built = self.paint.borrow();

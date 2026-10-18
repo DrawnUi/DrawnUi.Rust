@@ -51,6 +51,8 @@ pub(crate) struct InputHandlers {
     pub listen_keys: bool,
     /// Gets the browser's history moves while mounted (`Build::listen_history`).
     pub listen_history: bool,
+    /// Gets the app's hide and show while mounted (`Build::listen_app_visibility`).
+    pub listen_app_visibility: bool,
 }
 
 /// A context menu request (React ContextMenuEventArgs).
@@ -600,6 +602,21 @@ impl<S: 'static> Ui<S> {
             .flatten()
             .filter(|t| *t > self.tree.time_ms)
             .min_by(f64::total_cmp)
+    }
+
+    /// What `Cx::postpone_before_draw` queued; what those queue runs at the frame after.
+    fn run_postponed(&mut self) {
+        if self.tree.postponed.is_empty() {
+            return;
+        }
+        let mut run = std::mem::take(&mut self.tree.postponed);
+        for f in run.drain(..) {
+            f(&mut self.state, &mut Cx { tree: &mut self.tree });
+        }
+        if self.tree.postponed.is_empty() {
+            self.tree.postponed = run;
+        }
+        self.state_dirty = true;
     }
 
     /// The marks other threads made through the waker since the last frame.
@@ -1429,6 +1446,7 @@ impl<S: 'static> Ui<S> {
 
         let started = std::time::Instant::now();
         self.apply_woken();
+        self.run_postponed();
         // Not fullscreen: the root's place is the canvas less the safe area.
         let inset = if self.tree.mobile_fullscreen { crate::types::Thickness::default() } else { self.tree.safe_insets };
         let content = Rect::from_ltrb(inset.left * scale, inset.top * scale, width - inset.right * scale, height - inset.bottom * scale);
@@ -2194,6 +2212,13 @@ impl<T: Control> Build<T> {
         self
     }
 
+    /// The control gets `Control::on_app_visibility` while it is mounted: the app was hidden or
+    /// shown. `Cx::listen_app_visibility` turns it on or off later.
+    pub fn listen_app_visibility(mut self) -> Self {
+        self.input().listen_app_visibility = true;
+        self
+    }
+
     /// Sees every gesture that lands on the control before the control and its children (React /
     /// C# ConsumeGestures; a ProcessGestures override in code-behind): a drag handle, a game.
     /// True = consumed: the control becomes the owner of the press (Panning, Up and the wheel
@@ -2410,6 +2435,27 @@ impl Cx<'_> {
         }
     }
 
+    /// The control gets `Control::on_app_visibility` when the app is hidden or shown.
+    pub fn listen_app_visibility(&mut self, id: impl Into<ControlId>, on: bool) {
+        let id = id.into();
+        self.tree.app_visibility_listeners.retain(|l| *l != id);
+        if on {
+            self.tree.app_visibility_listeners.push(id);
+        }
+    }
+
+    /// Runs `run` at the start of the next frame, before input, animators and layout, and asks
+    /// for that frame (DrawnUI PostponeExecutionBeforeDraw), whatever is shown. For events that
+    /// reach a control outside a handler (a camera's capture finished) and must reach the app
+    /// state. One allocation per call: not for every frame.
+    pub fn postpone_before_draw<S: Any>(&mut self, run: impl FnOnce(&mut S, &mut Cx<'_>) + 'static) {
+        self.tree.postponed.push(Box::new(move |state, cx| {
+            let state = state.downcast_mut::<S>().unwrap_or_else(|| crate::tree::wrong_state::<S>());
+            run(state, cx)
+        }));
+        self.tree.needs_frame = true;
+    }
+
     /// Timing of the drawn frames (React Canvas.FrameTime / FPS).
     pub fn frame_stats(&self) -> FrameStats {
         self.tree.frame_stats
@@ -2568,6 +2614,13 @@ impl<S: 'static> App for Ui<S> {
     }
 
     fn visibility(&mut self, visible: bool) {
+        let tree = &mut self.tree;
+        tree.app_visibility_listeners.retain(|id| tree.nodes.get(id.index as usize).is_some_and(|n| n.as_ref().is_some_and(|n| n.id == *id)));
+        for i in 0..tree.app_visibility_listeners.len() {
+            let Some(&id) = tree.app_visibility_listeners.get(i) else { break };
+            with_kind(tree, id, |kind, cx| kind.on_app_visibility(cx, visible));
+            tree.needs_frame = true;
+        }
         if let Some(handler) = self.visibility.as_mut() {
             handler(&mut self.state, visible, &mut Cx { tree: &mut self.tree });
             self.state_dirty = true;

@@ -203,6 +203,16 @@ pub trait Control: Any {
         }
     }
 
+    /// The app went to the background or came back (`visible`): a minimized or covered window, a
+    /// hidden browser tab, a mobile app suspended or resumed; the same moments as
+    /// `Ui::on_visibility_changed`. Only for a control that listens (`Build::listen_app_visibility`,
+    /// `Cx::listen_app_visibility`): a camera stops and starts again.
+    fn on_app_visibility(&mut self, cx: &mut GestureCx, visible: bool) {
+        if let Some(inner) = self.inner_mut() {
+            inner.on_app_visibility(cx, visible)
+        }
+    }
+
     /// The laid-out text lines, for `accessibility_text_selectable` (React
     /// GetAccessibilityTextLines): the overlay renders them as real, invisible text the browser
     /// selects and copies. `scale` is pixels per point. Default: none.

@@ -613,6 +613,10 @@ pub struct Tree {
     pub(crate) history_enabled: bool,
     /// Controls told when the browser moves in its history (`Cx::listen_history`).
     pub(crate) history_listeners: Vec<ControlId>,
+    /// Controls told when the app is hidden or shown (`Cx::listen_app_visibility`).
+    pub(crate) app_visibility_listeners: Vec<ControlId>,
+    /// Runs at the start of the next frame (`Cx::postpone_before_draw`).
+    pub(crate) postponed: Vec<Box<dyn FnOnce(&mut dyn Any, &mut Cx<'_>)>>,
     /// What is under the mouse may have changed without the mouse moving (controls added,
     /// removed, rebound, hidden, scrolled by a jump): the frame ends with a hover check.
     pub(crate) hover_check: bool,
@@ -670,6 +674,9 @@ impl Tree {
         }
         if d.handlers.input.as_ref().is_some_and(|h| h.listen_history) {
             self.history_listeners.push(d.id);
+        }
+        if d.handlers.input.as_ref().is_some_and(|h| h.listen_app_visibility) {
+            self.app_visibility_listeners.push(d.id);
         }
         if d.control.moves_content().is_some() {
             self.movers.push(d.id);

@@ -12,6 +12,13 @@ version before it. Commits in parentheses.
   for data that arrives off the UI thread (camera frames, sensors). The marks are applied at the
   start of the next frame; a burst wakes the loop once; no frames while nothing comes. In the
   browser the page script calls `requestFrame` after it.
+- `Control::on_app_visibility`: a control that listens (`Build::listen_app_visibility`,
+  `Cx::listen_app_visibility`) hears the app hidden and shown, at the moments of
+  `Ui::on_visibility_changed` (C# `Super.OnNativeAppPaused` / `OnNativeAppResumed`).
+- `Cx::postpone_before_draw` (C# `PostponeExecutionBeforeDraw`): runs a closure with the app state
+  at the start of the next frame, whatever is shown.
+- `ImageProps::build_paint` is public: the paint SkiaImage draws with (effects, blur, the app's
+  filters), for controls that draw their own pictures.
 
 ## 0.1.0-preview.9 (crates.io, 2026-10-15)
 
