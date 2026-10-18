@@ -32,7 +32,7 @@ pub use animators::{AnimationId, Easing, ValueAnimator, easing};
 pub use bakes::BakeRequest;
 pub use control::{Control, GestureCx, Handled, Has, LayoutCx, PaintCx};
 pub use fonts::Fonts;
-pub use gestures::{ContextMenuSource, Gesture, GestureKind, LONG_PRESS_MS, MouseButton, VelocityAccumulator};
+pub use gestures::{ContextMenuSource, Gesture, GestureKind, LONG_PRESS_MS, Manipulation, MouseButton, VelocityAccumulator};
 pub use gpu::{GlTarget, Gpu, GpuApi, VulkanHandles};
 pub use images::{Frames, ImageRequest, Images};
 pub use keyboard::{Cursor, InputKey, KEY_CODES, KeyEvent, KeyKind, Keyboard, Modifiers, key_name};
@@ -289,6 +289,9 @@ pub trait App {
     fn pointer_touch(&mut self, kind: PointerKind, x: f32, y: f32, time_ms: f64) {
         self.pointer_button(kind, MouseButton::Left, x, y, time_ms);
     }
+    /// A finger other than the one `pointer_touch` delivers (multi-touch), told apart by `finger`:
+    /// pinch and turn. Default: ignored.
+    fn pointer_finger(&mut self, _finger: u64, _kind: PointerKind, _x: f32, _y: f32, _time_ms: f64) {}
     /// A context menu was asked for over the pixel (x, y) (a right click, a long press on touch,
     /// the Menu key). Answered at once: true when a control took it, the browser then keeps its own
     /// menu away.

@@ -183,6 +183,19 @@ pub extern "C" fn dui_pointer(s: *mut WebState, kind: i32, button: i32, x: f32, 
     state(s).app.pointer_button(kind, button, x, y, time_ms);
 }
 
+/// A touch pointer other than the one pressed (a second finger), `finger` its `pointerId`; kind
+/// as `dui_pointer` (0 down, 1 move, 2 up, 3 cancel). Pinch and turn.
+#[unsafe(no_mangle)]
+pub extern "C" fn dui_pointer_finger(s: *mut WebState, finger: i32, kind: i32, x: f32, y: f32, time_ms: f64) {
+    let kind = match kind {
+        0 => PointerKind::Down,
+        1 => PointerKind::Move,
+        2 => PointerKind::Up,
+        _ => PointerKind::Cancel,
+    };
+    state(s).app.pointer_finger(finger as u64, kind, x, y, time_ms);
+}
+
 /// The DOM `contextmenu` event over the pixel (x, y). source: 0 mouse, 1 touch or pen, 2 keyboard.
 /// Returns 1 when a control or the app took it: the browser's own menu is then prevented.
 #[unsafe(no_mangle)]

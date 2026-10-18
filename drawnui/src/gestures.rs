@@ -84,6 +84,140 @@ pub struct Gesture {
     /// The press is a finger, not a mouse or a pen (Down, Panning, Tapped, Up, LongPressing):
     /// selectable text waits for a long press there, a drag goes on to the scroll.
     pub touch: bool,
+    /// Fingers down (C# NumberOfTouches): 1 for a mouse press or one finger, 0 without a press.
+    pub touches: u32,
+    /// Panning while two or more fingers are down: how they pinched and turned since the previous
+    /// move (C# `Manipulation`). `None` for one finger.
+    pub manipulation: Option<Manipulation>,
+}
+
+/// What two or more fingers did since the previous move (AppoMobi.Gestures ManipulationInfo):
+/// pinch to zoom from `scale`, turn from `rotation`. Canvas pixels.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub struct Manipulation {
+    /// The middle of the fingers now, and at the previous move.
+    pub center: Point,
+    pub previous_center: Point,
+    /// The fingers' spread now over the previous one, minus 1: 0.05 = 5% further apart.
+    pub scale: f32,
+    /// Degrees the first two fingers turned since the previous move.
+    pub rotation: f32,
+    /// `scale` and `rotation` added up since the finger count last changed.
+    pub scale_total: f32,
+    pub rotation_total: f32,
+    pub touches_count: u32,
+}
+
+/// The fingers down and what they did (AppoMobi.Gestures MultitouchTracker, after Mapsui).
+/// Allocates nothing: up to `MAX_FINGERS` fingers, the rest are ignored.
+#[derive(Default)]
+pub(crate) struct Multitouch {
+    fingers: [(u64, Point); Self::MAX_FINGERS],
+    len: usize,
+    state: Option<TouchState>,
+    scale_total: f32,
+    rotation_total: f32,
+}
+
+/// Where the fingers are: their middle, the first one's distance from it, the first two's angle.
+#[derive(Clone, Copy, PartialEq)]
+struct TouchState {
+    center: Point,
+    radius: f32,
+    angle: f32,
+    count: usize,
+}
+
+impl Multitouch {
+    const MAX_FINGERS: usize = 10;
+
+    pub fn count(&self) -> usize {
+        self.len
+    }
+
+    /// The first finger came down: everything before is forgotten.
+    pub fn restart(&mut self, finger: u64, at: Point) {
+        self.len = 0;
+        self.set(finger, at);
+        (self.scale_total, self.rotation_total) = (0.0, 0.0);
+        self.state = self.measure();
+    }
+
+    /// Every finger lifted.
+    pub fn reset(&mut self) {
+        self.len = 0;
+        self.state = None;
+    }
+
+    /// A finger came down or moved. `Some` while two or more are down and they moved.
+    pub fn moved(&mut self, finger: u64, at: Point) -> Option<Manipulation> {
+        self.set(finger, at);
+        self.calculate()
+    }
+
+    pub fn lifted(&mut self, finger: u64) {
+        if let Some(i) = self.fingers[..self.len].iter().position(|f| f.0 == finger) {
+            self.fingers.copy_within(i + 1..self.len, i);
+            self.len -= 1;
+        }
+        self.calculate();
+    }
+
+    fn set(&mut self, finger: u64, at: Point) {
+        match self.fingers[..self.len].iter_mut().find(|f| f.0 == finger) {
+            Some(f) => f.1 = at,
+            None if self.len < Self::MAX_FINGERS => {
+                self.fingers[self.len] = (finger, at);
+                self.len += 1;
+            }
+            None => {}
+        }
+    }
+
+    fn measure(&self) -> Option<TouchState> {
+        let fingers = &self.fingers[..self.len];
+        let first = fingers.first()?.1;
+        if fingers.len() == 1 {
+            return Some(TouchState { center: first, radius: 0.0, angle: 0.0, count: 1 });
+        }
+        let sum = fingers.iter().fold(Point::default(), |s, f| s + f.1);
+        let center = Point::new(sum.x / fingers.len() as f32, sum.y / fingers.len() as f32);
+        let second = fingers[1].1;
+        let angle = (second.y - first.y).atan2(second.x - first.x).to_degrees();
+        Some(TouchState { center, radius: (first - center).length(), angle, count: fingers.len() })
+    }
+
+    /// The change since the last call (MultitouchTracker.Calculate): a new finger count starts the
+    /// totals again and reports nothing.
+    fn calculate(&mut self) -> Option<Manipulation> {
+        let now = self.measure();
+        let previous = std::mem::replace(&mut self.state, now);
+        let (now, previous) = (now?, previous?);
+        if now.count < 2 {
+            return None;
+        }
+        if now.count != previous.count {
+            (self.scale_total, self.rotation_total) = (0.0, 0.0);
+            return None;
+        }
+        let scale = if previous.radius > 0.0 && now.radius != previous.radius { now.radius / previous.radius - 1.0 } else { 0.0 };
+        // The turn the shorter way: crossing ±180° is 10°, not 350° (C# reports the jump).
+        let rotation = (now.angle - previous.angle + 540.0).rem_euclid(360.0) - 180.0;
+        self.scale_total += scale;
+        self.rotation_total += rotation;
+        if now == previous {
+            return None;
+        }
+        Some(Manipulation {
+            center: now.center,
+            previous_center: previous.center,
+            scale,
+            rotation,
+            scale_total: self.scale_total,
+            rotation_total: self.rotation_total,
+            touches_count: now.count as u32,
+        })
+    }
 }
 
 /// A release closer than this to the press (points, each axis) is a tap.
@@ -178,6 +312,8 @@ struct Pressed {
     /// The long press fired: the release is no tap (AppoMobi.Gestures `!IsLongPressing`).
     long_pressed: bool,
     touch: bool,
+    /// A second finger came down: no tap and no long press from this press.
+    multi: bool,
 }
 
 /// Single-pointer state machine. Allocates nothing.
@@ -217,6 +353,38 @@ impl Recognizer {
             button,
             source: ContextMenuSource::Touch,
             touch,
+            touches: 1,
+            manipulation: None,
+        })
+    }
+
+    /// A second finger came down during the press: it is no tap and no long press any more.
+    pub fn multi_touch(&mut self) {
+        if let Some(pressed) = self.down.as_mut() {
+            (pressed.multi, pressed.long_press_done) = (true, true);
+        }
+    }
+
+    /// A Panning where the press is, without moving it: another finger moved (a pinch).
+    pub fn pan_in_place(&self, time_ms: f64) -> Option<Gesture> {
+        let pressed = self.down.as_ref()?;
+        let zero = Point::default();
+        Some(Gesture {
+            kind: GestureKind::Panning,
+            location: pressed.previous,
+            start: pressed.start,
+            delta: zero,
+            total: pressed.previous - pressed.start,
+            time_ms,
+            velocity: zero,
+            wheel: 0.0,
+            wheel_horizontal: false,
+            cancelled: false,
+            button: pressed.button,
+            source: ContextMenuSource::Touch,
+            touch: pressed.touch,
+            touches: 1,
+            manipulation: None,
         })
     }
 
@@ -238,6 +406,8 @@ impl Recognizer {
             button,
             source: ContextMenuSource::Mouse,
             touch,
+            touches: 1,
+            manipulation: None,
         };
         let threshold = TAPPED_CANCEL_MOVE_THRESHOLD_POINTS * scale.max(0.1);
         match (pointer, self.down) {
@@ -246,26 +416,26 @@ impl Recognizer {
                 let (start, previous, velocity, down_ms, long_press_done, long_pressed) = (location, location, zero, time_ms, false, false);
                 let mut trail = Trail::default();
                 trail.push(location, time_ms);
-                self.down = Some(Pressed { start, previous, velocity, trail, button, down_ms, long_press_done, long_pressed, touch });
+                self.down = Some(Pressed { start, previous, velocity, trail, button, down_ms, long_press_done, long_pressed, touch, multi: false });
                 [Some(gesture(GestureKind::Down, location, location, zero, button)), None]
             }
-            (PointerKind::Move, Some(Pressed { start, previous, velocity, mut trail, button, down_ms, long_press_done, long_pressed, .. })) => {
+            (PointerKind::Move, Some(Pressed { start, previous, velocity, mut trail, button, down_ms, long_press_done, long_pressed, multi, .. })) => {
                 let velocity = trail.velocity(location, time_ms, velocity);
                 trail.push(location, time_ms);
                 let total = location - start;
                 // Moved away from the press point: it is a pan, no long press comes (C# CancelDesktopLongPress).
                 let long_press_done = long_press_done || total.x.abs() >= threshold || total.y.abs() >= threshold;
-                self.down = Some(Pressed { start, previous: location, velocity, trail, button, down_ms, long_press_done, long_pressed, touch });
+                self.down = Some(Pressed { start, previous: location, velocity, trail, button, down_ms, long_press_done, long_pressed, touch, multi });
                 if location == previous {
                     return [None, None];
                 }
                 [Some(gesture(GestureKind::Panning, start, previous, velocity, button)), None]
             }
-            (PointerKind::Up, Some(Pressed { start, previous, velocity, button: pressed, long_pressed, .. })) if pressed == button => {
+            (PointerKind::Up, Some(Pressed { start, previous, velocity, button: pressed, long_pressed, multi, .. })) if pressed == button => {
                 self.down = None;
                 let total = location - start;
                 let up = Some(gesture(GestureKind::Up, start, previous, velocity, button));
-                if !long_pressed && total.x.abs() < threshold && total.y.abs() < threshold {
+                if !long_pressed && !multi && total.x.abs() < threshold && total.y.abs() < threshold {
                     [Some(gesture(GestureKind::Tapped, start, previous, velocity, button)), up]
                 } else {
                     [up, None]

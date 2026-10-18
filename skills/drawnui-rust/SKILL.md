@@ -425,6 +425,18 @@ still reach the soft keyboard and the accessibility overlay. Use it for full-scr
 `Enabled` (the default) leaves the page what the app does not use (the wheel) and the page's CSS
 decides touch panning. Native hosts ignore it.
 
+## Pinch and turn (two fingers)
+
+The first finger drives the pointer as always. While a second one is down, every Panning carries
+`gesture.manipulation` (DrawnUI's `Manipulation`): `scale` is the fingers' spread now over the
+previous move minus 1 (zoom by multiplying `1.0 + scale`), `rotation` the degrees turned since the
+previous move, `scale_total` / `rotation_total` their sums since the finger count changed,
+`center` the middle of the fingers in canvas pixels, `touches_count`. `gesture.touches` counts the
+fingers on every press gesture. A second finger makes the press no tap and no long press. Take the
+Down (`Handled::Yes`) to own the press, then read `manipulation` on its Panning. Android, iOS and
+the browser send the other fingers; in the browser use `GesturesMode::Lock` so the page does not
+zoom instead. Tests: `Headless::pinch(center, from, to, duration_ms, steps)`.
+
 ## Switching input off
 
 `responds_to_gestures(false)` is the one switch that turns a control off for the user: a button,

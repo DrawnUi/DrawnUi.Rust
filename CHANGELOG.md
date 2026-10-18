@@ -23,22 +23,34 @@ version before it. Commits in parentheses.
   `vulkan_handles`, `reset_gl_state`, and `frame_serial` / `completed_serial` to release a
   borrowed texture once the GPU finished the frame that drew it. drawnui now depends on
   drawnui-skia-bindings directly (the crate skia-safe already uses).
-- Off-screen children: `LayoutCx::measure_child_scaled` / `arrange_child_scaled` lay a child out
-  at a scale of its own (a video recording's overlay), `PaintCx::record_child` records it as a
-  picture another thread can replay, `Base::content_epoch` says when it changed. Such a child is
-  never painted on screen, takes no gestures and has no accessibility node.
-  `PaintCx::child_count` / `child` / `child_base`.
 - Android on Vulkan: the device is made with what importing camera and video frames needs, where
   the device has it (VK_ANDROID_external_memory_android_hardware_buffer with
   VK_EXT_queue_family_foreign, sampler YCbCr conversion, external memory, dedicated allocation,
   external semaphores) and Skia is told the enabled extensions; `VulkanHandles::hardware_buffers` /
   `sampler_ycbcr_conversion` say what was enabled. Skia itself does not sample YCbCr images yet
   (the Skia crates do not pass device features to it).
-- Docs: how a page script feeds the app in the browser (`DrawnUi.start` returns `module` and
-  `requestFrame`; a WebGL texture registered in `module.GL.textures` for `import_gl_texture`), in
-  `web/drawnui_host.js` and the public skill.
 - `ImageProps::build_paint` is public: the paint SkiaImage draws with (effects, blur, the app's
   filters), for controls that draw their own pictures.
+- Off-screen children: `LayoutCx::measure_child_scaled` / `arrange_child_scaled` lay a child out
+  at a scale of its own (a video recording's overlay), `PaintCx::record_child` records it as a
+  picture another thread can replay, `Base::content_epoch` says when it changed. Such a child is
+  never painted on screen, takes no gestures and has no accessibility node.
+  `PaintCx::child_count` / `child` / `child_base`.
+- Pinch and turn (C# `Manipulation`): while two or more fingers are down, Panning carries
+  `Gesture::manipulation` (`scale`, `rotation`, their totals, the center, `touches_count`);
+  `Gesture::touches` counts the fingers; a second finger makes the press no tap. The hosts send the
+  other fingers through `App::pointer_finger` (Android, iOS, the browser); `Headless::pinch`.
+
+### Breaking
+
+- `Gesture` has two more fields, `touches` and `manipulation`: code that builds a `Gesture` with a
+  struct literal sets them (`0`, `None`).
+
+### Docs
+
+- How a page script feeds the app in the browser (`DrawnUi.start` returns `module` and
+  `requestFrame`; a WebGL texture registered in `module.GL.textures` for `import_gl_texture`), in
+  `web/drawnui_host.js` and the public skill.
 
 ## 0.1.0-preview.9 (crates.io, 2026-10-15)
 

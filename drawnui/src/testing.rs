@@ -165,6 +165,26 @@ impl<S: 'static> Headless<S> {
         self.frame_after(step_ms);
     }
 
+    /// Two fingers on a horizontal line through `center`, `from` pixels apart, moving apart (or
+    /// together) to `to` in `steps` moves over `duration_ms`, both lifted one step later. The
+    /// first finger is the pointer, the second `Ui::pointer_finger`. A frame follows every step.
+    pub fn pinch(&mut self, center: (f32, f32), from: f32, to: f32, duration_ms: f64, steps: u32) {
+        let step_ms = duration_ms / steps as f64;
+        let (x, y) = center;
+        self.ui.pointer_touch(PointerKind::Down, x - from / 2.0, y, self.time_ms);
+        self.ui.pointer_finger(1, PointerKind::Down, x + from / 2.0, y, self.time_ms);
+        self.frame_after(step_ms);
+        for i in 1..=steps {
+            let spread = from + (to - from) * i as f32 / steps as f32;
+            self.ui.pointer_touch(PointerKind::Move, x - spread / 2.0, y, self.time_ms);
+            self.ui.pointer_finger(1, PointerKind::Move, x + spread / 2.0, y, self.time_ms);
+            self.frame_after(step_ms);
+        }
+        self.ui.pointer_finger(1, PointerKind::Up, x + to / 2.0, y, self.time_ms);
+        self.ui.pointer_touch(PointerKind::Up, x - to / 2.0, y, self.time_ms);
+        self.frame_after(step_ms);
+    }
+
     /// A pan, then frames until everything came to rest. A short `duration_ms` makes it a flick.
     pub fn fling(&mut self, from: (f32, f32), to: (f32, f32), duration_ms: f64, steps: u32) {
         self.pan(from, to, duration_ms, steps);

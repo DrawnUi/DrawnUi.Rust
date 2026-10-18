@@ -1595,8 +1595,9 @@ impl ApplicationHandler<Arrived> for Desktop {
                     self.redraw();
                 }
             }
-            // One finger is the pointer, as the left button: no hover, no second finger yet (DrawnUI's
-            // touch heads). A long press is the engine's LongPressing.
+            // The first finger is the pointer, as the left button: no hover (DrawnUI's touch heads); a
+            // long press is the engine's LongPressing. The other fingers pinch and turn
+            // (`App::pointer_finger`).
             #[cfg(any(target_os = "ios", target_os = "android"))]
             WindowEvent::Touch(touch) => {
                 use winit::event::TouchPhase;
@@ -1607,7 +1608,17 @@ impl ApplicationHandler<Arrived> for Desktop {
                         self.pressed = Some(MouseButton::Left);
                         PointerKind::Down
                     }
-                    _ if self.touch != Some(touch.id) => return,
+                    _ if self.touch != Some(touch.id) => {
+                        let kind = match touch.phase {
+                            TouchPhase::Started => PointerKind::Down,
+                            TouchPhase::Moved => PointerKind::Move,
+                            TouchPhase::Ended => PointerKind::Up,
+                            TouchPhase::Cancelled => PointerKind::Cancel,
+                        };
+                        self.app.pointer_finger(touch.id, kind, x, y, now);
+                        self.redraw();
+                        return;
+                    }
                     TouchPhase::Started | TouchPhase::Moved => PointerKind::Move,
                     TouchPhase::Ended => PointerKind::Up,
                     TouchPhase::Cancelled => PointerKind::Cancel,

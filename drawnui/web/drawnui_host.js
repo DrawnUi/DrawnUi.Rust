@@ -286,15 +286,29 @@ window.DrawnUi = {
       return [(e.clientX - rect.left) * scale, (e.clientY - rect.top) * scale];
     };
 
-    // The engine recognizes one press: its pointer and button. Other pointers (a second finger)
-    // are not forwarded while it lasts; a mouse with no button down hovers, a touch never does.
+    // The engine recognizes one press: its pointer and button. While a touch press lasts, other
+    // fingers go to dui_pointer_finger (pinch and turn); a mouse with no button down hovers, a
+    // touch never does.
     let press = null;
+    const fingers = new Set();
     const pointer = (kind) => (e) => {
       const [x, y] = toCanvas(e);
       let button = Math.max(0, e.button);
+      const finger = e.pointerType === "touch" && e.pointerId !== press?.id && (kind === 0 ? press?.touch : fingers.has(e.pointerId));
+      if (finger) {
+        if (kind === 0) {
+          fingers.add(e.pointerId);
+          canvas.setPointerCapture(e.pointerId);
+        } else if (kind >= 2) {
+          fingers.delete(e.pointerId);
+        }
+        module._dui_pointer_finger(app, e.pointerId, kind, x, y, e.timeStamp);
+        requestFrame();
+        return;
+      }
       if (kind === 0) {
         if (press) return;
-        press = { id: e.pointerId, button };
+        press = { id: e.pointerId, button, touch: e.pointerType === "touch" };
         canvas.setPointerCapture(e.pointerId);
       } else if (!press || press.id !== e.pointerId) {
         if (kind === 1 && !press && e.pointerType === "mouse") {

@@ -10,7 +10,7 @@ use skia_safe::{Canvas, Color, Matrix, Paint, Point, RRect, Rect, Size};
 
 use crate::control::{GestureCx, Handled, PaintCx};
 use crate::fonts::Fonts;
-use crate::gestures::{ContextMenuSource, Gesture, GestureKind, MouseButton, Recognizer};
+use crate::gestures::{ContextMenuSource, Gesture, GestureKind, MouseButton, Multitouch, Recognizer};
 use crate::gpu::Gpu;
 use crate::keyboard::{Cursor, InputKey, KeyEvent, KeyKind, Keyboard, Modifiers};
 use crate::tree::{Build, ControlId, Cx, Detached, Raw, Tree};
@@ -217,6 +217,9 @@ pub(crate) fn said_by_child(nodes: &[AccessibilityNode], node: &AccessibilityNod
     nodes.iter().any(|c| c.parent == Some(node.id) && (c.role == Aria::TEXT || c.role == Aria::HEADING) && c.text_lines.is_empty() && c.label == node.label)
 }
 
+/// The pointer's own finger among the fingers (`Ui::pointer_finger` ids are the host's).
+const POINTER_FINGER: u64 = u64::MAX;
+
 type UiKeyHandler<S> = Box<dyn FnMut(&mut S, &KeyEvent<'_>, &mut Cx<'_>) -> bool>;
 
 pub struct Ui<S: 'static> {
@@ -231,9 +234,12 @@ pub struct Ui<S: 'static> {
     gpu_backend: GpuBackend,
     /// DrawnUI `Canvas.Gestures`, read by the browser host at start.
     gestures: GesturesMode,
-    /// (kind, button, location, arrival time in ms).
-    input: VecDeque<(PointerKind, MouseButton, bool, Point, f64)>,
+    /// (kind, button, a finger, location, arrival time in ms, `Some(id)` for a finger other than
+    /// the one that drives the pointer).
+    input: VecDeque<(PointerKind, MouseButton, bool, Point, f64, Option<u64>)>,
     recognizer: Recognizer,
+    /// The fingers down, for pinch and turn (`Gesture::manipulation`).
+    fingers: Multitouch,
     /// The control that consumed the current gesture keeps receiving it until it lets go.
     owner: Option<ControlId>,
     state_dirty: bool,
@@ -371,6 +377,7 @@ impl<S: 'static> Ui<S> {
             gestures: GesturesMode::Enabled,
             input: VecDeque::new(),
             recognizer: Recognizer::default(),
+            fingers: Multitouch::default(),
             owner: None,
             state_dirty: true,
             font_urls: Vec::new(),
@@ -651,7 +658,7 @@ impl<S: 'static> Ui<S> {
         if kind == PointerKind::Down && std::mem::take(&mut self.focus_ring) {
             self.tree.needs_frame = true;
         }
-        let event = (kind, button, touch, Point::new(x, y), time_ms);
+        let event = (kind, button, touch, Point::new(x, y), time_ms, None);
         if kind == PointerKind::Hover
             && let Some(last) = self.input.back_mut().filter(|last| last.0 == PointerKind::Hover)
         {
@@ -659,6 +666,13 @@ impl<S: 'static> Ui<S> {
             return;
         }
         self.input.push_back(event);
+    }
+
+    /// Queues the input of a finger other than the one that drives the pointer (multi-touch,
+    /// `finger` tells them apart): while the pointer is pressed, its moves make Panning gestures
+    /// with `Gesture::manipulation` (pinch and turn), and the press is no tap any more.
+    pub fn pointer_finger(&mut self, finger: u64, kind: PointerKind, x: f32, y: f32, time_ms: f64) {
+        self.input.push_back((kind, MouseButton::Left, true, Point::new(x, y), time_ms, Some(finger)));
     }
 
     /// Routes a vertical wheel event now, after the pointer input that is still queued: the host
@@ -1245,7 +1259,11 @@ impl<S: 'static> Ui<S> {
     }
 
     fn flush_input(&mut self) {
-        while let Some((kind, button, touch, location, time_ms)) = self.input.pop_front() {
+        while let Some((kind, button, touch, location, time_ms, finger)) = self.input.pop_front() {
+            if let Some(finger) = finger {
+                self.flush_finger(finger, kind, location, time_ms);
+                continue;
+            }
             match kind {
                 // While content moves under the mouse, hover waits (one check when it stops).
                 PointerKind::Hover if self.hover_paused => self.last_pointer = Some(location),
@@ -1253,8 +1271,25 @@ impl<S: 'static> Ui<S> {
                 // Leaving the canvas ends hover at once, also while content moves.
                 PointerKind::Leave => self.hover(None, time_ms),
                 _ => {
-                    for gesture in self.recognizer.feed(kind, button, touch, location, time_ms, self.scale).into_iter().flatten() {
+                    // The pointer is the first finger the fingers are measured from.
+                    let manipulation = match kind {
+                        PointerKind::Down if !self.recognizer.is_pressed() => {
+                            self.fingers.restart(POINTER_FINGER, location);
+                            None
+                        }
+                        PointerKind::Move => self.fingers.moved(POINTER_FINGER, location),
+                        _ => None,
+                    };
+                    let touches = self.fingers.count().max(1) as u32;
+                    for mut gesture in self.recognizer.feed(kind, button, touch, location, time_ms, self.scale).into_iter().flatten() {
+                        gesture.touches = touches;
+                        if gesture.kind == GestureKind::Panning {
+                            gesture.manipulation = manipulation;
+                        }
                         self.process_gesture(gesture);
+                    }
+                    if matches!(kind, PointerKind::Up | PointerKind::Cancel) && !self.recognizer.is_pressed() {
+                        self.fingers.reset();
                     }
                 }
             }
@@ -1262,6 +1297,31 @@ impl<S: 'static> Ui<S> {
         // The press was held long enough: fires once, between the frames' input.
         if let Some(gesture) = self.recognizer.long_press(self.tree.time_ms) {
             self.process_gesture(gesture);
+        }
+    }
+
+    /// Another finger than the pointer's, while the pointer is pressed: a second finger makes the
+    /// press no tap, its moves are Panning where the press is with what the fingers did.
+    // ponytail: the fingers that stay after the pointer's lifts do nothing until all lifted; a
+    // pinch that goes on with them would need a new press there.
+    fn flush_finger(&mut self, finger: u64, kind: PointerKind, location: Point, time_ms: f64) {
+        if !self.recognizer.is_pressed() {
+            return;
+        }
+        match kind {
+            PointerKind::Down => {
+                self.recognizer.multi_touch();
+                self.fingers.moved(finger, location);
+            }
+            PointerKind::Move => {
+                let Some(manipulation) = self.fingers.moved(finger, location) else { return };
+                if let Some(mut gesture) = self.recognizer.pan_in_place(time_ms) {
+                    (gesture.manipulation, gesture.touches) = (Some(manipulation), self.fingers.count() as u32);
+                    self.process_gesture(gesture);
+                }
+            }
+            PointerKind::Up | PointerKind::Cancel => self.fingers.lifted(finger),
+            _ => {}
         }
     }
 
@@ -1899,8 +1959,8 @@ fn plain_gesture(kind: GestureKind, location: Point, time_ms: f64) -> Gesture {
     let zero = Point::default();
     let (start, delta, total, velocity, wheel, cancelled) = (location, zero, zero, zero, 0.0, false);
     let (button, source) = (MouseButton::Left, ContextMenuSource::Mouse);
-    let (wheel_horizontal, touch) = (false, false);
-    Gesture { kind, location, start, delta, total, time_ms, velocity, wheel, wheel_horizontal, cancelled, button, source, touch }
+    let (wheel_horizontal, touch, touches, manipulation) = (false, false, 0, None);
+    Gesture { kind, location, start, delta, total, time_ms, velocity, wheel, wheel_horizontal, cancelled, button, source, touch, touches, manipulation }
 }
 
 /// Maps a canvas point into the control's own space, through every ancestor's render transform.
@@ -2559,6 +2619,10 @@ impl<S: 'static> App for Ui<S> {
 
     fn pointer_touch(&mut self, kind: PointerKind, x: f32, y: f32, time_ms: f64) {
         Ui::pointer_touch(self, kind, x, y, time_ms)
+    }
+
+    fn pointer_finger(&mut self, finger: u64, kind: PointerKind, x: f32, y: f32, time_ms: f64) {
+        Ui::pointer_finger(self, finger, kind, x, y, time_ms)
     }
 
     fn wheel(&mut self, x: f32, y: f32, delta: f32, horizontal: bool, time_ms: f64) -> bool {
