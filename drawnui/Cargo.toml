@@ -70,7 +70,7 @@ objc2-core-foundation = { version = "0.3.2", default-features = false, features 
 objc2-metal = { version = "0.3.2", default-features = false, features = ["std", "MTLDevice", "MTLCommandBuffer", "MTLCommandQueue", "MTLDrawable", "MTLPixelFormat"] }
 objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "objc2-metal", "CALayer", "CAMetalLayer", "CADisplayLink", "CAFrameRateRange"] }
 # The display link's run loop (macOS 14+, iOS).
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSRunLoop", "NSString", "NSObject", "NSNotification"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSRunLoop", "NSString", "NSObject", "NSNotification", "NSDate"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-quartz-core", "NSView", "NSResponder", "NSWindow", "NSScreen"] }

@@ -907,8 +907,8 @@ mod rotation {
     use std::cell::Cell;
 
     use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, rc::Retained, sel};
-    use objc2_foundation::{NSNotification, NSNotificationCenter, NSObject};
-    use objc2_ui_kit::{UIDevice, UIDeviceOrientationDidChangeNotification};
+    use objc2_foundation::{NSNotification, NSNotificationCenter, NSObject, NSObjectNSDelayedPerforming};
+    use objc2_ui_kit::{UIDevice, UIDeviceOrientation, UIDeviceOrientationDidChangeNotification};
     use winit::event_loop::EventLoopProxy;
 
     use super::Arrived;
@@ -916,6 +916,7 @@ mod rotation {
     pub(crate) struct Target {
         proxy: EventLoopProxy<Arrived>,
         last: Cell<i32>,
+        reads_left: Cell<u8>,
     }
 
     define_class!(
@@ -930,13 +931,28 @@ mod rotation {
             fn orientation_changed(&self, _note: &NSNotification) {
                 self.send();
             }
+
+            #[unsafe(method(readAgain))]
+            fn read_again(&self) {
+                self.send();
+            }
         }
     );
 
     impl Observer {
         fn send(&self) {
-            let degrees = super::rotation_from_ui_device(UIDevice::currentDevice(self.mtm()).orientation().0);
+            let orientation = UIDevice::currentDevice(self.mtm()).orientation();
             let target = self.ivars();
+            // Unknown right after the notifications start, until the system has read the sensor,
+            // and no notification comes when it knows: a device held still in landscape would
+            // stay at 0. Read again every 0.1 s for up to 2 s (C# reads it again when it needs it).
+            if orientation == UIDeviceOrientation::Unknown && target.reads_left.get() > 0 {
+                target.reads_left.set(target.reads_left.get() - 1);
+                // SAFETY: the observer answers `readAgain`; Drop cancels what is pending.
+                unsafe { self.performSelector_withObject_afterDelay(sel!(readAgain), None, 0.1) };
+                return;
+            }
+            let degrees = super::rotation_from_ui_device(orientation.0);
             if target.last.replace(degrees) != degrees {
                 let _ = target.proxy.send_event(Arrived::Rotation(degrees));
             }
@@ -950,7 +966,7 @@ mod rotation {
     impl Sensor {
         pub fn start(proxy: &EventLoopProxy<Arrived>) -> Option<Self> {
             let mtm = MainThreadMarker::new()?;
-            let observer = mtm.alloc::<Observer>().set_ivars(Target { proxy: proxy.clone(), last: Cell::new(-1) });
+            let observer = mtm.alloc::<Observer>().set_ivars(Target { proxy: proxy.clone(), last: Cell::new(-1), reads_left: Cell::new(20) });
             let observer: Retained<Observer> = unsafe { msg_send![super(observer), init] };
             UIDevice::currentDevice(mtm).beginGeneratingDeviceOrientationNotifications();
             // SAFETY: the observer answers `orientationChanged:`; Drop removes it.
@@ -964,8 +980,11 @@ mod rotation {
 
     impl Drop for Sensor {
         fn drop(&mut self) {
-            // SAFETY: the observer added in `start`.
-            unsafe { NSNotificationCenter::defaultCenter().removeObserver(&self.observer) };
+            // SAFETY: the observer added in `start`, and its pending reads.
+            unsafe {
+                NSNotificationCenter::defaultCenter().removeObserver(&self.observer);
+                NSObject::cancelPreviousPerformRequestsWithTarget(&self.observer);
+            }
             UIDevice::currentDevice(self.observer.mtm()).endGeneratingDeviceOrientationNotifications();
         }
     }

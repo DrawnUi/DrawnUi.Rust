@@ -20,8 +20,9 @@ version before it. Commits in parentheses.
   (LandscapeRight 90, LandscapeLeft 270), snapped at 45 degrees; flat counts as 0, as in C#. A
   control that listens (`Build::listen_device_rotation`, `Cx::listen_device_rotation`) hears each
   new value (`Control::on_device_rotation`). Android reads the accelerometer every 200 ms (as C#'s
-  OrientationEventListener), iOS takes UIDevice's orientation notifications, both only while a
-  control listens and the app is in front. 0 on the desktop and in the browser.
+  OrientationEventListener), iOS takes UIDevice's orientation notifications (and reads it again
+  while it is still unknown after they start, so a device held still in landscape is seen), both
+  only while a control listens and the app is in front. 0 on the desktop and in the browser.
 - `Cx::postpone_before_draw` (C# `PostponeExecutionBeforeDraw`): runs a closure with the app state
   at the start of the next frame, whatever is shown.
 - `PaintCx::gpu`: the frame's GPU context for a control's paint (`None` on the CPU and in pictures
