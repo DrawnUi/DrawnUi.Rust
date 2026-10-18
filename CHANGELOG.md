@@ -37,6 +37,9 @@ version before it. Commits in parentheses.
   external semaphores) and Skia is told the enabled extensions; `VulkanHandles::hardware_buffers` /
   `sampler_ycbcr_conversion` say what was enabled. Skia itself does not sample YCbCr images yet
   (the Skia crates do not pass device features to it).
+- `props!` takes doc comments for the three items it makes (before each name) and passes a
+  property's doc comments onto its setter too, so a crate that denies `missing_docs` can use it;
+  the syntax without them is unchanged.
 - `ImageProps::build_paint` is public: the paint SkiaImage draws with (effects, blur, the app's
   filters), for controls that draw their own pictures.
 - Off-screen children: `LayoutCx::measure_child_scaled` / `arrange_child_scaled` lay a child out

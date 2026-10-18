@@ -270,12 +270,30 @@ pub(crate) fn part_mut<T: Control>(c: &mut dyn Control) -> Option<&mut T> {
 /// });
 /// ```
 ///
+/// Doc comments before each of the three names and before each property go onto what is generated
+/// (a property's onto its field, builder method and setter), for crates that deny `missing_docs`:
+///
+/// ```ignore
+/// props!(
+///     /// The gauge's properties.
+///     GaugeProps,
+///     /// Sets them while building.
+///     GaugeBuild,
+///     /// Sets them at run time.
+///     GaugeSet {
+///         /// The value shown, 0 to 1.
+///         value / set_value: f32 = 0.0, DRAW;
+///     }
+/// );
+/// ```
+///
 /// A control must not repeat a property name of a part it inherits.
 #[macro_export]
 macro_rules! props {
-    ($props:ident, $build:ident, $set:ident {
+    ($(#[$props_doc:meta])* $props:ident, $(#[$build_doc:meta])* $build:ident, $(#[$set_doc:meta])* $set:ident {
         $($(#[$doc:meta])* $name:ident / $setter:ident : $ty:ty = $default:expr, $dirty:ident;)*
     }) => {
+        $(#[$props_doc])*
         #[derive(Clone, Debug, PartialEq)]
         pub struct $props { $($(#[$doc])* pub $name: $ty,)* }
 
@@ -283,6 +301,7 @@ macro_rules! props {
             fn default() -> Self { Self { $($name: $default,)* } }
         }
 
+        $(#[$build_doc])*
         pub trait $build: Sized { $($(#[$doc])* fn $name(self, v: impl $crate::IntoProp<$ty>) -> Self;)* }
 
         impl<T: $crate::Has<$props>> $build for $crate::Build<T> {
@@ -292,7 +311,8 @@ macro_rules! props {
             })*
         }
 
-        pub trait $set { $(fn $setter(&mut self, v: impl $crate::IntoProp<$ty>);)* }
+        $(#[$set_doc])*
+        pub trait $set { $($(#[$doc])* fn $setter(&mut self, v: impl $crate::IntoProp<$ty>);)* }
 
         impl<T: $crate::Has<$props>> $set for $crate::Mut<'_, T> {
             $(fn $setter(&mut self, v: impl $crate::IntoProp<$ty>) {
