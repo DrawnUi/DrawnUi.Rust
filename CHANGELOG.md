@@ -34,6 +34,9 @@ version before it. Commits in parentheses.
   external semaphores) and Skia is told the enabled extensions; `VulkanHandles::hardware_buffers` /
   `sampler_ycbcr_conversion` say what was enabled. Skia itself does not sample YCbCr images yet
   (the Skia crates do not pass device features to it).
+- Docs: how a page script feeds the app in the browser (`DrawnUi.start` returns `module` and
+  `requestFrame`; a WebGL texture registered in `module.GL.textures` for `import_gl_texture`), in
+  `web/drawnui_host.js` and the public skill.
 - `ImageProps::build_paint` is public: the paint SkiaImage draws with (effects, blur, the app's
   filters), for controls that draw their own pictures.
 

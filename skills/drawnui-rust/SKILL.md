@@ -398,6 +398,14 @@ Vulkan, `vulkan_handles().hardware_buffers` says whether AHardwareBuffers can be
 does not sample YCbCr images yet, so a camera frame in the device's own YUV format goes through
 OpenGL ES (`GlTarget::ExternalOes`, `Ui::gpu_backend(GpuBackend::OpenGl)`) or an RGB buffer.
 
+In the browser a page script makes the texture (a camera's `<video>` uploaded with `texImage2D`):
+`DrawnUi.start(...)` returns `{ module, requestFrame }`; `module.GL.currentContext.GLctx` is the
+WebGL2 context, `const id = module.GL.getNewId(module.GL.textures); module.GL.textures[id] = tex;`
+gives the id `import_gl_texture` takes, and the app's own `#[unsafe(no_mangle)] pub extern "C" fn`
+functions are `module._name`. The script calls one of them with the id (or "a new frame is
+there"), then `requestFrame()`. In `paint`, call `reset_gl_state()` before drawing it: the script
+changed GL state behind Skia. After a lost WebGL context (`epoch()` changed) make the texture again.
+
 ## A subtree at its own scale (recording overlays)
 
 A control can lay one child out at another size and scale than the screen's, e.g. an overlay

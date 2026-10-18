@@ -13,6 +13,14 @@
 //     app gave ("assets/x.png"). A string is used as is (a blob: url made by the page works for the
 //     image worker too); undefined loads the url as usual.
 //
+//   The result also carries `module` (the Emscripten module: the app's exported functions as
+//     module._name, module.HEAPU8, module.GL) and `requestFrame()`. A page script that feeds the app
+//     (a camera's video frames) calls an exported function of the app, then requestFrame(). A WebGL
+//     texture for Gpu::import_gl_texture: module.GL.currentContext.GLctx is the context; register the
+//     texture with `const id = module.GL.getNewId(module.GL.textures); module.GL.textures[id] = tex;`
+//     and hand `id` to the app. The app calls Gpu::reset_gl_state before drawing it (the script
+//     changed GL state behind Skia) and makes it again after a lost context (Gpu::epoch).
+//
 // Frame timing is collected in window.duiStats.
 
 // Loads and decodes one picture for the engine: premultiplied RGBA pixels no larger than it takes
