@@ -117,6 +117,42 @@ fn frame_stats_count_the_frames_of_the_last_second() {
     assert_eq!(host.ui.frame_stats().fps, 1);
 }
 
+/// Frames another thread asks for through the `Waker` (a camera preview at 28.6 frames a second)
+/// count for SkiaLabelFps as C# counts every canvas frame; a pause starts the count again.
+#[test]
+fn the_fps_label_counts_frames_the_waker_asked_for() {
+    #[derive(Default)]
+    struct App {
+        fps: Handle<SkiaLabelFps>,
+        preview: Handle<SkiaShape>,
+    }
+    let ui = Ui::new(App::default(), |app| {
+        SkiaLayout::new().fill().children((
+            SkiaShape::new().fill().background_color(Color::BLACK).assign(&mut app.preview),
+            SkiaLabelFps::new().assign(&mut app.fps),
+        ))
+    })
+    .font_bytes("Default", FONT);
+    let mut host = Headless::new(ui, 200, 200, 1.0);
+    host.settle();
+    let text = |host: &Headless<App>| {
+        let label = host.ui.tree.find::<SkiaLabelFps>(host.ui.state.fps).unwrap();
+        drawnui::Has::<drawnui::controls::label::LabelProps>::part(label).text.clone()
+    };
+    let (waker, preview) = (host.ui.waker(), host.ui.state.preview);
+    for _ in 0..40 {
+        waker.invalidate(preview, Dirty::DRAW);
+        assert!(host.ui.needs_frame());
+        host.frame_after(35.0);
+        assert!(!host.ui.needs_frame(), "every frame came from the waker");
+    }
+    assert_eq!(text(&host), "FPS 28.6");
+    // A pause: the next frame alone measures nothing, the last value stays.
+    waker.invalidate(preview, Dirty::DRAW);
+    host.frame_after(2000.0);
+    assert_eq!(text(&host), "FPS 28.6");
+}
+
 type Moves = std::rc::Rc<std::cell::RefCell<Vec<(u32, String)>>>;
 
 /// A shell stand-in: pushes a history entry per page, hears the browser's back / forward.

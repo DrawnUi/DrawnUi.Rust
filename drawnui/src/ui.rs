@@ -318,14 +318,17 @@ pub struct Ui<S: 'static> {
     by_z: Vec<ControlId>,
 }
 
-/// The FPS overlay: frames per second over the last half second of frames the engine itself
-/// asked for, one after the other (an animation, a scroll). Frames are drawn on demand: a frame
-/// that input or a timer woke up does not count, and an idle app keeps the last number measured.
+/// The FPS overlay: frames per second over the last half second of frames drawn one after the
+/// other, whatever asked for them (an animation, a scroll, input, data from another thread
+/// through the `Waker`, C# counts every canvas frame). Frames are drawn on demand: a frame after
+/// a pause starts the count again, so an idle app keeps the last number measured.
 #[derive(Default)]
 struct Fps {
     on: bool,
     /// The last frame ended asking for the next one.
     chained: bool,
+    /// When the last frame was drawn.
+    last_ms: f64,
     since_ms: f64,
     frames: u32,
     value: f32,
@@ -334,9 +337,15 @@ struct Fps {
 }
 
 impl Fps {
-    /// Counts the frame; the value changes every half second of chained frames.
+    /// A frame further than this from the previous one, which did not ask for it, follows a pause:
+    /// slower than 10 frames per second is not a frame rate.
+    const PAUSE_MS: f64 = 100.0;
+
+    /// Counts the frame; the value changes every half second of frames in a row.
     fn measure(&mut self, time_ms: f64) {
-        if !self.chained {
+        let paused = !self.chained && time_ms - self.last_ms > Self::PAUSE_MS;
+        self.last_ms = time_ms;
+        if paused {
             (self.since_ms, self.frames) = (time_ms, 0);
         }
         self.frames += 1;

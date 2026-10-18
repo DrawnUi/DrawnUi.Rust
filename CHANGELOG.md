@@ -43,6 +43,12 @@ version before it. Commits in parentheses.
   `Gesture::touches` counts the fingers; a second finger makes the press no tap. The hosts send the
   other fingers through `App::pointer_finger` (Android, iOS, the browser); `Headless::pinch`.
 
+### Changed
+
+- The FPS pill (`Ui::show_fps`) and SkiaLabelFps count every frame drawn in a row, also the frames
+  input or the `Waker` asked for (a camera preview showed "FPS -"), as C# counts every canvas
+  frame; after a pause of more than 100 ms the count starts again.
+
 ### Breaking
 
 - `Gesture` has two more fields, `touches` and `manipulation`: code that builds a `Gesture` with a
