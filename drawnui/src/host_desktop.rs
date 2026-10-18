@@ -765,27 +765,22 @@ fn read_app_file(path: &str) -> std::io::Result<Vec<u8>> {
 /// OrientationEventListener's degrees (clockwise from the natural position; none while the device
 /// lies nearly flat), then C# Super.Android's quarter `((degrees + 45) / 90) % 4`, where flat
 /// (-1) counts as 0.
-#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(dead_code))]
 fn rotation_from_gravity(x: f32, y: f32, z: f32) -> i32 {
     let degrees = if (x * x + y * y) * 4.0 >= z * z { (90 - y.atan2(-x).to_degrees().round() as i32).rem_euclid(360) } else { -1 };
     (degrees + 45) / 90 % 4 * 90
 }
 
-/// iOS: `UIDevice.orientation` as C# reads it (`Super.DeviceRotationSnap`): LandscapeLeft 270,
-/// LandscapeRight 90, PortraitUpsideDown 180; portrait, face up or down and unknown 0.
+/// iOS: CoreMotion's reading (x, y, z in g: gravity itself, where Android reads the force against
+/// it) by the Android rule.
 #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
-fn rotation_from_ui_device(orientation: isize) -> i32 {
-    match orientation {
-        2 => 180,
-        3 => 270,
-        4 => 90,
-        _ => 0,
-    }
+fn rotation_from_core_motion(x: f64, y: f64, z: f64) -> i32 {
+    rotation_from_gravity(-x as f32, -y as f32, -z as f32)
 }
 
 #[cfg(test)]
 mod rotation_tests {
-    use super::{rotation_from_gravity, rotation_from_ui_device};
+    use super::{rotation_from_core_motion, rotation_from_gravity};
 
     /// The reading of a device turned `degrees` clockwise from portrait and tilted back `back`.
     fn turned(degrees: f32, back: f32) -> i32 {
@@ -805,10 +800,14 @@ mod rotation_tests {
         assert_eq!(rotation_from_gravity(0.0, 0.0, 9.81), 0);
     }
 
+    /// UIDevice's quarters, as C# maps them: LandscapeRight (front camera on the right) 90,
+    /// LandscapeLeft 270, face up 0.
     #[test]
-    fn ui_device_orientation_maps_as_drawnui_ios() {
-        let map: Vec<i32> = (0..=6).map(rotation_from_ui_device).collect();
-        assert_eq!(map, [0, 0, 180, 270, 90, 0, 0]);
+    fn core_motion_gives_the_quarters_of_drawnui_ios() {
+        // Gravity in g: portrait, LandscapeRight, upside down, LandscapeLeft, face up.
+        let readings = [(0.0, -1.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (-1.0, 0.0, 0.0), (0.0, 0.0, -1.0)];
+        let map: Vec<i32> = readings.iter().map(|&(x, y, z)| rotation_from_core_motion(x, y, z)).collect();
+        assert_eq!(map, [0, 90, 180, 270, 0]);
     }
 }
 
@@ -900,23 +899,25 @@ mod rotation {
     }
 }
 
-/// iOS: UIDevice's orientation notifications (C# DrawnExtensions); on only while a control
-/// listens and the app is in front.
+/// iOS: the accelerometer through CoreMotion, read every 200 ms and turned into a quarter as on
+/// Android. C# reads UIDevice's orientation (DrawnExtensions); read here, it stayed unknown on a
+/// phone held still from launch, so one already in landscape was never seen. On only while a
+/// control listens and the app is in front.
 #[cfg(target_os = "ios")]
 mod rotation {
     use std::cell::Cell;
 
     use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, rc::Retained, sel};
-    use objc2_foundation::{NSNotification, NSNotificationCenter, NSObject, NSObjectNSDelayedPerforming};
-    use objc2_ui_kit::{UIDevice, UIDeviceOrientation, UIDeviceOrientationDidChangeNotification};
+    use objc2_core_motion::CMMotionManager;
+    use objc2_foundation::{NSObject, NSTimer};
     use winit::event_loop::EventLoopProxy;
 
     use super::Arrived;
 
     pub(crate) struct Target {
         proxy: EventLoopProxy<Arrived>,
+        motion: Retained<CMMotionManager>,
         last: Cell<i32>,
-        reads_left: Cell<u8>,
     }
 
     define_class!(
@@ -924,68 +925,56 @@ mod rotation {
         #[thread_kind = MainThreadOnly]
         #[name = "DrawnUiRotation"]
         #[ivars = Target]
-        pub(crate) struct Observer;
+        pub(crate) struct Reader;
 
-        impl Observer {
-            #[unsafe(method(orientationChanged:))]
-            fn orientation_changed(&self, _note: &NSNotification) {
-                self.send();
-            }
-
-            #[unsafe(method(readAgain))]
-            fn read_again(&self) {
-                self.send();
+        impl Reader {
+            #[unsafe(method(read:))]
+            fn read(&self, _timer: &NSTimer) {
+                let target = self.ivars();
+                // SAFETY: the manager lives as long as the reader; None until its first reading.
+                let Some(data) = (unsafe { target.motion.accelerometerData() }) else { return };
+                let a = unsafe { data.acceleration() };
+                let degrees = super::rotation_from_core_motion(a.x, a.y, a.z);
+                if target.last.replace(degrees) != degrees {
+                    let _ = target.proxy.send_event(Arrived::Rotation(degrees));
+                }
             }
         }
     );
 
-    impl Observer {
-        fn send(&self) {
-            let orientation = UIDevice::currentDevice(self.mtm()).orientation();
-            let target = self.ivars();
-            // Unknown right after the notifications start, until the system has read the sensor,
-            // and no notification comes when it knows: a device held still in landscape would
-            // stay at 0. Read again every 0.1 s for up to 2 s (C# reads it again when it needs it).
-            if orientation == UIDeviceOrientation::Unknown && target.reads_left.get() > 0 {
-                target.reads_left.set(target.reads_left.get() - 1);
-                // SAFETY: the observer answers `readAgain`; Drop cancels what is pending.
-                unsafe { self.performSelector_withObject_afterDelay(sel!(readAgain), None, 0.1) };
-                return;
-            }
-            let degrees = super::rotation_from_ui_device(orientation.0);
-            if target.last.replace(degrees) != degrees {
-                let _ = target.proxy.send_event(Arrived::Rotation(degrees));
-            }
-        }
-    }
-
     pub(super) struct Sensor {
-        observer: Retained<Observer>,
+        motion: Retained<CMMotionManager>,
+        /// None without an accelerometer (the simulator): the rotation stays 0.
+        timer: Option<Retained<NSTimer>>,
     }
 
     impl Sensor {
         pub fn start(proxy: &EventLoopProxy<Arrived>) -> Option<Self> {
             let mtm = MainThreadMarker::new()?;
-            let observer = mtm.alloc::<Observer>().set_ivars(Target { proxy: proxy.clone(), last: Cell::new(-1), reads_left: Cell::new(20) });
-            let observer: Retained<Observer> = unsafe { msg_send![super(observer), init] };
-            UIDevice::currentDevice(mtm).beginGeneratingDeviceOrientationNotifications();
-            // SAFETY: the observer answers `orientationChanged:`; Drop removes it.
-            unsafe {
-                NSNotificationCenter::defaultCenter().addObserver_selector_name_object(&observer, sel!(orientationChanged:), Some(UIDeviceOrientationDidChangeNotification), None);
+            // SAFETY: plain CoreMotion calls on the main thread.
+            let motion = unsafe { CMMotionManager::new() };
+            if !unsafe { motion.isAccelerometerAvailable() } {
+                return Some(Self { motion, timer: None });
             }
-            observer.send();
-            Some(Self { observer })
+            unsafe {
+                motion.setAccelerometerUpdateInterval(0.2);
+                motion.startAccelerometerUpdates();
+            }
+            let reader = mtm.alloc::<Reader>().set_ivars(Target { proxy: proxy.clone(), motion: motion.clone(), last: Cell::new(-1) });
+            let reader: Retained<Reader> = unsafe { msg_send![super(reader), init] };
+            // SAFETY: the reader answers `read:`; the timer keeps it until Drop invalidates it.
+            let timer = unsafe { NSTimer::scheduledTimerWithTimeInterval_target_selector_userInfo_repeats(0.2, &reader, sel!(read:), None, true) };
+            Some(Self { motion, timer: Some(timer) })
         }
     }
 
     impl Drop for Sensor {
         fn drop(&mut self) {
-            // SAFETY: the observer added in `start`, and its pending reads.
-            unsafe {
-                NSNotificationCenter::defaultCenter().removeObserver(&self.observer);
-                NSObject::cancelPreviousPerformRequestsWithTarget(&self.observer);
+            if let Some(timer) = &self.timer {
+                timer.invalidate();
+                // SAFETY: started in `start`.
+                unsafe { self.motion.stopAccelerometerUpdates() };
             }
-            UIDevice::currentDevice(self.observer.mtm()).endGeneratingDeviceOrientationNotifications();
         }
     }
 }

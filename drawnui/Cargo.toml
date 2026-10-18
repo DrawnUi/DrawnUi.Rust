@@ -70,11 +70,13 @@ objc2-core-foundation = { version = "0.3.2", default-features = false, features 
 objc2-metal = { version = "0.3.2", default-features = false, features = ["std", "MTLDevice", "MTLCommandBuffer", "MTLCommandQueue", "MTLDrawable", "MTLPixelFormat"] }
 objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "objc2-metal", "CALayer", "CAMetalLayer", "CADisplayLink", "CAFrameRateRange"] }
 # The display link's run loop (macOS 14+, iOS).
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSRunLoop", "NSString", "NSObject", "NSNotification", "NSDate"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSRunLoop", "NSString", "NSObject", "NSDate", "NSTimer"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-quartz-core", "NSView", "NSResponder", "NSWindow", "NSScreen"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
-objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "objc2-quartz-core", "UIView", "UIResponder", "UIScreen", "UIGeometry", "UIColor", "UIWindow", "UIDevice", "UIOrientation"] }
+objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "objc2-quartz-core", "UIView", "UIResponder", "UIScreen", "UIGeometry", "UIColor", "UIWindow"] }
+# Device rotation: the accelerometer.
+objc2-core-motion = { version = "0.3.2", default-features = false, features = ["std", "CMMotionManager", "CMAccelerometer", "CMLogItem"] }
 # The display link that paces iOS frames (C# Super.iOS).
