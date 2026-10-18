@@ -717,6 +717,7 @@ dependencies = [
  "accesskit_winit",
  "arboard",
  "ash",
+ "drawnui-skia-bindings",
  "drawnui-skia-safe",
  "glutin",
  "glutin-winit",

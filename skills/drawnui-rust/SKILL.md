@@ -382,6 +382,19 @@ once per new piece of data: every call is a frame, and nothing is drawn while no
 In the browser there is no other thread: the page script that hands data to the app (an exported
 function) calls the `requestFrame` that `DrawnUi.start` returns, after `invalidate`.
 
+## Textures from outside Skia (camera, video)
+
+A control draws a texture made elsewhere through `PaintCx::gpu()`, in its `paint`. It answers
+`None` on the CPU and while the control is recorded for a worker thread (inside an
+ImageDoubleBuffered cache: no GPU texture may go there), so keep such a control out of cached
+parents and give it no cache. `Gpu::backend()` says which import applies: `import_gl_texture`
+(OpenGL, OpenGL ES, WebGL2; `GlTarget::ExternalOes` for Android camera frames),
+`import_metal_texture` (macOS, iOS), `import_vulkan_image` with `vulkan_handles()` (Android). The
+imports are `unsafe`: the image borrows the texture, so keep the texture alive and unchanged until
+`completed_serial()` reaches the `frame_serial()` of the frame that drew it (asking for the serial
+is what makes that frame report; frames finish in order). After own GL calls while painting, call
+`reset_gl_state()`. A new GPU context (`epoch()` changed) means importing again.
+
 ## Gestures in the browser
 
 `Ui::gestures(GesturesMode::Lock)` (DrawnUI `Canvas.Gestures`) makes the canvas own every touch:

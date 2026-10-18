@@ -402,6 +402,16 @@ pub(crate) struct Target<'a> {
 }
 
 impl<'a> PaintCx<'a> {
+    /// The GPU context the frame draws with, to import textures made outside Skia (a camera
+    /// frame). `None` on the CPU, and while a picture is recorded for a worker thread (an
+    /// ImageDoubleBuffered cache): no GPU texture may go into that one.
+    pub fn gpu(&mut self) -> Option<&mut Gpu> {
+        if self.offthread || self.gpu.backend().is_none() {
+            return None;
+        }
+        Some(&mut *self.gpu)
+    }
+
     pub(crate) fn node(&self, id: ControlId) -> Option<&'a Node> {
         let nodes: &'a [Option<Node>] = self.nodes;
         nodes.get(id.index as usize)?.as_ref().filter(|n| n.id == id)

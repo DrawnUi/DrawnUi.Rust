@@ -21,6 +21,9 @@ full = ["skia-safe/textlayout", "svg"]
 
 [dependencies]
 skia-safe = { workspace = true }
+# The raw Skia structs behind skia-safe (the same crate skia-safe uses), for the one field
+# skia-safe does not reach yet: a flush's finished callback (`gpu.rs`).
+skia-bindings = { package = "drawnui-skia-bindings", version = "=0.153.6", default-features = false }
 # SkiaLottie: the JSON as a `Value`; `preserve_order` keeps document order for the color tint.
 serde_json = { version = "1", features = ["preserve_order"] }
 

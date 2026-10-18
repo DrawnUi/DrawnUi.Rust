@@ -17,6 +17,12 @@ version before it. Commits in parentheses.
   `Ui::on_visibility_changed` (C# `Super.OnNativeAppPaused` / `OnNativeAppResumed`).
 - `Cx::postpone_before_draw` (C# `PostponeExecutionBeforeDraw`): runs a closure with the app state
   at the start of the next frame, whatever is shown.
+- `PaintCx::gpu`: the frame's GPU context for a control's paint (`None` on the CPU and in pictures
+  for bake workers), to draw textures made outside Skia (a camera frame): `Gpu::backend`,
+  `import_gl_texture` (2D or external OES), `import_metal_texture`, `import_vulkan_image`,
+  `vulkan_handles`, `reset_gl_state`, and `frame_serial` / `completed_serial` to release a
+  borrowed texture once the GPU finished the frame that drew it. drawnui now depends on
+  drawnui-skia-bindings directly (the crate skia-safe already uses).
 - `ImageProps::build_paint` is public: the paint SkiaImage draws with (effects, blur, the app's
   filters), for controls that draw their own pictures.
 

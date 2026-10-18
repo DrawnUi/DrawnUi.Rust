@@ -33,7 +33,7 @@ pub use bakes::BakeRequest;
 pub use control::{Control, GestureCx, Handled, Has, LayoutCx, PaintCx};
 pub use fonts::Fonts;
 pub use gestures::{ContextMenuSource, Gesture, GestureKind, LONG_PRESS_MS, MouseButton, VelocityAccumulator};
-pub use gpu::Gpu;
+pub use gpu::{GlTarget, Gpu, GpuApi, VulkanHandles};
 pub use images::{Frames, ImageRequest, Images};
 pub use keyboard::{Cursor, InputKey, KEY_CODES, KeyEvent, KeyKind, Keyboard, Modifiers, key_name};
 pub use tree::{Base, Build, Container, ControlId, ControlProps, Cx, Detached, Handle, IntoChildren, Mut, Tree};
