@@ -295,7 +295,7 @@ uniform float2 iOffset;
 uniform float4 uFx;
 uniform float4 uFx2;
 uniform float3 uRay;
-uniform float3 uOrb;     // the orbs' color where the runner is
+uniform float3 uOrb;     // the orb flash: the orbs' color where the runner is, at its strength
 uniform float2 uShield;  // held (0 or 1), burst (1 fading)
 
 float fxHash(float2 p) { return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453); }
@@ -343,7 +343,7 @@ half4 main(float2 fragCoord) {
         col += uRay * border * uFx2.y * 0.14;
     }
     // An orb was taken: a short pulse at the borders, in the orbs' color.
-    col += uOrb * 0.75 * border * uFx2.z * 0.18;
+    col += uOrb * border * uFx2.z;
     // A shield held: a golden aura at the borders, soft bands of it flowing upward (the health
     // aura's kin); broken: a golden flash over the view, like a hit's red one.
     if (uShield.x > 0.0) {

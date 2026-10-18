@@ -117,6 +117,11 @@ const RAMP_UNTIL: i64 = 304;
 const JUMPS_FROM: i64 = 90;
 /// Seconds before a hazard its prompt shows (longer while the run is young).
 const HINT_LEAD: f32 = 1.2;
+/// The run's speed: from the start to the top, gaining 0.012 per unit of distance.
+const START_SPEED: f32 = 10.0;
+const TOP_SPEED: f32 = 24.0;
+/// The first orb flash, violet: every zone's flash has as much light.
+const FIRST_FLASH: [f32; 3] = [0.62 * 0.32, 0.3 * 0.32, 0.32];
 /// Seconds of running that cost one cell of health.
 const DRAIN_SECONDS: f32 = 4.0;
 /// How long a shield holds.
@@ -364,7 +369,7 @@ impl World {
 
     /// 0..1: how fast the run is, for the effects.
     pub fn rush(&self) -> f32 {
-        if self.surge > 0.0 { 1.0 } else { ((self.speed - 12.0) / 15.0).clamp(0.0, 1.0) }
+        if self.surge > 0.0 { 1.0 } else { ((self.speed - START_SPEED) / (TOP_SPEED - START_SPEED)).clamp(0.0, 1.0) }
     }
 
     /// The move the nearest hazard ahead asks for, from `HINT_LEAD` seconds before it (more while
@@ -555,7 +560,7 @@ impl World {
                 }
             }
             Phase::Playing => {
-                self.speed = (10.0 + self.z as f32 * 0.012).min(24.0);
+                self.speed = (START_SPEED + self.z as f32 * 0.012).min(TOP_SPEED);
                 self.run_time += dt;
                 // The run wears the runner down: a cell of health every DRAIN_SECONDS. The orbs
                 // are what keeps it up.
@@ -711,10 +716,16 @@ impl World {
         self.palette()[0]
     }
 
-    /// The color of the orbs where the runner is (the zone's accent, channels turned: `uAccent.gbr`).
-    pub fn orb_color(&self) -> [f32; 3] {
+    /// The orb flash at the screen's borders: the color of the orbs where the runner is (the
+    /// zone's accent, channels turned: `uAccent.gbr`) with as much light as the first flash (the
+    /// sum of its channels). The zones' orb colors differ fivefold in brightness (the first zone's
+    /// violet-blue, the second's lime), so one strength for all left the first zone's flash barely
+    /// there; matching their luminance instead overdoes the blue.
+    pub fn orb_flash(&self) -> [f32; 3] {
         let accent = self.palette()[1];
-        [accent[1], accent[2], accent[0]]
+        let color = [accent[1], accent[2], accent[0]];
+        let k = FIRST_FLASH.iter().sum::<f32>() / color.iter().sum::<f32>().max(0.01);
+        color.map(|c| c * k)
     }
 
     /// Torch, accent and fog of where the runner is; the last tenth of a zone turns into the next.

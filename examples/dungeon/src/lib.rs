@@ -156,7 +156,7 @@ fn post_effect() -> SkiaShaderEffect {
         .shader_code(shaders::POST)
         .uniform("uFx2", &[0.0, 0.0, 0.0, 0.0])
         .uniform("uRay", &[1.0, 0.55, 0.22])
-        .uniform("uOrb", &[0.62, 0.3, 1.0])
+        .uniform("uOrb", &[0.0, 0.0, 0.0])
         .uniform("uShield", &[0.0, 0.0])
         .on_compilation_error(|_me, _app: &mut App, _cx, error: &str| eprintln!("dungeon: post SkSL: {error}"))
 }
@@ -374,7 +374,7 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
     let pickup = world.take_pickup();
     let fx = [world.rush(), world.warp, world.flash, world.time];
     let light = world.light();
-    let orb = world.orb_color();
+    let orb = world.orb_flash();
     // The ghost's blackout, plus 2 while its touch is felt (the post effect's haunt).
     let haunt = if world.ghost > 0.0 || world.killer.is_some() { 2.0 } else { 0.0 };
     let fx2 = [world.heal, world.surge_glow, light[0], light[1], light[2], world.orb_pulse, world.ghost + haunt];
