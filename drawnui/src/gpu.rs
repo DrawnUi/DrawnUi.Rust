@@ -373,7 +373,7 @@ impl Gpu {
     /// use of the image.
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     pub unsafe fn import_metal_texture(&mut self, texture: *const std::ffi::c_void, size: ISize, origin: SurfaceOrigin, color: ColorType) -> Option<Image> {
-        let ctx = self.ctx.as_mut()?;
+        let ctx = self.ctx.as_mut().filter(|ctx| ctx.backend() == BackendAPI::Metal)?;
         let info = unsafe { mtl::TextureInfo::new(texture as mtl::Handle) };
         let texture = unsafe { gpu::backend_textures::make_mtl((size.width, size.height), gpu::Mipmapped::No, &info, "import") };
         gpu::images::borrow_texture_from(ctx, &texture, origin, color, AlphaType::Premul, None)

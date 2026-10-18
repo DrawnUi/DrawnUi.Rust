@@ -3,7 +3,7 @@
 # installs and launches it with its console (the host's frame stats and panics).
 #   dev/ios/run-device.sh [--release] [--example NAME, default hellorust]
 # From the environment, else found:
-#   IOS_DEVICE    devicectl id or UDID; default: the first connected iPhone
+#   IOS_DEVICE    devicectl id or UDID; default: the connected iPhone (more than one: set it)
 #   IOS_IDENTITY  codesigning identity; default: the first "Apple Development" one
 #   IOS_PROFILE   provisioning profile; default: the newest development profile that allows
 #                 net.drawnui.<example> (exactly or by its team's wildcard) and this device
@@ -37,7 +37,7 @@ xcrun devicectl list devices --json-output "$devices" >/dev/null
 read_device() {
     python3 - "$devices" "${IOS_DEVICE:-}" <<'PY'
 import json, sys
-wanted = sys.argv[2]
+wanted, found = sys.argv[2], []
 for d in json.load(open(sys.argv[1]))["result"]["devices"]:
     hw, props = d.get("hardwareProperties", {}), d.get("connectionProperties", {})
     if hw.get("deviceType") != "iPhone":
@@ -47,11 +47,18 @@ for d in json.load(open(sys.argv[1]))["result"]["devices"]:
         continue
     if not wanted and props.get("tunnelState") in ("disconnected", "unavailable"):
         continue
-    print(d["identifier"], hw.get("udid"), d.get("deviceProperties", {}).get("name", "?"))
-    break
+    found.append((d["identifier"], hw.get("udid"), d.get("deviceProperties", {}).get("name", "?")))
+if len(found) > 1:
+    print("more than one iPhone connected; set IOS_DEVICE to one of:", file=sys.stderr)
+    for identifier, _, name in found:
+        print(f"  {identifier}  {name}", file=sys.stderr)
+    sys.exit(1)
+if found:
+    print(*found[0])
 PY
 }
-set -- $(read_device)
+found=$(read_device) || exit 1
+set -- $found
 [ $# -ge 2 ] || { echo "no connected iPhone (IOS_DEVICE=${IOS_DEVICE:-})"; exit 1; }
 device=$1 udid=$2 name=$3
 
