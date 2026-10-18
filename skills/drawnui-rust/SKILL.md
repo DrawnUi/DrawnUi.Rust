@@ -411,6 +411,19 @@ functions are `module._name`. The script calls one of them with the id (or "a ne
 there"), then `requestFrame()`. In `paint`, call `reset_gl_state()` before drawing it: the script
 changed GL state behind Skia. After a lost WebGL context (`epoch()` changed) make the texture again.
 
+The script puts back exactly the GL state it changed (read it with `getParameter` first):
+emscripten keeps its own copy of some of it, the PIXEL_UNPACK_BUFFER binding and the unpack
+alignment, and Skia's later uploads go through emscripten, so a binding left behind makes them read
+from the wrong buffer. `reset_gl_state()` resets only Skia's own cache.
+
+A second WebGL context (a recorder at another size) works in the same module:
+`const h = module.GL.registerContext(gl2, { majorVersion: 2 })`, then `module.GL.makeContextCurrent(h)`
+around the calls into it; Skia's `gpu::gl::Interface::new_native()` and `gpu::direct_contexts::make_gl`
+use whichever context is current. Save `module.GL.currentContext.handle` first and make it current
+again before returning; drop that context's Skia objects while it is current. To encode its frames
+with WebCodecs, make the frame from the canvas itself (`new VideoFrame(offscreenCanvas, { timestamp })`):
+Chrome refuses one made from `transferToImageBitmap()` when the WebGL context has `alpha: false`.
+
 ## A subtree at its own scale (recording overlays)
 
 A control can lay one child out at another size and scale than the screen's, e.g. an overlay
