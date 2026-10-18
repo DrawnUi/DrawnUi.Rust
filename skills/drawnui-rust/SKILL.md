@@ -395,6 +395,17 @@ imports are `unsafe`: the image borrows the texture, so keep the texture alive a
 is what makes that frame report; frames finish in order). After own GL calls while painting, call
 `reset_gl_state()`. A new GPU context (`epoch()` changed) means importing again.
 
+## A subtree at its own scale (recording overlays)
+
+A control can lay one child out at another size and scale than the screen's, e.g. an overlay
+burned into recorded video: `cx.measure_child_scaled(child, w, h, scale)` in `measure` and
+`cx.arrange_child_scaled(child, rect, scale)` in `arrange`, the same way every time (a control
+has one layout). In `paint`, `cx.record_child(child, bounds)` gives a `Picture` of it (no GPU
+textures inside, safe to replay on another thread or GPU context); record it again only when
+`cx.child_base(child).content_epoch()` moved. To preview it, draw that picture scaled into the
+control's rect. Such a child is off screen: it is never painted on the screen, takes no gestures
+and is left out of accessibility.
+
 ## Gestures in the browser
 
 `Ui::gestures(GesturesMode::Lock)` (DrawnUI `Canvas.Gestures`) makes the canvas own every touch:

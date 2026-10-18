@@ -91,6 +91,9 @@ pub struct Base {
     /// Grows when the control itself changed (DRAW, MEASURE), not what is below it: a backdrop
     /// over it tells from it that its own paint changed.
     pub(crate) own_epoch: u32,
+    /// Laid out at a scale of its own (`LayoutCx::measure_child_scaled`): drawn only into
+    /// pictures (`PaintCx::record_child`), never on screen, not hit, not in accessibility.
+    pub(crate) offscreen: bool,
     pub(crate) dirty: Dirty,
     /// Pixels the children are moved by at paint time (a scroll's viewport offset). Layout does
     /// not see it: children keep their rects, only drawing and hit testing shift.
@@ -117,6 +120,12 @@ impl Base {
     pub fn is_hovered(&self) -> bool {
         self.hovered
     }
+
+    /// Grows whenever what this control or anything below it paints may have changed: a picture
+    /// of the subtree (`PaintCx::record_child`) made at an older value is stale.
+    pub fn content_epoch(&self) -> u32 {
+        self.content_epoch
+    }
 }
 
 impl Default for Base {
@@ -132,6 +141,7 @@ impl Default for Base {
             last_destination: Rect::default(),
             content_epoch: 0,
             own_epoch: 0,
+            offscreen: false,
             dirty: Dirty::NONE,
             content_offset: Point::default(),
             tracks_viewport: false,
@@ -435,6 +445,9 @@ impl<T: Control> From<Build<T>> for Detached {
     }
 }
 
+/// Work for the start of the next frame, with the app state (`Cx::postpone_before_draw`).
+pub(crate) type Postponed = Box<dyn FnOnce(&mut dyn Any, &mut Cx<'_>)>;
+
 // The engine is not generic over the app state: handlers get it as `dyn Any` and downcast here.
 pub(crate) fn wrong_state<S>() -> ! {
     panic!("handler expects app state `{}`", type_name::<S>())
@@ -616,7 +629,7 @@ pub struct Tree {
     /// Controls told when the app is hidden or shown (`Cx::listen_app_visibility`).
     pub(crate) app_visibility_listeners: Vec<ControlId>,
     /// Runs at the start of the next frame (`Cx::postpone_before_draw`).
-    pub(crate) postponed: Vec<Box<dyn FnOnce(&mut dyn Any, &mut Cx<'_>)>>,
+    pub(crate) postponed: Vec<Postponed>,
     /// What is under the mouse may have changed without the mouse moving (controls added,
     /// removed, rebound, hidden, scrolled by a jump): the frame ends with a hover check.
     pub(crate) hover_check: bool,

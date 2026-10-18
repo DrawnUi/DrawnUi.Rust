@@ -23,6 +23,11 @@ version before it. Commits in parentheses.
   `vulkan_handles`, `reset_gl_state`, and `frame_serial` / `completed_serial` to release a
   borrowed texture once the GPU finished the frame that drew it. drawnui now depends on
   drawnui-skia-bindings directly (the crate skia-safe already uses).
+- Off-screen children: `LayoutCx::measure_child_scaled` / `arrange_child_scaled` lay a child out
+  at a scale of its own (a video recording's overlay), `PaintCx::record_child` records it as a
+  picture another thread can replay, `Base::content_epoch` says when it changed. Such a child is
+  never painted on screen, takes no gestures and has no accessibility node.
+  `PaintCx::child_count` / `child` / `child_base`.
 - `ImageProps::build_paint` is public: the paint SkiaImage draws with (effects, blur, the app's
   filters), for controls that draw their own pictures.
 

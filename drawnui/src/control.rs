@@ -362,6 +362,22 @@ impl LayoutCx<'_> {
     pub fn arrange_child(&mut self, child: ControlId, destination: Rect) {
         layout::arrange(self.tree, self.fonts, self.state, child, destination, self.scale)
     }
+
+    /// Measures a child at a scale of its own (pixels per point), e.g. a video recording's
+    /// overlay at the recording's size. The child becomes off screen: it is drawn only into
+    /// pictures (`PaintCx::record_child`), never on screen, takes no gestures and is left out of
+    /// accessibility. Lay it out this way every time (one scale per subtree).
+    pub fn measure_child_scaled(&mut self, child: ControlId, width: f32, height: f32, scale: f32) -> Size {
+        if let Some(node) = self.tree.node_mut(child) {
+            node.base.offscreen = true;
+        }
+        layout::measure(self.tree, self.fonts, self.state, child, width, height, scale)
+    }
+
+    /// Places a child measured with `measure_child_scaled`, at the same scale.
+    pub fn arrange_child_scaled(&mut self, child: ControlId, destination: Rect, scale: f32) {
+        layout::arrange(self.tree, self.fonts, self.state, child, destination, scale)
+    }
 }
 
 // ---------------------------------------------------------------- paint context
@@ -412,6 +428,33 @@ impl<'a> PaintCx<'a> {
         Some(&mut *self.gpu)
     }
 
+    /// A picture of a child laid out with `LayoutCx::measure_child_scaled`, at its own scale,
+    /// covering `bounds` (the child's pixels): for another thread to replay (a video encoder
+    /// draws the overlay into each recorded frame). No GPU texture goes in. Record again only
+    /// when the child's `Base::content_epoch` moved.
+    pub fn record_child(&mut self, child: ControlId, bounds: Rect) -> Option<skia_safe::Picture> {
+        let scale = self.node(child)?.base.scale;
+        let mut recorder = skia_safe::PictureRecorder::new();
+        let canvas = recorder.begin_recording(bounds, false);
+        let mut own = PaintCx {
+            canvas,
+            rect: bounds,
+            scale,
+            id: child,
+            fonts: self.fonts,
+            nodes: self.nodes,
+            animators: self.animators,
+            render: &mut *self.render,
+            drops: &mut *self.drops,
+            gpu: &mut *self.gpu,
+            bakes: &mut *self.bakes,
+            offthread: true,
+            target: None,
+        };
+        paint::render(&mut own, child);
+        recorder.finish_recording_as_picture(None)
+    }
+
     pub(crate) fn node(&self, id: ControlId) -> Option<&'a Node> {
         let nodes: &'a [Option<Node>] = self.nodes;
         nodes.get(id.index as usize)?.as_ref().filter(|n| n.id == id)
@@ -423,6 +466,18 @@ impl<'a> PaintCx<'a> {
 
     pub fn has_children(&self) -> bool {
         self.node(self.id).is_some_and(|n| !n.children.is_empty())
+    }
+
+    pub fn child_count(&self) -> usize {
+        self.node(self.id).map_or(0, |n| n.children.len())
+    }
+
+    pub fn child(&self, index: usize) -> ControlId {
+        self.node(self.id).expect("control is mounted").children[index]
+    }
+
+    pub fn child_base(&self, child: ControlId) -> &'a Base {
+        &self.node(child).expect("child is mounted").base
     }
 
     /// Draws one child: its cache when it has a valid one, else its content. The control's

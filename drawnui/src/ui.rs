@@ -1563,7 +1563,7 @@ impl<S: 'static> Ui<S> {
         while let Some((id, matrix, parent)) = stack.pop() {
             let mut below_parent = parent;
             let Some(node) = self.tree.node(id) else { continue };
-            if !node.base.p.is_visible || node.base.p.opacity <= 0.0 {
+            if !node.base.p.is_visible || node.base.p.opacity <= 0.0 || node.base.offscreen {
                 continue;
             }
             let matrix = match self.tree.render.get(id.index as usize).and_then(|r| r.matrix) {
@@ -2054,7 +2054,7 @@ impl Router<'_> {
     /// Routes into one child when the point (the parent's space, offset applied) is inside it.
     fn route_child(&mut self, child: ControlId, gesture: &Gesture, point: Point) -> Option<ControlId> {
         let base = self.tree.base(child)?;
-        if !base.p.is_visible || base.p.input_transparent {
+        if !base.p.is_visible || base.p.input_transparent || base.offscreen {
             return None;
         }
         let local = map_into(self.tree, child, point);

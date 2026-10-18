@@ -170,7 +170,8 @@ pub(crate) fn render(cx: &mut PaintCx, id: ControlId) {
     let Some(node) = cx.node(id) else { return };
     let base = &node.base;
     let p = &base.p;
-    if !p.is_visible || p.opacity <= 0.0 {
+    // An off-screen subtree is drawn only into the pictures `PaintCx::record_child` makes.
+    if !p.is_visible || p.opacity <= 0.0 || (base.offscreen && !cx.offthread) {
         return;
     }
     let canvas = cx.canvas;
