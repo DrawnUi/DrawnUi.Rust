@@ -566,6 +566,11 @@ impl<S: 'static> Ui<S> {
         self.tree.canvas_size
     }
 
+    /// A handle another thread uses to mark controls dirty and wake the frame loop (`Cx::waker`).
+    pub fn waker(&self) -> crate::Waker {
+        self.tree.waker.clone()
+    }
+
     /// Handlers and observers see this state; call after changing it from outside a handler.
     pub fn state_changed(&mut self) {
         self.state_dirty = true;
@@ -582,7 +587,7 @@ impl<S: 'static> Ui<S> {
         // A change under a hidden ancestor asks for no frame: nothing of it can be seen. Looked at
         // last, so nothing walks the tree while something else keeps the frames coming.
         let changed = || self.tree.queue.iter().any(|&id| !self.tree.hidden_above(id));
-        self.state_dirty || self.tree.needs_frame || !self.input.is_empty() || animators::running(&self.tree) || long_press() || changed()
+        self.state_dirty || self.tree.needs_frame || self.tree.waker.pending() || !self.input.is_empty() || animators::running(&self.tree) || long_press() || changed()
     }
 
     /// The frame time a sleeping animator, a timer, a pending long press or the accessibility
@@ -595,6 +600,16 @@ impl<S: 'static> Ui<S> {
             .flatten()
             .filter(|t| *t > self.tree.time_ms)
             .min_by(f64::total_cmp)
+    }
+
+    /// The marks other threads made through the waker since the last frame.
+    fn apply_woken(&mut self) {
+        let mut woken = std::mem::take(&mut self.tree.woken);
+        self.tree.waker.take(&mut woken);
+        for (id, dirty) in woken.drain(..) {
+            self.tree.invalidate(id, dirty);
+        }
+        self.tree.woken = woken;
     }
 
     /// Queues pointer input (pixels) of the left button; it is processed at the start of the next
@@ -1413,6 +1428,7 @@ impl<S: 'static> Ui<S> {
         }
 
         let started = std::time::Instant::now();
+        self.apply_woken();
         // Not fullscreen: the root's place is the canvas less the safe area.
         let inset = if self.tree.mobile_fullscreen { crate::types::Thickness::default() } else { self.tree.safe_insets };
         let content = Rect::from_ltrb(inset.left * scale, inset.top * scale, width - inset.right * scale, height - inset.bottom * scale);
@@ -2440,6 +2456,9 @@ impl<S: 'static> App for Ui<S> {
     }
 
     fn init(&mut self, host: &mut Host) {
+        if let Some(wake) = host.wake.take() {
+            self.tree.waker.set_signal(wake);
+        }
         for (index, (_, url, ..)) in self.font_urls.iter().enumerate() {
             host.fetch(index as u32, url);
         }

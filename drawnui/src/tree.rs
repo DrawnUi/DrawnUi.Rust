@@ -556,6 +556,9 @@ pub struct Tree {
     /// Caches replaced during a frame; dropped after the frame was submitted.
     pub(crate) drops: Vec<CachedObject>,
     pub(crate) needs_frame: bool,
+    /// Marks from other threads (`Cx::waker`), and the list they are handed over in.
+    pub(crate) waker: crate::waker::Waker,
+    pub(crate) woken: Vec<(ControlId, Dirty)>,
     /// Running animators, oldest first. Ticked once per frame; paint reads their overlays.
     pub(crate) animators: Vec<Animator>,
     /// Id of the newest animator ever started.
@@ -904,6 +907,12 @@ pub struct Cx<'a> {
 }
 
 impl Cx<'_> {
+    /// A handle another thread uses to mark controls dirty and wake the frame loop (a camera
+    /// frame arrived): see [`crate::Waker`].
+    pub fn waker(&self) -> crate::Waker {
+        self.tree.waker.clone()
+    }
+
     pub fn get_mut<T: Control>(&mut self, handle: Handle<T>) -> Option<Mut<'_, T>> {
         self.tree.get_mut(handle)
     }

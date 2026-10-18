@@ -64,6 +64,8 @@ enum Arrived {
     Baked(u32, Option<skia::Image>),
     /// A screen reader connected, asked for an action, or left (AccessKit).
     Access(accesskit_winit::Event),
+    /// Another thread marked controls through the app's `Waker`.
+    Wake,
     /// Android: Choreographer's frame callback came, with its vsync time (CLOCK_MONOTONIC ns).
     #[cfg(target_os = "android")]
     Vsync(i64),
@@ -239,6 +241,10 @@ impl Desktop {
         // The desktop has no keyboard navigation but ours: Tab, arrows in groups, Enter / Space,
         // Escape, the focus ring; it needs the accessibility snapshot, also for screen readers.
         let mut host = Host { bake_workers: true, keyboard_navigation: true, accessibility_on: true, ..Host::default() };
+        let waking = std::sync::Mutex::new(proxy.clone());
+        host.wake = Some(Box::new(move || {
+            let _ = waking.lock().map(|proxy| proxy.send_event(Arrived::Wake));
+        }));
         app.init(&mut host);
         #[cfg(target_os = "android")]
         let size = window.inner_size();
@@ -1416,6 +1422,8 @@ impl ApplicationHandler<Arrived> for Desktop {
             }
             Arrived::Baked(id, image) => self.app.baked(id, image),
             Arrived::Access(event) => self.access_event(event.window_event),
+            // The frame applies the marks.
+            Arrived::Wake => {}
             // The display link ticked: the frame wanted is drawn; with none wanted it stops.
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             Arrived::Tick => {

@@ -370,6 +370,18 @@ are painted live into its bitmap, post-render effects and backdrops are left out
 is made in the frame, as Image. A lost GPU / WebGL context is handled by the engine and its hosts:
 caches are made again, nothing to do in the app.
 
+## Data from other threads (Waker)
+
+The tree lives on the UI thread; never touch it from another thread. A thread that produces data
+for a control (camera frames, a sensor, a download) keeps the data in its own shared slot (a
+`Mutex` or an atomic) and calls `waker.invalidate(id, Dirty::DRAW)`; the control takes the data
+in `paint` (or in `on_props_changed` for `Dirty::APPLY`). Get the `Waker` from `Cx::waker()` or
+`Ui::waker()`; it is `Send + Sync + Clone`. The marks are applied at the start of the next frame,
+a removed control is skipped, and a burst of calls before that frame wakes the loop once. Call it
+once per new piece of data: every call is a frame, and nothing is drawn while no data comes.
+In the browser there is no other thread: the page script that hands data to the app (an exported
+function) calls the `requestFrame` that `DrawnUi.start` returns, after `invalidate`.
+
 ## Gestures in the browser
 
 `Ui::gestures(GesturesMode::Lock)` (DrawnUI `Canvas.Gestures`) makes the canvas own every touch:

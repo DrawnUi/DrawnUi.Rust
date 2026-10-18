@@ -25,6 +25,7 @@ pub mod testing;
 mod tree;
 mod types;
 mod ui;
+mod waker;
 
 pub use animated_frames::{FramePlayer, FramesBuild, FramesSet};
 pub use animators::{AnimationId, Easing, ValueAnimator, easing};
@@ -42,6 +43,7 @@ pub use types::{
     Thickness,
 };
 pub use ui::Ui;
+pub use waker::Waker;
 
 /// Everything an app needs: `use drawnui::prelude::*;`
 pub mod prelude {
@@ -101,7 +103,7 @@ pub mod prelude {
         AccessibilityNode, AnimationId, Aria, Build, CacheType, FramesBuild, FramesSet, Container, ContextMenu, ContextMenuSource, Control,
         ControlId, CornerRadius, Cursor, Cx, Dirty, Easing, Gesture, GestureCx, GestureKind, GradientType, Handle, Handled,
         Has, InputKey, IntoChildren, KeyEvent, KeyKind, Keyboard, LayoutCx, LayoutOptions, LockTouch, Modifiers,
-        MouseButton, Mut, PaintCx, GesturesMode, GpuBackend, RenderingModeType, SkiaGradient, SkiaShadow, Thickness, Ui, ValueAnimator, easing, props,
+        MouseButton, Mut, PaintCx, GesturesMode, GpuBackend, RenderingModeType, SkiaGradient, SkiaShadow, Thickness, Ui, ValueAnimator, Waker, easing, props,
     };
 }
 
@@ -180,6 +182,9 @@ pub struct Host {
     /// Pictures of ImageDoubleBuffered caches for the workers; the bitmaps come back through
     /// [`App::baked`].
     pub(crate) bakes: Vec<BakeRequest>,
+    /// Set by a host with an event loop to wake from other threads (desktop, mobile): the app's
+    /// [`Waker`] calls it.
+    pub(crate) wake: Option<Box<dyn Fn() + Send + Sync>>,
 }
 
 /// A picture the host decoded, ready to draw.

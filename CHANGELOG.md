@@ -4,6 +4,15 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## Unreleased
+
+### Added
+
+- `Waker` (`Cx::waker`, `Ui::waker`): another thread marks a control dirty and wakes the frame loop,
+  for data that arrives off the UI thread (camera frames, sensors). The marks are applied at the
+  start of the next frame; a burst wakes the loop once; no frames while nothing comes. In the
+  browser the page script calls `requestFrame` after it.
+
 ## 0.1.0-preview.9 (crates.io, 2026-10-15)
 
 ### Changed
