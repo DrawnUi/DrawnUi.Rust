@@ -723,6 +723,7 @@ dependencies = [
  "glutin-winit",
  "jni-sys 0.3.1",
  "ndk",
+ "ndk-sys",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "objc2-core-foundation",

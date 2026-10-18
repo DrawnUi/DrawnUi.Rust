@@ -53,6 +53,8 @@ pub(crate) struct InputHandlers {
     pub listen_history: bool,
     /// Gets the app's hide and show while mounted (`Build::listen_app_visibility`).
     pub listen_app_visibility: bool,
+    /// Gets the device's turns while mounted (`Build::listen_device_rotation`).
+    pub listen_device_rotation: bool,
 }
 
 /// A context menu request (React ContextMenuEventArgs).
@@ -2288,6 +2290,13 @@ impl<T: Control> Build<T> {
         self
     }
 
+    /// The control gets `Control::on_device_rotation` while it is mounted: the device turned to
+    /// another quarter. `Cx::listen_device_rotation` turns it on or off later.
+    pub fn listen_device_rotation(mut self) -> Self {
+        self.input().listen_device_rotation = true;
+        self
+    }
+
     /// Sees every gesture that lands on the control before the control and its children (React /
     /// C# ConsumeGestures; a ProcessGestures override in code-behind): a drag handle, a game.
     /// True = consumed: the control becomes the owner of the press (Panning, Up and the wheel
@@ -2513,6 +2522,23 @@ impl Cx<'_> {
         }
     }
 
+    /// The control gets `Control::on_device_rotation` when the device turns to another quarter.
+    pub fn listen_device_rotation(&mut self, id: impl Into<ControlId>, on: bool) {
+        let id = id.into();
+        self.tree.device_rotation_listeners.retain(|l| *l != id);
+        if on {
+            self.tree.device_rotation_listeners.push(id);
+        }
+    }
+
+    /// How the device is turned: degrees clockwise from its natural position, snapped to 0, 90,
+    /// 180 or 270 (C# `Super.DeviceRotationSnap`: LandscapeRight 90, LandscapeLeft 270; flat
+    /// counts as 0). Mobile hosts read the motion sensor only while a control listens
+    /// (`Build::listen_device_rotation`); 0 on the desktop and the web.
+    pub fn device_rotation(&self) -> i32 {
+        self.tree.device_rotation
+    }
+
     /// Runs `run` at the start of the next frame, before input, animators and layout, and asks
     /// for that frame (DrawnUI PostponeExecutionBeforeDraw), whatever is shown. For events that
     /// reach a control outside a handler (a camera's capture finished) and must reach the app
@@ -2700,6 +2726,24 @@ impl<S: 'static> App for Ui<S> {
             self.tree.needs_frame = true;
             self.apply_focus_request();
         }
+    }
+
+    fn device_rotation(&mut self, degrees: i32) {
+        if degrees == self.tree.device_rotation {
+            return;
+        }
+        self.tree.device_rotation = degrees;
+        // No frame of its own: a listener that changes what shows invalidates.
+        let tree = &mut self.tree;
+        tree.device_rotation_listeners.retain(|id| tree.nodes.get(id.index as usize).is_some_and(|n| n.as_ref().is_some_and(|n| n.id == *id)));
+        for i in 0..tree.device_rotation_listeners.len() {
+            let Some(&id) = tree.device_rotation_listeners.get(i) else { break };
+            with_kind(tree, id, |kind, cx| kind.on_device_rotation(cx, degrees));
+        }
+    }
+
+    fn wants_device_rotation(&self) -> bool {
+        self.tree.device_rotation_listeners.iter().any(|&id| self.tree.node(id).is_some())
     }
 
     fn safe_insets(&mut self, insets: crate::types::Thickness) {

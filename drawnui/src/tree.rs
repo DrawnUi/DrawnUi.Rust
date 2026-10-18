@@ -628,6 +628,11 @@ pub struct Tree {
     pub(crate) history_listeners: Vec<ControlId>,
     /// Controls told when the app is hidden or shown (`Cx::listen_app_visibility`).
     pub(crate) app_visibility_listeners: Vec<ControlId>,
+    /// Controls told when the device turns (`Cx::listen_device_rotation`); the motion sensor
+    /// runs only while one is mounted.
+    pub(crate) device_rotation_listeners: Vec<ControlId>,
+    /// The last snapped rotation the host reported (`Cx::device_rotation`).
+    pub(crate) device_rotation: i32,
     /// Runs at the start of the next frame (`Cx::postpone_before_draw`).
     pub(crate) postponed: Vec<Postponed>,
     /// What is under the mouse may have changed without the mouse moving (controls added,
@@ -690,6 +695,9 @@ impl Tree {
         }
         if d.handlers.input.as_ref().is_some_and(|h| h.listen_app_visibility) {
             self.app_visibility_listeners.push(d.id);
+        }
+        if d.handlers.input.as_ref().is_some_and(|h| h.listen_device_rotation) {
+            self.device_rotation_listeners.push(d.id);
         }
         if d.control.moves_content().is_some() {
             self.movers.push(d.id);

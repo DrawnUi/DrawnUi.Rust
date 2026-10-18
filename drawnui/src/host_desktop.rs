@@ -72,6 +72,9 @@ enum Arrived {
     /// macOS 14+, iOS: the display link ticked (a vsync).
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     Tick,
+    /// Android, iOS: the device turned to another quarter (`rotation::Sensor`).
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    Rotation(i32),
 }
 
 impl From<accesskit_winit::Event> for Arrived {
@@ -143,6 +146,9 @@ struct Desktop {
     ticker: Option<ticker::Ticker>,
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     frame_wanted: bool,
+    /// Android, iOS: the motion sensor, running while a control listens and the app is in front.
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    rotation: Option<rotation::Sensor>,
     start: Instant,
     /// When the app wants a frame although it asked for none (a timer).
     wake: Option<Instant>,
@@ -290,6 +296,8 @@ impl Desktop {
             ticker,
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             frame_wanted: false,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            rotation: None,
             start: Instant::now(),
             wake: None,
             resized_at: None,
@@ -751,6 +759,216 @@ fn read_app_file(path: &str) -> std::io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
     asset.read_to_end(&mut bytes)?;
     Ok(bytes)
+}
+
+/// Android: the accelerometer's reading (x, y, z, m/s²) as the device's quarter turn. AOSP
+/// OrientationEventListener's degrees (clockwise from the natural position; none while the device
+/// lies nearly flat), then C# Super.Android's quarter `((degrees + 45) / 90) % 4`, where flat
+/// (-1) counts as 0.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn rotation_from_gravity(x: f32, y: f32, z: f32) -> i32 {
+    let degrees = if (x * x + y * y) * 4.0 >= z * z { (90 - y.atan2(-x).to_degrees().round() as i32).rem_euclid(360) } else { -1 };
+    (degrees + 45) / 90 % 4 * 90
+}
+
+/// iOS: `UIDevice.orientation` as C# reads it (`Super.DeviceRotationSnap`): LandscapeLeft 270,
+/// LandscapeRight 90, PortraitUpsideDown 180; portrait, face up or down and unknown 0.
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+fn rotation_from_ui_device(orientation: isize) -> i32 {
+    match orientation {
+        2 => 180,
+        3 => 270,
+        4 => 90,
+        _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod rotation_tests {
+    use super::{rotation_from_gravity, rotation_from_ui_device};
+
+    /// The reading of a device turned `degrees` clockwise from portrait and tilted back `back`.
+    fn turned(degrees: f32, back: f32) -> i32 {
+        let (a, b) = (degrees.to_radians(), back.to_radians());
+        let g = 9.81 * b.cos();
+        rotation_from_gravity(-g * a.sin(), g * a.cos(), 9.81 * b.sin())
+    }
+
+    #[test]
+    fn gravity_snaps_to_quarters_at_45_degrees_as_drawnui_android() {
+        for (degrees, quarter) in [(0.0, 0), (44.0, 0), (46.0, 90), (90.0, 90), (134.0, 90), (136.0, 180), (224.0, 180), (226.0, 270), (314.0, 270), (316.0, 0)] {
+            assert_eq!(turned(degrees, 0.0), quarter, "{degrees}");
+            assert_eq!(turned(degrees, 50.0), quarter, "{degrees}, tilted back");
+        }
+        // Nearly flat: no angle, which C# counts as portrait.
+        assert_eq!(turned(90.0, 70.0), 0);
+        assert_eq!(rotation_from_gravity(0.0, 0.0, 9.81), 0);
+    }
+
+    #[test]
+    fn ui_device_orientation_maps_as_drawnui_ios() {
+        let map: Vec<i32> = (0..=6).map(rotation_from_ui_device).collect();
+        assert_eq!(map, [0, 0, 180, 270, 90, 0, 0]);
+    }
+}
+
+/// Android: the accelerometer, read as C# Super.Android's OrientationEventListener reads it
+/// (SensorDelay.Normal: every 200 ms), on `android_main`'s looper; a new quarter goes to the
+/// event loop. On only while a control listens and the app is in front.
+#[cfg(target_os = "android")]
+mod rotation {
+    use std::{
+        cell::Cell,
+        ffi::{c_int, c_void},
+    };
+
+    use ndk_sys as sys;
+    use winit::event_loop::EventLoopProxy;
+
+    use super::Arrived;
+
+    struct State {
+        proxy: EventLoopProxy<Arrived>,
+        queue: Cell<*mut sys::ASensorEventQueue>,
+        last: Cell<i32>,
+    }
+
+    pub(super) struct Sensor {
+        sensor: *const sys::ASensor,
+        state: Box<State>,
+    }
+
+    impl Sensor {
+        pub fn start(proxy: &EventLoopProxy<Arrived>) -> Option<Self> {
+            let state = Box::new(State { proxy: proxy.clone(), queue: Cell::new(std::ptr::null_mut()), last: Cell::new(-1) });
+            // SAFETY: NDK sensor calls on android_main's thread, which has a looper; the queue
+            // calls back with `state`, which lives until the queue is destroyed in Drop.
+            unsafe {
+                let manager = sys::ASensorManager_getInstance();
+                let looper = sys::ALooper_forThread();
+                if manager.is_null() || looper.is_null() {
+                    return None;
+                }
+                let sensor = sys::ASensorManager_getDefaultSensor(manager, sys::ASENSOR_TYPE_ACCELEROMETER as c_int);
+                if sensor.is_null() {
+                    return None;
+                }
+                let queue = sys::ASensorManager_createEventQueue(manager, looper, 0, Some(on_events), &*state as *const State as *mut c_void);
+                if queue.is_null() {
+                    return None;
+                }
+                state.queue.set(queue);
+                sys::ASensorEventQueue_enableSensor(queue, sensor);
+                sys::ASensorEventQueue_setEventRate(queue, sensor, 200_000);
+                Some(Self { sensor, state })
+            }
+        }
+    }
+
+    impl Drop for Sensor {
+        fn drop(&mut self) {
+            // SAFETY: the queue and sensor made in `start`; no callback comes after this.
+            unsafe {
+                let queue = self.state.queue.get();
+                sys::ASensorEventQueue_disableSensor(queue, self.sensor);
+                sys::ASensorManager_destroyEventQueue(sys::ASensorManager_getInstance(), queue);
+            }
+        }
+    }
+
+    unsafe extern "C" fn on_events(_fd: c_int, _events: c_int, data: *mut c_void) -> c_int {
+        // SAFETY: `data` is the sensor's State, alive while its queue is (see `start`); the
+        // events are plain C data, accelerometer ones with their vector in `data`.
+        unsafe {
+            let state = &*(data as *const State);
+            let mut events: [sys::ASensorEvent; 8] = std::mem::zeroed();
+            loop {
+                let count = sys::ASensorEventQueue_getEvents(state.queue.get(), events.as_mut_ptr(), events.len());
+                if count <= 0 {
+                    break;
+                }
+                for event in &events[..count as usize] {
+                    let v = event.__bindgen_anon_1.__bindgen_anon_1.data;
+                    let degrees = super::rotation_from_gravity(v[0], v[1], v[2]);
+                    if state.last.replace(degrees) != degrees {
+                        let _ = state.proxy.send_event(Arrived::Rotation(degrees));
+                    }
+                }
+            }
+        }
+        1
+    }
+}
+
+/// iOS: UIDevice's orientation notifications (C# DrawnExtensions); on only while a control
+/// listens and the app is in front.
+#[cfg(target_os = "ios")]
+mod rotation {
+    use std::cell::Cell;
+
+    use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, rc::Retained, sel};
+    use objc2_foundation::{NSNotification, NSNotificationCenter, NSObject};
+    use objc2_ui_kit::{UIDevice, UIDeviceOrientationDidChangeNotification};
+    use winit::event_loop::EventLoopProxy;
+
+    use super::Arrived;
+
+    pub(crate) struct Target {
+        proxy: EventLoopProxy<Arrived>,
+        last: Cell<i32>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DrawnUiRotation"]
+        #[ivars = Target]
+        pub(crate) struct Observer;
+
+        impl Observer {
+            #[unsafe(method(orientationChanged:))]
+            fn orientation_changed(&self, _note: &NSNotification) {
+                self.send();
+            }
+        }
+    );
+
+    impl Observer {
+        fn send(&self) {
+            let degrees = super::rotation_from_ui_device(UIDevice::currentDevice(self.mtm()).orientation().0);
+            let target = self.ivars();
+            if target.last.replace(degrees) != degrees {
+                let _ = target.proxy.send_event(Arrived::Rotation(degrees));
+            }
+        }
+    }
+
+    pub(super) struct Sensor {
+        observer: Retained<Observer>,
+    }
+
+    impl Sensor {
+        pub fn start(proxy: &EventLoopProxy<Arrived>) -> Option<Self> {
+            let mtm = MainThreadMarker::new()?;
+            let observer = mtm.alloc::<Observer>().set_ivars(Target { proxy: proxy.clone(), last: Cell::new(-1) });
+            let observer: Retained<Observer> = unsafe { msg_send![super(observer), init] };
+            UIDevice::currentDevice(mtm).beginGeneratingDeviceOrientationNotifications();
+            // SAFETY: the observer answers `orientationChanged:`; Drop removes it.
+            unsafe {
+                NSNotificationCenter::defaultCenter().addObserver_selector_name_object(&observer, sel!(orientationChanged:), Some(UIDeviceOrientationDidChangeNotification), None);
+            }
+            observer.send();
+            Some(Self { observer })
+        }
+    }
+
+    impl Drop for Sensor {
+        fn drop(&mut self) {
+            // SAFETY: the observer added in `start`.
+            unsafe { NSNotificationCenter::defaultCenter().removeObserver(&self.observer) };
+            UIDevice::currentDevice(self.observer.mtm()).endGeneratingDeviceOrientationNotifications();
+        }
+    }
 }
 
 /// Android: what the app prints goes nowhere; panics and the host's lines go to logcat.
@@ -1407,6 +1625,10 @@ impl ApplicationHandler<Arrived> for Desktop {
         if self.ime_open {
             self.take_soft_keyboard_text();
         }
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        if self.rotation.is_some() != (!self.suspended && self.app.wants_device_rotation()) {
+            self.rotation = if self.rotation.is_some() { None } else { rotation::Sensor::start(&self.proxy) };
+        }
         let wake = self.wake;
         #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
         let wake = match (wake, self.pacing.due) {
@@ -1428,6 +1650,8 @@ impl ApplicationHandler<Arrived> for Desktop {
             Arrived::Access(event) => self.access_event(event.window_event),
             // The frame applies the marks.
             Arrived::Wake => {}
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            Arrived::Rotation(degrees) => self.app.device_rotation(degrees),
             // The display link ticked: the frame wanted is drawn; with none wanted it stops.
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             Arrived::Tick => {

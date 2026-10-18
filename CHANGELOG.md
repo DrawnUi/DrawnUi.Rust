@@ -15,6 +15,13 @@ version before it. Commits in parentheses.
 - `Control::on_app_visibility`: a control that listens (`Build::listen_app_visibility`,
   `Cx::listen_app_visibility`) hears the app hidden and shown, at the moments of
   `Ui::on_visibility_changed` (C# `Super.OnNativeAppPaused` / `OnNativeAppResumed`).
+- Device rotation (C# `Super.DeviceRotationSnap`, `Super.OrientationChanged`): `Cx::device_rotation`
+  is how the device is held, 0, 90, 180 or 270 degrees clockwise from its natural position
+  (LandscapeRight 90, LandscapeLeft 270), snapped at 45 degrees; flat counts as 0, as in C#. A
+  control that listens (`Build::listen_device_rotation`, `Cx::listen_device_rotation`) hears each
+  new value (`Control::on_device_rotation`). Android reads the accelerometer every 200 ms (as C#'s
+  OrientationEventListener), iOS takes UIDevice's orientation notifications, both only while a
+  control listens and the app is in front. 0 on the desktop and in the browser.
 - `Cx::postpone_before_draw` (C# `PostponeExecutionBeforeDraw`): runs a closure with the app state
   at the start of the next frame, whatever is shown.
 - `PaintCx::gpu`: the frame's GPU context for a control's paint (`None` on the CPU and in pictures

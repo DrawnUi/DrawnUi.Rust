@@ -47,6 +47,8 @@ glutin-winit = "0.5"
 winit = { version = "0.30", features = ["android-game-activity"] }
 accesskit_winit = { version = "0.34", default-features = false, features = ["rwh_06", "accesskit_android"] }
 ndk = "0.9"
+# The accelerometer for the device's rotation (ASensorManager; ndk 0.9 does not wrap it).
+ndk-sys = "0.6"
 # The system bar insets from the activity's decor view (edge to edge: the content rect is the
 # whole window).
 jni-sys = "0.3"
@@ -68,11 +70,11 @@ objc2-core-foundation = { version = "0.3.2", default-features = false, features 
 objc2-metal = { version = "0.3.2", default-features = false, features = ["std", "MTLDevice", "MTLCommandBuffer", "MTLCommandQueue", "MTLDrawable", "MTLPixelFormat"] }
 objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "objc2-metal", "CALayer", "CAMetalLayer", "CADisplayLink", "CAFrameRateRange"] }
 # The display link's run loop (macOS 14+, iOS).
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSRunLoop", "NSString", "NSObject"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSRunLoop", "NSString", "NSObject", "NSNotification"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-quartz-core", "NSView", "NSResponder", "NSWindow", "NSScreen"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
-objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "objc2-quartz-core", "UIView", "UIResponder", "UIScreen", "UIGeometry", "UIColor", "UIWindow"] }
+objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "objc2-quartz-core", "UIView", "UIResponder", "UIScreen", "UIGeometry", "UIColor", "UIWindow", "UIDevice", "UIOrientation"] }
 # The display link that paces iOS frames (C# Super.iOS).

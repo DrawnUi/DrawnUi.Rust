@@ -422,6 +422,17 @@ textures inside, safe to replay on another thread or GPU context); record it aga
 control's rect. Such a child is off screen: it is never painted on the screen, takes no gestures
 and is left out of accessibility.
 
+## Device rotation (camera stills, recording)
+
+How the device is held, whatever the screen shows (an app locked to portrait still knows):
+`cx.device_rotation()` is 0, 90, 180 or 270 degrees clockwise from the device's natural position
+(90 = left side up, DrawnUI's LandscapeRight; 270 = LandscapeLeft), snapped at 45 degrees; a device
+lying flat counts as 0. Mobile hosts read the motion sensor only while a mounted control listens:
+`Build::listen_device_rotation()` (or `Cx::listen_device_rotation(id, on)`), and that control's
+`Control::on_device_rotation(cx, degrees)` runs once per new value. Turn a photo by the value read
+when it was taken; read it when a recording starts and keep it. The desktop and the browser always
+answer 0.
+
 ## Gestures in the browser
 
 `Ui::gestures(GesturesMode::Lock)` (DrawnUI `Canvas.Gestures`) makes the canvas own every touch:

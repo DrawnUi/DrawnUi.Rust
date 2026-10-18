@@ -337,6 +337,14 @@ pub trait App {
     /// The safe area of the screen in points (browser `env(safe-area-inset-*)`), at start and
     /// when it changes. The desktop never calls it.
     fn safe_insets(&mut self, _insets: Thickness) {}
+    /// The device turned to another quarter: `degrees` clockwise from its natural position,
+    /// snapped to 0, 90, 180 or 270 (C# `Super.DeviceRotationSnap`). Mobile hosts call it only
+    /// while `wants_device_rotation` and only when the value changed.
+    fn device_rotation(&mut self, _degrees: i32) {}
+    /// The host reads the motion sensor only while this is true.
+    fn wants_device_rotation(&self) -> bool {
+        false
+    }
     /// The browser's URL hash: at start (`popped` None), and after the browser moved in its
     /// history (`popped` = the depth its entry was pushed with, 0 for one the app did not push).
     fn location(&mut self, _hash: &str, _popped: Option<u32>) {}

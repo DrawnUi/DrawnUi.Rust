@@ -213,6 +213,17 @@ pub trait Control: Any {
         }
     }
 
+    /// The device turned to another quarter, whatever the screen shows: `degrees` clockwise
+    /// from its natural position, 0, 90, 180 or 270 (C# `Super.DeviceRotationSnap`, its
+    /// `Super.OrientationChanged`). A camera turns its stills and locks a recording's
+    /// orientation. Only for a control that listens (`Build::listen_device_rotation`,
+    /// `Cx::listen_device_rotation`); `Cx::device_rotation` reads the value.
+    fn on_device_rotation(&mut self, cx: &mut GestureCx, degrees: i32) {
+        if let Some(inner) = self.inner_mut() {
+            inner.on_device_rotation(cx, degrees)
+        }
+    }
+
     /// The laid-out text lines, for `accessibility_text_selectable` (React
     /// GetAccessibilityTextLines): the overlay renders them as real, invisible text the browser
     /// selects and copies. `scale` is pixels per point. Default: none.
