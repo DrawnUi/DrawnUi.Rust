@@ -28,6 +28,12 @@ version before it. Commits in parentheses.
   picture another thread can replay, `Base::content_epoch` says when it changed. Such a child is
   never painted on screen, takes no gestures and has no accessibility node.
   `PaintCx::child_count` / `child` / `child_base`.
+- Android on Vulkan: the device is made with what importing camera and video frames needs, where
+  the device has it (VK_ANDROID_external_memory_android_hardware_buffer with
+  VK_EXT_queue_family_foreign, sampler YCbCr conversion, external memory, dedicated allocation,
+  external semaphores) and Skia is told the enabled extensions; `VulkanHandles::hardware_buffers` /
+  `sampler_ycbcr_conversion` say what was enabled. Skia itself does not sample YCbCr images yet
+  (the Skia crates do not pass device features to it).
 - `ImageProps::build_paint` is public: the paint SkiaImage draws with (effects, blur, the app's
   filters), for controls that draw their own pictures.
 

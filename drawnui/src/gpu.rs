@@ -42,7 +42,8 @@ pub enum GlTarget {
 }
 
 /// The Vulkan objects Skia draws with (`Gpu::vulkan_handles`), as raw handles: `VkInstance`,
-/// `VkPhysicalDevice`, `VkDevice`, `VkQueue` and its family.
+/// `VkPhysicalDevice`, `VkDevice`, `VkQueue` and its family, and what the device was made with
+/// for importing camera and video frames.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct VulkanHandles {
     pub instance: u64,
@@ -50,6 +51,12 @@ pub struct VulkanHandles {
     pub device: u64,
     pub queue: u64,
     pub queue_family: u32,
+    /// VK_ANDROID_external_memory_android_hardware_buffer (with VK_EXT_queue_family_foreign)
+    /// is enabled: AHardwareBuffers can be imported as images.
+    pub hardware_buffers: bool,
+    /// The device has the samplerYcbcrConversion feature on. Skia itself is not told yet (its
+    /// features are not reachable through the Skia crates): it does not sample YCbCr images.
+    pub sampler_ycbcr_conversion: bool,
 }
 
 /// Frame serials of every context of the process: the next one, and the newest the GPU finished.
@@ -234,6 +241,9 @@ impl Gpu {
         version: u32,
         instance_proc: &dyn Fn(u64, *const std::ffi::c_char) -> *const std::ffi::c_void,
         device_proc: &dyn Fn(u64, *const std::ffi::c_char) -> *const std::ffi::c_void,
+        instance_extensions: &[&str],
+        device_extensions: &[&str],
+        ycbcr: bool,
         lost: Option<&mut Gpu>,
     ) -> Option<Self> {
         use gpu::vk;
@@ -250,6 +260,7 @@ impl Gpu {
                 &get_proc,
                 Some(vk::Version::from(version)),
             )
+            .with_extensions(instance_extensions, device_extensions)
             .build()
         };
         let ctx = gpu::direct_contexts::make_vulkan(&backend, None)?;
@@ -263,7 +274,15 @@ impl Gpu {
             None => 0,
         };
         let mut gpu = Self::with(Some(ctx), epoch);
-        gpu.vulkan = Some(VulkanHandles { instance, physical_device: physical, device, queue, queue_family: family });
+        gpu.vulkan = Some(VulkanHandles {
+            instance,
+            physical_device: physical,
+            device,
+            queue,
+            queue_family: family,
+            hardware_buffers: device_extensions.contains(&"VK_ANDROID_external_memory_android_hardware_buffer"),
+            sampler_ycbcr_conversion: ycbcr,
+        });
         Some(gpu)
     }
 

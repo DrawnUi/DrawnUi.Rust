@@ -1755,6 +1755,24 @@ mod vulkan {
 
     use crate::{Gpu, skia};
 
+    /// The instance extensions the presenter enables.
+    const INSTANCE_EXTENSIONS: [&str; 2] = ["VK_KHR_surface", "VK_KHR_android_surface"];
+    const HARDWARE_BUFFER: &str = "VK_ANDROID_external_memory_android_hardware_buffer";
+    const QUEUE_FAMILY_FOREIGN: &str = "VK_EXT_queue_family_foreign";
+    /// Device extensions enabled where the device has them (the swapchain always). The ones after
+    /// it are what importing camera and video frames needs; in Vulkan 1.1 (Skia's minimum) the
+    /// KHR ones are core, listed for drivers that still want them named.
+    const DEVICE_EXTENSIONS: [&str; 8] = [
+        "VK_KHR_swapchain",
+        HARDWARE_BUFFER,
+        QUEUE_FAMILY_FOREIGN,
+        "VK_KHR_sampler_ycbcr_conversion",
+        "VK_KHR_external_memory",
+        "VK_KHR_dedicated_allocation",
+        "VK_KHR_external_semaphore",
+        "VK_KHR_external_semaphore_fd",
+    ];
+
     pub(super) struct Presenter {
         entry: ash::Entry,
         instance: ash::Instance,
@@ -1767,6 +1785,10 @@ mod vulkan {
         surface_fn: khr::surface::Instance,
         android_fn: khr::android_surface::Instance,
         swapchain_fn: khr::swapchain::Device,
+        /// The device extensions enabled (Skia is told them), and the sampler YCbCr conversion
+        /// feature: what an app needs to draw camera frames (AHardwareBuffer imports).
+        device_extensions: Vec<String>,
+        ycbcr: bool,
         /// Null while the app is in the background (the native window is gone).
         surface: vk::SurfaceKHR,
         swapchain: vk::SwapchainKHR,
@@ -1822,8 +1844,32 @@ mod vulkan {
                 let version = instance.get_physical_device_properties(physical).api_version.min(app.api_version);
                 let priorities = [1.0];
                 let queues = [vk::DeviceQueueCreateInfo::default().queue_family_index(family).queue_priorities(&priorities)];
-                let extensions = [khr::swapchain::NAME.as_ptr()];
-                let info = vk::DeviceCreateInfo::default().queue_create_infos(&queues).enabled_extension_names(&extensions);
+                // The swapchain, plus what importing camera and video frames (AHardwareBuffer) needs
+                // where the device has it; the hardware buffer one only with its queue-family one.
+                let available: Vec<String> = instance
+                    .enumerate_device_extension_properties(physical)
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|e| e.extension_name_as_c_str().ok().map(|n| n.to_string_lossy().into_owned()))
+                    .collect();
+                let has = |name: &str| available.iter().any(|a| a == name);
+                let hardware_buffers = has(HARDWARE_BUFFER) && has(QUEUE_FAMILY_FOREIGN);
+                let device_extensions: Vec<String> = DEVICE_EXTENSIONS
+                    .iter()
+                    .filter(|name| **name == "VK_KHR_swapchain" || (has(name) && (hardware_buffers || ![HARDWARE_BUFFER, QUEUE_FAMILY_FOREIGN].contains(*name))))
+                    .map(|name| (*name).to_owned())
+                    .collect();
+                let names: Vec<std::ffi::CString> = device_extensions.iter().map(|n| std::ffi::CString::new(n.as_str()).expect("no nul")).collect();
+                let extensions: Vec<*const c_char> = names.iter().map(|n| n.as_ptr()).collect();
+                // Sampling YCbCr images (camera frames in the device's own format).
+                let mut supported = vk::PhysicalDeviceSamplerYcbcrConversionFeatures::default();
+                if version >= vk::API_VERSION_1_1 {
+                    let mut features = vk::PhysicalDeviceFeatures2::default().push_next(&mut supported);
+                    instance.get_physical_device_features2(physical, &mut features);
+                }
+                let ycbcr = supported.sampler_ycbcr_conversion == vk::TRUE;
+                let mut enable = vk::PhysicalDeviceSamplerYcbcrConversionFeatures::default().sampler_ycbcr_conversion(ycbcr);
+                let info = vk::DeviceCreateInfo::default().queue_create_infos(&queues).enabled_extension_names(&extensions).push_next(&mut enable);
                 let device = match instance.create_device(physical, &info, None) {
                     Ok(device) => device,
                     Err(e) => {
@@ -1845,6 +1891,8 @@ mod vulkan {
                     surface_fn,
                     android_fn,
                     swapchain_fn,
+                    device_extensions,
+                    ycbcr,
                     surface,
                     swapchain: vk::SwapchainKHR::null(),
                     rgba: true,
@@ -1867,7 +1915,8 @@ mod vulkan {
             let properties = unsafe { self.instance.get_physical_device_properties(self.physical) };
             let name = properties.device_name_as_c_str().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let v = self.version;
-            format!("{}.{} on {name}", vk::api_version_major(v), vk::api_version_minor(v))
+            let buffers = self.device_extensions.iter().any(|e| e == HARDWARE_BUFFER);
+            format!("{}.{} on {name}, hardware buffers {buffers}, YCbCr {}", vk::api_version_major(v), vk::api_version_minor(v), self.ycbcr)
         }
 
         /// A Skia context on the device; after `lost`'s, the next epoch.
@@ -1894,6 +1943,9 @@ mod vulkan {
                     self.version,
                     &instance_proc,
                     &device_proc,
+                    &INSTANCE_EXTENSIONS,
+                    &self.device_extensions.iter().map(String::as_str).collect::<Vec<_>>(),
+                    self.ycbcr,
                     lost,
                 )
             }

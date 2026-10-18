@@ -393,7 +393,10 @@ parents and give it no cache. `Gpu::backend()` says which import applies: `impor
 imports are `unsafe`: the image borrows the texture, so keep the texture alive and unchanged until
 `completed_serial()` reaches the `frame_serial()` of the frame that drew it (asking for the serial
 is what makes that frame report; frames finish in order). After own GL calls while painting, call
-`reset_gl_state()`. A new GPU context (`epoch()` changed) means importing again.
+`reset_gl_state()`. A new GPU context (`epoch()` changed) means importing again. On Android with
+Vulkan, `vulkan_handles().hardware_buffers` says whether AHardwareBuffers can be imported; Skia
+does not sample YCbCr images yet, so a camera frame in the device's own YUV format goes through
+OpenGL ES (`GlTarget::ExternalOes`, `Ui::gpu_backend(GpuBackend::OpenGl)`) or an RGB buffer.
 
 ## A subtree at its own scale (recording overlays)
 
