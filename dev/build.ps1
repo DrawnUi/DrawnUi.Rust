@@ -104,7 +104,9 @@ try {
         Remove-Item "$docTarget\doc", "$out\docs" -Recurse -Force -ErrorAction SilentlyContinue
         cargo doc --no-deps -p drawnui --target-dir $docTarget
         if ($LASTEXITCODE) { throw "cargo doc failed" }
-        foreach ($file in Get-ChildItem "$docTarget\doc" -Recurse -File -Include *.html, *.js) {
+        # Not the search index: base64 data, where a marker shows up by chance (its text is in the
+        # pages too, which are checked).
+        foreach ($file in Get-ChildItem "$docTarget\doc" -Recurse -File -Include *.html, *.js | Where-Object { $_.DirectoryName -notlike '*\search.index*' }) {
             Assert-Public ([IO.File]::ReadAllText($file.FullName)) "docs/$($file.Name)"
         }
         Copy-Item "$docTarget\doc" "$out\docs" -Recurse
