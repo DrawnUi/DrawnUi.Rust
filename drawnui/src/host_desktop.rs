@@ -1706,6 +1706,13 @@ impl ApplicationHandler<Arrived> for Desktop {
                 }
                 #[cfg(any(target_os = "ios", target_os = "android"))]
                 self.report_safe_area();
+                // Windows reports no Occluded: minimizing comes as a resize to 0 x 0, restoring as
+                // the size again.
+                #[cfg(target_os = "windows")]
+                if let Some(minimized) = self.window.is_minimized().filter(|&m| m != self.occluded) {
+                    self.occluded = minimized;
+                    self.app.visibility(!minimized);
+                }
                 self.redraw();
             }
             WindowEvent::CursorMoved { position, .. } => {

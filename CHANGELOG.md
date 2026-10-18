@@ -61,6 +61,12 @@ version before it. Commits in parentheses.
 - `Gesture` has two more fields, `touches` and `manipulation`: code that builds a `Gesture` with a
   struct literal sets them (`0`, `None`).
 
+### Fixed
+
+- Windows: a minimized window was never reported hidden (`Ui::on_visibility_changed`,
+  `Control::on_app_visibility`), because winit reports no occlusion there. Minimizing now counts as
+  hidden and restoring as shown; a window covered by another one still counts as shown.
+
 ### Docs
 
 - How a page script feeds the app in the browser (`DrawnUi.start` returns `module` and
