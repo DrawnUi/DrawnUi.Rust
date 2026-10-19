@@ -4,7 +4,7 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.10 (crates.io, 2026-10-19)
 
 ### Added
 
@@ -89,6 +89,12 @@ version before it. Commits in parentheses.
 - How a page script feeds the app in the browser (`DrawnUi.start` returns `module` and
   `requestFrame`; a WebGL texture registered in `module.GL.textures` for `import_gl_texture`), in
   `web/drawnui_host.js` and the public skill.
+- Transforms, 2D and 3D, in the public skill: the pivot, rotation_x / rotation_y with measured
+  sizes, a card's back side, translation_z as depth, smooth cached content, taps through 3D.
+
+### Toolchain
+
+The same as 0.1.0-preview.9: the Skia crates stay at 0.153.6.
 
 ## 0.1.0-preview.9 (crates.io, 2026-10-15)
 
