@@ -1588,7 +1588,24 @@ impl<S: 'static> Ui<S> {
 
         let Tree { nodes, render, drops, animators, bakes, .. } = &mut self.tree;
         let fonts = &self.fonts;
-        let mut cx = PaintCx { canvas, rect: full, scale, id: root, fonts, nodes, animators, render, drops, gpu, bakes, offthread: false, target: None };
+        let image_blits = std::cell::Cell::new(0);
+        let mut cx = PaintCx {
+            canvas,
+            rect: full,
+            scale,
+            id: root,
+            fonts,
+            nodes,
+            animators,
+            render,
+            drops,
+            gpu,
+            bakes,
+            offthread: false,
+            target: None,
+            playback_distorted: false,
+            image_blits: &image_blits,
+        };
         paint::render(&mut cx, root);
         // Shader files and textures paint found missing are fetched; arrived ones reach their effects.
         crate::effects::after_paint(&mut self.tree);

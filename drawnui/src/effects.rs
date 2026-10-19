@@ -227,6 +227,8 @@ pub(crate) fn post_render(cx: &mut PaintCx<'_>, id: ControlId, base: &Base, rect
         bakes: &mut *cx.bakes,
         offthread: cx.offthread,
         target: cx.target,
+        playback_distorted: cx.playback_distorted,
+        image_blits: cx.image_blits,
     };
     let mut drew = false;
     for effect in base.visual_effects.iter().filter(|e| e.is_post_renderer()) {

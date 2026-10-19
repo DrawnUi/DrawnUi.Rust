@@ -35,6 +35,12 @@ pub(crate) struct CachedObject {
     scale: f32,
     /// The `use_cache` it was recorded for.
     kind: CacheType,
+    /// A picture recorded to be drawn distorted: the image caches in it took smooth sampling
+    /// (DrawnUI PlaybackDistorted).
+    playback_distorted: bool,
+    /// A picture holding image cache blits, whose sampling was fixed when it was recorded (DrawnUI
+    /// HasImageBlits): recorded again when its playback changes between straight and distorted.
+    image_blits: bool,
 }
 
 enum CachedContent {
@@ -57,7 +63,8 @@ impl CachedObject {
 
     /// The CPU bitmap of an ImageDoubleBuffered cache, made for `bounds`.
     fn double_buffered(image: Image, bounds: Rect, margin: Thickness, scale: f32) -> Self {
-        Self { content: CachedContent::Image(image), bounds, margin, scale, kind: CacheType::ImageDoubleBuffered }
+        let (playback_distorted, image_blits) = (false, false);
+        Self { content: CachedContent::Image(image), bounds, margin, scale, kind: CacheType::ImageDoubleBuffered, playback_distorted, image_blits }
     }
 
     /// The bitmap of an Image cache and the canvas rect it was recorded for.
@@ -73,13 +80,28 @@ impl CachedObject {
         self.margin
     }
 
-    /// Replays the cache with its top-left moved to (left, top).
-    fn draw(&self, canvas: &skia_safe::Canvas, left: f32, top: f32) {
+    /// It blits an image, or holds image blits: a picture recorded while it is drawn holds them too.
+    fn blits_images(&self) -> bool {
+        matches!(self.content, CachedContent::Image(_)) || self.image_blits
+    }
+
+    /// Replays the cache with its top-left moved to (left, top). `distorted`: the canvas does more
+    /// than move it (`will_draw_distorted`).
+    fn draw(&self, canvas: &skia_safe::Canvas, left: f32, top: f32, distorted: bool) {
         match &self.content {
-            // Nearest sampling: a cached bitmap is blitted 1:1, never resampled.
+            // Nearest keeps a bitmap that is only moved sharp, pixel for pixel; scaled, turned or
+            // projected it takes linear sampling and mipmaps (DrawnUI LinearLinear), else stair
+            // steps on every edge.
             CachedContent::Image(image) => {
-                let sampling = SamplingOptions::new(FilterMode::Nearest, MipmapMode::None);
-                canvas.draw_image_with_sampling_options(image, (left, top), sampling, None);
+                let sampling = match distorted {
+                    true => SamplingOptions::new(FilterMode::Linear, MipmapMode::Linear),
+                    false => SamplingOptions::new(FilterMode::Nearest, MipmapMode::None),
+                };
+                // The bitmap's own edges antialiased, dithered when distorted (DrawnUI
+                // PaintRenderObject): a turned bitmap has no stair steps along its border either.
+                let mut paint = Paint::default();
+                paint.set_anti_alias(true).set_dither(distorted);
+                canvas.draw_image_with_sampling_options(image, (left, top), sampling, Some(&paint));
             }
             CachedContent::Picture(picture) => {
                 canvas.save();
@@ -123,7 +145,49 @@ fn effects_margin(cx: &mut PaintCx, id: ControlId) -> Thickness {
 }
 
 fn has_matrix_transform(p: &ControlProps) -> bool {
-    p.rotation != 0.0 || p.scale_x != 1.0 || p.scale_y != 1.0 || p.skew_x != 0.0 || p.skew_y != 0.0
+    p.rotation != 0.0 || p.scale_x != 1.0 || p.scale_y != 1.0 || p.skew_x != 0.0 || p.skew_y != 0.0 || has_3d(p)
+}
+
+fn has_3d(p: &ControlProps) -> bool {
+    p.rotation_x != 0.0 || p.rotation_y != 0.0 || p.rotation_z != 0.0 || p.translation_z != 0.0
+}
+
+/// Pixels from the viewer to the screen in the 3D part of a render transform (DrawnUI
+/// Sk3dView.CameraDistance: 8 inches at 72 per inch, as Android's Camera).
+const CAMERA_DISTANCE: f32 = 576.0;
+
+/// The 3D part of the render transform, around the pivot (DrawnUI Create3dMatrix): RotationX,
+/// then RotationY, then RotationZ, seen with perspective from the camera, and TranslationZ as
+/// depth: a control at depth z draws CAMERA_DISTANCE / (CAMERA_DISTANCE - z) times its size,
+/// turned or flat.
+fn matrix_3d(p: &ControlProps) -> Matrix {
+    let (sx, cx) = p.rotation_x.to_radians().sin_cos();
+    let (sy, cy) = p.rotation_y.to_radians().sin_cos();
+    let (sz, cz) = (-p.rotation_z).to_radians().sin_cos();
+    let depth = (CAMERA_DISTANCE - p.translation_z).max(1.0) / CAMERA_DISTANCE;
+    #[rustfmt::skip]
+    let m = Matrix::new_all(
+        cy * cz, cy * sz, 0.0,
+        sx * sy * cz - cx * sz, sx * sy * sz + cx * cz, 0.0,
+        (cx * sy * cz + sx * sz) / CAMERA_DISTANCE, (cx * sy * sz - sx * cz) / CAMERA_DISTANCE, depth,
+    );
+    m
+}
+
+/// The matrix only moves (or mirrors) what is drawn, so an image keeps its pixels 1:1 and nearest
+/// sampling stays sharp (DrawnUI SkiaSamplingOptions.IsMoveOnly).
+fn is_move_only(m: &Matrix) -> bool {
+    let mut v = [0.0; 9];
+    m.get_9(&mut v);
+    let [scale_x, skew_x, _, skew_y, scale_y, _, persp_0, persp_1, persp_2] = v;
+    skew_x == 0.0 && skew_y == 0.0 && persp_0 == 0.0 && persp_1 == 0.0 && persp_2 == 1.0 && scale_x.abs() == 1.0 && scale_y.abs() == 1.0
+}
+
+/// What is drawn now on the canvas of `cx` ends up scaled, turned, skewed or projected on screen:
+/// by the control's own transform or an ancestor's (the canvas matrix), or by those of the picture
+/// it is recorded into (DrawnUI WillDrawDistorted). Images then need smooth sampling.
+fn will_draw_distorted(cx: &PaintCx) -> bool {
+    cx.playback_distorted || !is_move_only(&cx.canvas.local_to_device_as_3x3())
 }
 
 /// Left/Top on a cached control with no other transform: the cache is blitted at an offset, no
@@ -146,7 +210,8 @@ fn control_matrix(base: &Base, scale: f32) -> Option<Matrix> {
     (moved || has_matrix_transform(p)).then(|| render_transform(base, scale))
 }
 
-/// T(pivot + move) · scale/skew · rotation · T(-pivot), in canvas pixels.
+/// T(pivot + move) · 3D · scale/skew · rotation · T(-pivot), in canvas pixels (DrawnUI
+/// ApplyTransforms).
 fn render_transform(base: &Base, scale: f32) -> Matrix {
     let p = &base.p;
     let shift = Point::new((p.translation_x + p.left) * scale, (p.translation_y + p.top) * scale);
@@ -157,6 +222,9 @@ fn render_transform(base: &Base, scale: f32) -> Matrix {
     let kx = if p.skew_x != 0.0 { p.skew_x.to_radians().tan() } else { 0.0 };
     let ky = if p.skew_y != 0.0 { p.skew_y.to_radians().tan() } else { 0.0 };
     let mut m = Matrix::translate(pivot + shift);
+    if has_3d(p) {
+        m.pre_concat(&matrix_3d(p));
+    }
     m.pre_concat(&Matrix::new_all(p.scale_x, kx, 0.0, ky, p.scale_y, 0.0, 0.0, 0.0, 1.0));
     if p.rotation != 0.0 {
         m.pre_concat(&Matrix::rotate_deg(p.rotation));
@@ -277,6 +345,15 @@ fn render_content(cx: &mut PaintCx, id: ControlId, base: &Base, offset: Point) {
             || c.bounds.width().round() != r.width().round()
             || c.bounds.height().round() != r.height().round()
     });
+    // A picture replays the image caches blitted into it with the sampling chosen when it was
+    // recorded: recorded again when it goes from straight to distorted or back (a card with a
+    // cached child starts to turn), else the turned child stays jagged (DrawnUI SamplingMismatch).
+    if let Some(c) = &cx.render[slot].cache
+        && c.image_blits
+        && c.playback_distorted != will_draw_distorted(cx)
+    {
+        stale = true;
+    }
     // A picture holding a copy of what is under it: also stale when that changed. Asked inside
     // another picture being recorded, that picture now holds the copy too (`surface_under`).
     if cx.render[slot].reads_below && !baked {
@@ -353,7 +430,13 @@ fn draw_cache(cx: &mut PaintCx, id: ControlId, base: &Base, rect: Rect, r: Rect,
         return;
     }
     match &cx.render[slot].cache {
-        Some(cache) => cache.draw(cx.canvas, left, top),
+        Some(cache) => {
+            let distorted = cache.image().is_some() && will_draw_distorted(cx);
+            if cache.blits_images() {
+                cx.image_blits.set(cx.image_blits.get() + 1);
+            }
+            cache.draw(cx.canvas, left, top, distorted);
+        }
         None => match missing {
             // No surface for the cache: draw live.
             Missing::Live => paint_content(cx, id, cx.canvas, rect),
@@ -439,7 +522,10 @@ fn record_offthread(cx: &mut PaintCx, id: ControlId, base: &Base, r: Rect) -> Op
     let canvas = recorder.begin_recording(r, false);
     let was = std::mem::replace(&mut cx.offthread, true);
     let outer = cx.target.take();
+    // A worker draws it 1:1 into a bitmap.
+    let playback = std::mem::replace(&mut cx.playback_distorted, false);
     paint_content(cx, id, canvas, base.rect);
+    cx.playback_distorted = playback;
     cx.target = outer;
     cx.offthread = was;
     recorder.finish_recording_as_picture(None)
@@ -519,10 +605,17 @@ fn record(
                 None => cx.target.map(|t| Target { canvas: t.canvas, matrix: Matrix::concat(&t.matrix, &here), recording: id }),
             };
             let outer = std::mem::replace(&mut cx.target, target);
+            // Image caches blitted into the picture take the sampling it will be drawn with.
+            let playback_distorted = will_draw_distorted(cx);
+            let playback = std::mem::replace(&mut cx.playback_distorted, playback_distorted);
+            let blits = cx.image_blits.get();
             paint_content(cx, id, canvas, base.rect);
+            let image_blits = cx.image_blits.get() != blits;
+            cx.playback_distorted = playback;
             cx.target = outer;
             let picture = recorder.finish_recording_as_picture(None)?;
-            Some(CachedObject { content: CachedContent::Picture(picture), bounds: r, margin, scale, kind: cache_type })
+            let content = CachedContent::Picture(picture);
+            Some(CachedObject { content, bounds: r, margin, scale, kind: cache_type, playback_distorted, image_blits })
         }
         CacheType::Image | CacheType::ImageDoubleBuffered => {
             let (w, h) = ((r.width().round() as i32).max(1), (r.height().round() as i32).max(1));
@@ -530,13 +623,22 @@ fn record(
             let canvas = offscreen.canvas();
             canvas.clear(Color::TRANSPARENT);
             canvas.translate((-r.left, -r.top));
+            // Drawn 1:1 into the bitmap, whatever the bitmap is drawn with later.
+            let playback = std::mem::replace(&mut cx.playback_distorted, false);
             paint_content(cx, id, canvas, base.rect);
+            cx.playback_distorted = playback;
             let image = offscreen.image_snapshot();
-            Some(CachedObject { content: CachedContent::Image(image), bounds: r, margin, scale, kind: cache_type })
+            let (playback_distorted, image_blits) = (false, false);
+            let content = CachedContent::Image(image);
+            Some(CachedObject { content, bounds: r, margin, scale, kind: cache_type, playback_distorted, image_blits })
         }
         CacheType::ImageComposite => {
-            let image = record_composite(cx, id, base, r, margin)?;
-            Some(CachedObject { content: CachedContent::Image(image), bounds: r, margin, scale, kind: cache_type })
+            let playback = std::mem::replace(&mut cx.playback_distorted, false);
+            let image = record_composite(cx, id, base, r, margin);
+            cx.playback_distorted = playback;
+            let (playback_distorted, image_blits) = (false, false);
+            let content = CachedContent::Image(image?);
+            Some(CachedObject { content, bounds: r, margin, scale, kind: cache_type, playback_distorted, image_blits })
         }
         // `resolved` turned the GPU names into the caches above.
         CacheType::None | CacheType::GPU | CacheType::ImageCompositeGPU => None,
@@ -859,6 +961,8 @@ fn record_composite(cx: &mut PaintCx, id: ControlId, base: &Base, r: Rect, margi
             bakes: &mut *cx.bakes,
             offthread: cx.offthread,
             target: cx.target,
+            playback_distorted: cx.playback_distorted,
+            image_blits: cx.image_blits,
         };
         kind.paint_background(&mut own);
         canvas.translate(offset);
@@ -903,6 +1007,8 @@ fn paint_content(cx: &mut PaintCx, id: ControlId, canvas: &skia_safe::Canvas, re
         bakes: &mut *cx.bakes,
         offthread: cx.offthread,
         target: cx.target,
+        playback_distorted: cx.playback_distorted,
+        image_blits: cx.image_blits,
     };
     kind.paint_background(&mut own);
     kind.paint(&mut own);
@@ -937,6 +1043,8 @@ fn paint_overlays(cx: &mut PaintCx, id: ControlId, rect: Rect) {
         bakes: &mut *cx.bakes,
         offthread: cx.offthread,
         target: cx.target,
+        playback_distorted: cx.playback_distorted,
+        image_blits: cx.image_blits,
     };
     for a in animators.iter().filter(|a| a.control == id) {
         if let Some(draw) = &a.overlay {

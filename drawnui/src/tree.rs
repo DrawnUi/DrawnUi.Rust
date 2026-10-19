@@ -338,8 +338,19 @@ base_props! {
     clip_effects / set_clip_effects: bool = true, REPAINT;
     translation_x / set_translation_x: f32 = 0.0, REPAINT;
     translation_y / set_translation_y: f32 = 0.0, REPAINT;
+    /// Depth in points: positive comes toward the viewer and draws bigger, negative goes away and
+    /// draws smaller, turned or flat (scale 576 / (576 - z), DrawnUI TranslationZ).
+    translation_z / set_translation_z: f32 = 0.0, REPAINT;
     /// Degrees, around the anchor.
     rotation / set_rotation: f32 = 0.0, REPAINT;
+    /// Degrees around the horizontal axis through the anchor, seen with perspective (DrawnUI
+    /// RotationX): the top goes away from the viewer for positive values.
+    rotation_x / set_rotation_x: f32 = 0.0, REPAINT;
+    /// Degrees around the vertical axis through the anchor, seen with perspective (DrawnUI RotationY).
+    rotation_y / set_rotation_y: f32 = 0.0, REPAINT;
+    /// Degrees around the axis toward the viewer, applied after RotationX and RotationY (DrawnUI
+    /// RotationZ), the same way `rotation` turns.
+    rotation_z / set_rotation_z: f32 = 0.0, REPAINT;
     scale_x / set_scale_x: f32 = 1.0, REPAINT;
     scale_y / set_scale_y: f32 = 1.0, REPAINT;
     skew_x / set_skew_x: f32 = 0.0, REPAINT;

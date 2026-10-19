@@ -8,6 +8,12 @@ version before it. Commits in parentheses.
 
 ### Added
 
+- 3D transforms (C# RotationX, RotationY, RotationZ, TranslationZ): `rotation_x` / `rotation_y` turn a
+  control around its horizontal / vertical axis through the anchor, seen with perspective (a camera
+  at 576 pixels, as DrawnUI); `rotation_z` turns it after them; `translation_z` is depth: positive
+  comes toward the viewer and draws bigger, negative goes away and draws smaller, turned or flat
+  (576 / (576 - z): -300 = 0.66x, +150 = 1.35x). A tap goes through the inverse matrix, so a turned
+  control takes it where it is drawn.
 - `Waker` (`Cx::waker`, `Ui::waker`): another thread marks a control dirty and wakes the frame loop,
   for data that arrives off the UI thread (camera frames, sensors). The marks are applied at the
   start of the next frame; a burst wakes the loop once; no frames while nothing comes. In the
@@ -67,6 +73,13 @@ version before it. Commits in parentheses.
 
 ### Fixed
 
+- A cached bitmap (Image, ImageDoubleBuffered, ImageComposite) drawn scaled, turned or skewed showed
+  stair steps on every edge: it was always blitted with nearest sampling and an aliased border. It now
+  takes linear sampling with mipmaps whenever its own transform, an ancestor's or the picture it is
+  recorded into distorts it (a cached child of a turned SkiaShape), with an antialiased border; a
+  picture holding such bitmaps is recorded again when it starts or stops being distorted. Moved only,
+  it stays nearest, pixel for pixel. A tilted cached card against the same card uncached: 252 pixels
+  off by more than 48 before, 0 now.
 - Windows: a minimized window was never reported hidden (`Ui::on_visibility_changed`,
   `Control::on_app_visibility`), because winit reports no occlusion there. Minimizing now counts as
   hidden and restoring as shown; a window covered by another one still counts as shown.

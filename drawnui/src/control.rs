@@ -433,6 +433,13 @@ pub struct PaintCx<'a> {
     pub(crate) offthread: bool,
     /// While an Operations cache records its picture: the surface the picture lands on.
     pub(crate) target: Option<Target<'a>>,
+    /// While an Operations cache records its picture: the picture will be drawn scaled, turned,
+    /// skewed or projected, so image caches blitted into it take smooth sampling (DrawnUI
+    /// PlaybackDistorted).
+    pub(crate) playback_distorted: bool,
+    /// Image caches blitted in this frame, pictures holding them included: a picture recorded
+    /// while it grows holds image blits (DrawnUI HasImageBlits).
+    pub(crate) image_blits: &'a std::cell::Cell<u32>,
 }
 
 /// The surface a picture being recorded lands on (DrawnUI `DrawingContext.Surface` while an
@@ -481,6 +488,8 @@ impl<'a> PaintCx<'a> {
             bakes: &mut *self.bakes,
             offthread: true,
             target: None,
+            playback_distorted: false,
+            image_blits: self.image_blits,
         };
         paint::render(&mut own, child);
         recorder.finish_recording_as_picture(None)
