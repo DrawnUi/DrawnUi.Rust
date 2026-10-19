@@ -375,6 +375,49 @@ are painted live into its bitmap, post-render effects and backdrops are left out
 is made in the frame, as Image. A lost GPU / WebGL context is handled by the engine and its hosts:
 caches are made again, nothing to do in the app.
 
+## Transforms, 2D and 3D
+
+Applied at render around the arranged box: layout never changes, and the control's own cache stays
+valid while it moves or turns (it is not recorded again). The names are DrawnUI's in snake case.
+
+2D:
+- `translation_x` / `translation_y` (points), `rotation` (degrees, clockwise), `scale_x` /
+  `scale_y` (`scale` sets both; `scale_x(-1)` mirrors), `skew_x` / `skew_y` (degrees), `opacity`.
+- `anchor_x` / `anchor_y` set the pivot as a fraction of the box (0.5, 0.5 = center; 0, 0 = top left).
+- Taps land on the drawn control, not on its layout box (the inverse of its render matrix).
+- One-shot animations: `cx.translate_to`, `cx.rotate_to`, `cx.scale_to`, `cx.fade_to`; each stops its
+  own previous run; chain with `cx.on_finished`. Any other value:
+  `cx.start_animator(id, ValueAnimator::new(from, to, ms, easing), |v, cx| ...)`, or
+  `cx.animate(id, ms, easing, |t, cx| ...)` for a 0..1 progress.
+
+3D (perspective built in, no shader or matrix of your own; measured headless at scale 1):
+- `rotation_y` turns around the vertical axis (a card flip, a door). A 200 x 200 square at 50 draws
+  131 wide, the near edge taller than the far one (230 vs 177 px). Positive brings the left edge
+  toward the viewer.
+- `rotation_x` turns around the horizontal axis: at 40 the square draws 155 tall, the bottom edge
+  nearer (225 wide vs 180 at the top). `rotation` stays the flat turn; `rotation_z` turns flat the
+  same way, after the 3D turns. They combine: `rotation_x(16).rotation_y(20).rotation(-6)` is a card
+  lying on a table.
+- `anchor_x` / `anchor_y` are the hinge: with `anchor_x(0)` a `rotation_y` turn keeps the left edge
+  in place (a door).
+- Past 90 a control shows its content mirrored, as its back: at `rotation_y(180)` a bar drawn at the
+  left shows at the right. For a real back side, show a second face while
+  `cos(rotation_x) * cos(rotation_y) < 0` and mirror it (`scale_x(-1)` for a Y turn, `scale_y(-1)`
+  for an X turn) so it reads right.
+- `translation_z` is depth: positive moves the control toward the viewer and draws it bigger,
+  negative farther and smaller, turned or flat. Scale = 576 / (576 - z) (576 px = the camera
+  distance): -300 = 0.66x, +150 = 1.35x, +300 = 2.09x.
+- Cached content under a turn, a scale or a skew is drawn smooth: a cache bitmap is blitted with
+  linear sampling and mipmaps once anything distorts it (its own transform, an ancestor's, or the
+  picture it is recorded into), with an antialiased border; only moved, it is copied pixel for pixel.
+  A picture cache (`Operations`, the default of SkiaShape and SkiaLabel) holding cache bitmaps is
+  recorded again once when it starts or stops being distorted, not on every frame. A cached bitmap
+  drawn bigger (`translation_z` toward the viewer, a scale up) looks soft: it holds the pixels of its
+  flat size.
+- Gestures go through the 3D matrix: a horizontal `SkiaScroll` inside a tilted card scrolls with a
+  sideways swipe, and a tap picks the item under the finger.
+- `Perspective1` / `Perspective2` of DrawnUI are not there.
+
 ## Data from other threads (Waker)
 
 The tree lives on the UI thread; never touch it from another thread. A thread that produces data
