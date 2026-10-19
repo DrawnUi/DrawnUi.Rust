@@ -116,7 +116,7 @@ pub static SAMPLES: [Sample; 20] = [
     Sample {
         route: "transforms",
         title: "Transforms",
-        text: "Rotation, Scale, Skew, Translation, Opacity — hit-testing through them, *ToAsync animations",
+        text: "Rotation, 3D turns with perspective, Scale, Skew, Translation, Opacity — hit-testing through them, *ToAsync animations",
         build: pages::transforms::build,
     },
     Sample {

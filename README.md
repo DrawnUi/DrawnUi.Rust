@@ -66,7 +66,8 @@ fn main() {
 ## What's inside
 
 - **Layout:** Absolute, Column, Row, Wrap, Grid and decorated grids; templated lists with recycling
-  and virtualization; measure / arrange / paint, render transforms, opacity, clipping, z-index.
+  and virtualization; measure / arrange / paint, render transforms (3D turns with perspective and depth included),
+  opacity, clipping, z-index.
 - **Controls:** shapes, labels and rich text, buttons, an editor with IME, scroll with scroll bars
   and pull to refresh, carousels (also with shader transitions), drawer, shell (pages, tabs, popups,
   modals, toasts), toggles, switch, checkbox, radio buttons, slider, progress, backdrop blur.

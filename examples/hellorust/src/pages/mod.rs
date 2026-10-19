@@ -1025,7 +1025,7 @@ mod tests {
     #[test]
     fn transforms_taps_count_and_animations_run_to_their_end() {
         // Tall enough to show the whole page.
-        let mut host = host(1300);
+        let mut host = host(2100);
         open_page(&mut host, "Transforms");
         // The button is rotated and scaled; its layout box center is still inside the drawn one.
         tap(&mut host, "Tapped 0×");
@@ -1041,8 +1041,15 @@ mod tests {
         host.settle();
         assert_eq!(props(&host).opacity, 1.0);
 
-        // Spin runs until stopped and asks for frames all the while.
-        tap_no_settle(&mut host, "Spin");
+        // Spin runs until stopped and asks for frames all the while (the logo's: the 3D card's
+        // Spin is higher up).
+        let tree = &host.ui.tree;
+        let spins: Vec<_> = all(&host).into_iter().filter(|id| tree.find::<SkiaButton>(*id).is_some_and(|b| b.p.text == "Spin")).collect();
+        let spin = on_screen(&host, *spins.last().unwrap());
+        let now = host.time_ms();
+        host.ui.pointer(drawnui::PointerKind::Down, spin.center_x(), spin.center_y(), now);
+        host.ui.pointer(drawnui::PointerKind::Up, spin.center_x(), spin.center_y(), now);
+        host.frame();
         host.frame_after(300.0);
         assert_eq!(props(&host).rotation, 90.0);
         assert!(host.ui.needs_frame());
@@ -1051,6 +1058,53 @@ mod tests {
         host.frame_after(16.0);
         assert!(!host.ui.needs_frame());
         assert!(host.ui.state.transforms.spin.is_none());
+    }
+
+    #[test]
+    fn transforms_3d_card_flips_follows_its_sliders_and_the_strip_takes_taps_and_swipes() {
+        let mut host = host(2100);
+        open_page(&mut host, "Transforms");
+        let card = host.ui.state.transforms.card;
+        let values = |host: &Headless<App>| {
+            let p = &host.ui.tree.base(card.card).unwrap().p;
+            (p.rotation_x, p.rotation_y, p.translation_z)
+        };
+        let opacity = |host: &Headless<App>, face: Handle<SkiaShape>| host.ui.tree.base(face).unwrap().p.opacity;
+
+        // Flip: half a turn around Y in 700 ms; the back face shows, mirrored to read right.
+        tap(&mut host, "Flip");
+        assert_eq!(values(&host), (0.0, -180.0, 0.0));
+        assert_eq!((opacity(&host, card.front), opacity(&host, card.back)), (0.0, 1.0));
+        assert_eq!(host.ui.tree.base(card.back).unwrap().p.scale_x, -1.0);
+        showing(&host, "RotationX 0°  ·  RotationY -180°  ·  TranslationZ 0");
+        assert_eq!(host.ui.tree.find::<SkiaSlider>(card.y).unwrap().p.end, -180.0);
+
+        // A slider moves the card: TranslationZ toward the viewer.
+        host.ui.tree.get_mut(card.z).unwrap().set_end(150);
+        host.settle();
+        assert_eq!(values(&host), (0.0, -180.0, 150.0));
+
+        // Reset brings all three back to 0, the front face shows again.
+        tap(&mut host, "Reset");
+        assert_eq!(values(&host), (0.0, 0.0, 0.0));
+        assert_eq!((opacity(&host, card.front), opacity(&host, card.back)), (1.0, 0.0));
+
+        // The tilted strip: its center is the pivot of its 3D matrix, over tile 2 at rest.
+        let strip = on_screen(&host, showing(&host, "1"));
+        let shape = host.ui.tree.parent(host.ui.tree.parent(host.ui.tree.parent(showing(&host, "1")).unwrap()).unwrap()).unwrap();
+        let shape = on_screen(&host, host.ui.tree.parent(shape).unwrap());
+        assert!(strip.top > shape.top, "tile 1 lies inside the strip");
+        host.tap(shape.center_x(), shape.center_y());
+        host.settle();
+        assert_eq!(host.ui.state.transforms.last_tile, Some(2));
+        // A sideways swipe scrolls the strip under the turned matrix (it flings on), and a tap
+        // then picks a tile further on (left of the center: the center may land between tiles).
+        host.pan((shape.center_x() + 100.0, shape.center_y()), (shape.center_x() - 150.0, shape.center_y()), 300.0, 15);
+        host.settle();
+        host.ui.state.transforms.last_tile = None;
+        host.tap(shape.center_x() - 60.0, shape.center_y());
+        host.settle();
+        assert!(host.ui.state.transforms.last_tile.is_some_and(|tile| tile > 3), "{:?}", host.ui.state.transforms.last_tile);
     }
 
     #[test]

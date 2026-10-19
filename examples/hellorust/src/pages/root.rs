@@ -12,7 +12,7 @@ const PAGE_PADDING: i32 = 24;
 const GAP: i32 = 16;
 
 /// Title gradients cycle through the drawnui.net accents.
-const TITLE_GRADIENTS: [[u32; 2]; 6] = [
+pub(super) const TITLE_GRADIENTS: [[u32; 2]; 6] = [
     [0x6EA8FE, 0x0D6EFD],
     [0xD63384, 0xFD7E14],
     [0x20C997, 0x0DCAF0],

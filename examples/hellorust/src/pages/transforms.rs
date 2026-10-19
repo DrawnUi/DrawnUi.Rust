@@ -1,8 +1,10 @@
-//! Render transforms, Opacity, hit-testing through transforms and the *ToAsync animations.
-//! Ported from the React demo's TransformsPage.tsx.
+//! Render transforms, 3D turns with perspective, Opacity, hit-testing through transforms and the
+//! *ToAsync animations. Ported from the React demo's TransformsPage.tsx; the 3D cards from
+//! HelloMaui's TransformsPage.cs (DrawnUi 91b0c5ce).
 
 use drawnui::prelude::*;
 
+use super::root::TITLE_GRADIENTS;
 use super::{column, scrolling};
 use crate::{App, hex};
 
@@ -17,6 +19,26 @@ pub struct State {
     pub(super) logo: Handle<SkiaSvg>,
     /// The endless rotation, while it runs.
     pub(super) spin: Option<AnimationId>,
+    /// The 3D card and what follows it.
+    pub(super) card: Card3d,
+    /// A flip, tumble or reset of the card is running.
+    pub(super) turning: bool,
+    /// The card's endless turn around Y, while it runs.
+    pub(super) spin_3d: Option<AnimationId>,
+    /// The tile of the tilted strip tapped last.
+    pub(super) last_tile: Option<usize>,
+}
+
+/// The 3D card, its two faces, the three sliders and the readout that follow it.
+#[derive(Default, Clone, Copy)]
+pub struct Card3d {
+    pub(super) card: Handle<SkiaShape>,
+    pub(super) front: Handle<SkiaShape>,
+    pub(super) back: Handle<SkiaShape>,
+    pub(super) x: Handle<SkiaSlider>,
+    pub(super) y: Handle<SkiaSlider>,
+    pub(super) z: Handle<SkiaSlider>,
+    pub(super) readout: Handle<SkiaLabel>,
 }
 
 /// Builds the page.
@@ -24,7 +46,7 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
     // The content is not cached as a whole: two of its cards change while the page is open.
     scrolling(column().children((
         SkiaLabel::new("Transforms").font_size(24).text_color(Color::WHITE).horizontal_options(LayoutOptions::Center),
-        SkiaLabel::new("Applied at render around the arranged box, so layout is untouched and caches stay valid. Same names as MAUI: TranslationX/Y, Rotation, ScaleX/Y, SkewX/Y, AnchorX/Y, Opacity.")
+        SkiaLabel::new("Applied at render around the arranged box, so layout is untouched and caches stay valid. Same names as MAUI: TranslationX/Y, Rotation, RotationX/Y, ScaleX/Y, SkewX/Y, AnchorX/Y, Opacity, plus TranslationZ for 3D depth.")
             .font_size(13)
             .text_color(hex(0xD3D3D3))
             .fill_x()
@@ -34,6 +56,8 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
             SkiaWrap::new().spacing(4).horizontal_options(LayoutOptions::Center).children((
                 tile("none", |s| s),
                 tile("Rotation={15}", |s| s.rotation(15)),
+                tile("RotationX={45}", |s| s.rotation_x(45)),
+                tile("RotationY={45}", |s| s.rotation_y(45)),
                 tile("Scale={1.3}", |s| s.scale(1.3)),
                 tile("ScaleX={-1}", |s| s.scale_x(-1)),
                 tile("SkewX={20}", |s| s.skew_x(20)),
@@ -44,6 +68,95 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
         )
         // Static: one bitmap, blitted while the page scrolls.
         .use_cache(CacheType::Image),
+        card(
+            "3D — RotationX, RotationY, TranslationZ, with perspective",
+            (
+                SkiaLayer::new().height_request(250).children(
+                    SkiaShape::new()
+                        .corner_radius(16)
+                        .width_request(240)
+                        .height_request(150)
+                        .center()
+                        .use_cache(CacheType::Image)
+                        .children((
+                            face(0, "DrawnUI", "Tap to flip").assign(&mut app.transforms.card.front),
+                            face(1, "Back side", "Drawn mirrored, reads right from behind").opacity(0).assign(&mut app.transforms.card.back),
+                        ))
+                        .assign(&mut app.transforms.card.card)
+                        .on_tapped(|_me, app: &mut App, cx| turn(app, cx, true)),
+                ),
+                SkiaLabel::new(readout(0.0, 0.0, 0.0))
+                    .font_size(13)
+                    .text_color(Color::WHITE)
+                    .fill_x()
+                    .horizontal_text_alignment(TextAlignment::Center)
+                    .assign(&mut app.transforms.card.readout),
+                slider_row("RotationX", -180.0, 180.0, Axis::X, &mut app.transforms.card.x),
+                slider_row("RotationY", -180.0, 180.0, Axis::Y, &mut app.transforms.card.y),
+                slider_row("TranslationZ", -300.0, 150.0, Axis::Z, &mut app.transforms.card.z),
+                SkiaWrap::new().spacing(6).children((
+                    SkiaButton::new("Flip").background_color(BLUE).on_tapped(|_me, app: &mut App, cx| turn(app, cx, true)),
+                    SkiaButton::new("Tumble").background_color(BLUE).on_tapped(|_me, app: &mut App, cx| turn(app, cx, false)),
+                    SkiaButton::new("Spin")
+                        .observe(|me, app: &App| {
+                            let spinning = app.transforms.spin_3d.is_some();
+                            me.set_text(if spinning { "Stop spin" } else { "Spin" });
+                            me.set_background_color(hex(if spinning { 0xDC3545 } else { 0x20C997 }));
+                        })
+                        .on_tapped(|_me, app: &mut App, cx| toggle_spin_3d(app, cx)),
+                    SkiaButton::new("Reset").background_color(hex(0x495057)).on_tapped(|_me, app: &mut App, cx| reset_3d(app, cx)),
+                )),
+                SkiaLabel::new("Perspective is built in: RotationX turns around the horizontal axis, RotationY around the vertical one, TranslationZ moves the control toward (+) or away from (−) the viewer. The card keeps its Image cache while it turns; it shows the back face once it faces away.")
+                    .font_size(12)
+                    .text_color(MUTED)
+                    .fill_x(),
+            ),
+        )
+        // The card turns every frame while it animates: painted live, not recorded again per frame.
+        .use_cache(CacheType::None),
+        card(
+            "Gestures map through 3D — swipe and tap the tilted strip",
+            (
+                SkiaLayer::new().height_request(220).children(
+                    SkiaShape::new()
+                        .corner_radius(16)
+                        .width_request(280)
+                        .height_request(150)
+                        .center()
+                        .rotation_x(16)
+                        .rotation_y(20)
+                        .rotation(-6)
+                        .background_color(hex(0x111827))
+                        .stroke_color(hex(0x6EA8FE))
+                        .stroke_width(1.55)
+                        .children(
+                            SkiaScroll::new().orientation(ScrollOrientation::Horizontal).fill().content(
+                                SkiaRow::new()
+                                    .use_cache(CacheType::Image)
+                                    .spacing(10)
+                                    .padding(14)
+                                    .vertical_options(LayoutOptions::Center)
+                                    .children((1..=20).map(strip_tile).collect::<Vec<_>>()),
+                            ),
+                        ),
+                ),
+                SkiaLabel::new("Tapped: none")
+                    .font_size(13)
+                    .text_color(Color::WHITE)
+                    .fill_x()
+                    .horizontal_text_alignment(TextAlignment::Center)
+                    .observe(|me, app: &App| match app.transforms.last_tile {
+                        Some(i) => me.set_text(format!("Tapped: tile {i}")),
+                        None => me.set_text("Tapped: none"),
+                    }),
+                SkiaLabel::new("RotationX 16, RotationY 20, Rotation −6. A sideways swipe scrolls the strip and a tap picks the tile under the finger: input goes through the inverse of the 3D matrix. An up or down swipe still scrolls the page.")
+                    .font_size(12)
+                    .text_color(MUTED)
+                    .fill_x(),
+            ),
+        )
+        // The strip scrolls: painted live, not recorded again per frame.
+        .use_cache(CacheType::None),
         card(
             "Gestures map through transforms — tap the rotated, scaled button",
             (
@@ -163,4 +276,183 @@ fn tile(text: &str, transform: impl FnOnce(Build<SkiaShape>) -> Build<SkiaShape>
             .horizontal_options(LayoutOptions::Center)
             .horizontal_text_alignment(TextAlignment::Center),
     ))
+}
+
+/// One face of the 3D card: a title gradient of the root page, a title and a line of text.
+fn face(gradient: usize, title: &str, text: &str) -> Build<SkiaShape> {
+    let colors = TITLE_GRADIENTS[gradient].map(hex);
+    SkiaShape::new()
+        .corner_radius(16)
+        .fill()
+        .fill_gradient(SkiaGradient::new(GradientType::Linear, colors).end_x_ratio(1).end_y_ratio(1))
+        .children(SkiaStack::new().spacing(4).vertical_options(LayoutOptions::Center).children((
+            SkiaLabel::new(title)
+                .font_size(28)
+                .font_family("FontTextBold")
+                .text_color(Color::WHITE)
+                .fill_x()
+                .horizontal_text_alignment(TextAlignment::Center),
+            SkiaLabel::new(text)
+                .font_size(13)
+                .text_color(Color::WHITE)
+                .margin((12, 0))
+                .fill_x()
+                .horizontal_text_alignment(TextAlignment::Center),
+        )))
+}
+
+/// Which 3D value of the card a slider sets.
+#[derive(Clone, Copy)]
+enum Axis {
+    X,
+    Y,
+    Z,
+}
+
+/// A caption and a slider for one 3D value of the card; moving the slider sets it.
+fn slider_row(name: &'static str, min: f32, max: f32, axis: Axis, slider: &mut Handle<SkiaSlider>) -> Build<SkiaLayout> {
+    SkiaLayer::new().fill_x().children((
+        SkiaLabel::new(name).font_size(13).text_color(MUTED).vertical_options(LayoutOptions::Center),
+        SkiaSlider::new()
+            .accessibility_label(name)
+            .min(min)
+            .max(max)
+            .margin((104, 0, 0, 0))
+            .fill_x()
+            .vertical_options(LayoutOptions::Center)
+            .assign(slider)
+            .on_end_changed(move |_me, app: &mut App, cx, value| {
+                let card = app.transforms.card;
+                let (mut x, mut y, mut z) = card_values(cx, card);
+                let (shown, now) = match axis {
+                    Axis::X => (normalize(x), &mut x),
+                    Axis::Y => (normalize(y), &mut y),
+                    Axis::Z => (z, &mut z),
+                };
+                // The card set this slider while it turned (snapped to the slider's step).
+                if (value - shown).abs() <= 0.5 {
+                    return;
+                }
+                *now = value;
+                show_card(cx, card, x, y, z);
+            }),
+    ))
+}
+
+/// The card's RotationX, RotationY and TranslationZ.
+fn card_values(cx: &Cx, card: Card3d) -> (f32, f32, f32) {
+    cx.base(card.card).map_or((0.0, 0.0, 0.0), |b| (b.p.rotation_x, b.p.rotation_y, b.p.translation_z))
+}
+
+/// The line under the card.
+fn readout(x: f32, y: f32, z: f32) -> String {
+    format!("RotationX {:.0}°  ·  RotationY {:.0}°  ·  TranslationZ {z:.0}", normalize(x), normalize(y))
+}
+
+/// Turns the card and makes the faces, the sliders and the readout follow it (C# OnCardTurned):
+/// the back face shows while the card faces away, mirrored once more so it reads right.
+fn show_card(cx: &mut Cx, card: Card3d, x: f32, y: f32, z: f32) {
+    if let Some(mut shape) = cx.get_mut(card.card) {
+        shape.set_rotation_x(x);
+        shape.set_rotation_y(y);
+        shape.set_translation_z(z);
+    }
+    let (cos_x, cos_y) = (x.to_radians().cos(), y.to_radians().cos());
+    let back_shows = cos_x * cos_y < 0.0;
+    if let Some(mut front) = cx.get_mut(card.front) {
+        front.set_opacity(if back_shows { 0 } else { 1 });
+    }
+    if let Some(mut back) = cx.get_mut(card.back) {
+        back.set_opacity(if back_shows { 1 } else { 0 });
+        back.set_scale_x(if cos_y < 0.0 { -1 } else { 1 });
+        back.set_scale_y(if cos_x < 0.0 { -1 } else { 1 });
+    }
+    for (slider, value) in [(card.x, normalize(x)), (card.y, normalize(y)), (card.z, z)] {
+        if let Some(mut slider) = cx.get_mut(slider) {
+            slider.set_end(value);
+        }
+    }
+    if let Some(mut line) = cx.get_mut(card.readout) {
+        line.set_text(readout(x, y, z));
+    }
+}
+
+/// Half a turn around the vertical axis (flip) or the horizontal one (tumble), 700 ms.
+fn turn(app: &mut App, cx: &mut Cx, around_y: bool) {
+    let state = &mut app.transforms;
+    if state.turning || state.spin_3d.is_some() {
+        return;
+    }
+    state.turning = true;
+    let card = state.card;
+    let (x, y, _) = card_values(cx, card);
+    let from = if around_y { y } else { x };
+    let half = ValueAnimator::new(from, from + 180.0, 700.0, easing::cubic_in_out);
+    let animation = cx.start_animator(card.card, half, move |v, cx| {
+        let (x, y, z) = card_values(cx, card);
+        match around_y {
+            true => show_card(cx, card, x, v, z),
+            false => show_card(cx, card, v, y, z),
+        }
+    });
+    cx.on_finished(animation, move |app: &mut App, cx| {
+        app.transforms.turning = false;
+        let (x, y, z) = card_values(cx, card);
+        show_card(cx, card, normalize(x), normalize(y), z);
+    });
+}
+
+/// A full turn around Y every 3 seconds until stopped.
+fn toggle_spin_3d(app: &mut App, cx: &mut Cx) {
+    let state = &mut app.transforms;
+    let card = state.card;
+    if let Some(spin) = state.spin_3d.take() {
+        cx.stop_animation(spin);
+        let (x, y, z) = card_values(cx, card);
+        show_card(cx, card, x, normalize(y), z);
+        return;
+    }
+    if state.turning {
+        return;
+    }
+    let from = normalize(card_values(cx, card).1);
+    let round = ValueAnimator::new(from, from + 360.0, 3000.0, easing::linear).repeat(-1);
+    state.spin_3d = Some(cx.start_animator(card.card, round, move |v, cx| {
+        let (x, _, z) = card_values(cx, card);
+        show_card(cx, card, x, v, z);
+    }));
+}
+
+/// RotationX, RotationY and TranslationZ back to 0 in 400 ms.
+fn reset_3d(app: &mut App, cx: &mut Cx) {
+    if app.transforms.spin_3d.is_some() {
+        toggle_spin_3d(app, cx);
+    }
+    let state = &mut app.transforms;
+    if state.turning {
+        return;
+    }
+    state.turning = true;
+    let card = state.card;
+    let (x, y, z) = card_values(cx, card);
+    let (x, y) = (normalize(x), normalize(y));
+    let back = cx.animate(card.card, 400, easing::cubic_out, move |t, cx| show_card(cx, card, x * (1.0 - t), y * (1.0 - t), z * (1.0 - t)));
+    cx.on_finished(back, |app: &mut App, _cx| app.transforms.turning = false);
+}
+
+/// An angle in -180..180.
+fn normalize(degrees: f32) -> f32 {
+    (degrees + 180.0).rem_euclid(360.0) - 180.0
+}
+
+/// Tile `i` (from 1) of the tilted strip: a root-page title gradient and its number.
+fn strip_tile(i: usize) -> Build<SkiaShape> {
+    let colors = TITLE_GRADIENTS[(i - 1) % TITLE_GRADIENTS.len()].map(hex);
+    SkiaShape::new()
+        .corner_radius(12)
+        .width_request(96)
+        .height_request(96)
+        .fill_gradient(SkiaGradient::new(GradientType::Linear, colors).end_x_ratio(1).end_y_ratio(1))
+        .children(SkiaLabel::new(i.to_string()).font_size(30).font_family("FontTextBold").text_color(Color::WHITE).center())
+        .on_tapped(move |_me, app: &mut App, _cx| app.transforms.last_tile = Some(i))
 }
