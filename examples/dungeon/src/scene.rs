@@ -111,8 +111,12 @@ fn lane_bit(lane: i32) -> u8 {
     1 << (lane + 1)
 }
 
+/// The first orbs and the first hazards of a run.
+const ORBS_FROM: i64 = 6;
+const HAZARDS_FROM: i64 = 16;
 /// The run gets its full share of hazards (seven event rows in eight) from this row on; before it
-/// the share climbs from a third, and the first jumps come at `JUMPS_FROM` (about 13 seconds in).
+/// the share climbs from a half, and the first beams come at `JUMPS_FROM` (about 13 seconds in).
+/// Lava, half a cell of health, comes in one event row of four from the first hazards on.
 const RAMP_UNTIL: i64 = 304;
 const JUMPS_FROM: i64 = 90;
 /// Seconds before a hazard its prompt shows (longer while the run is young).
@@ -129,21 +133,30 @@ const SHIELD_SECONDS: f32 = 10.0;
 
 /// The run is a function of the row number: an event every fifth row, orbs in between.
 fn row(i: i64) -> Row {
-    if i < 24 || i >= EXIT_ROW - 50 {
+    // Orbs from the first second, the first hazards a couple of seconds later.
+    if i < ORBS_FROM || i >= EXIT_ROW - 50 {
         return Row::Empty;
     }
     let group = i.div_euclid(5);
     match i.rem_euclid(5) {
         0 => {
-            // A calm start: few hazards, lane changes before jumps, the full share after a while.
-            let ramp = ((i - 24) as f32 / (RAMP_UNTIL - 24) as f32).clamp(0.0, 1.0);
-            if hash01(group, 7) > 0.3 + 0.7 * ramp {
+            // A gentle start: half the hazards, lane changes before jumps, the full share after a while.
+            if i < HAZARDS_FROM {
                 return Row::Empty;
             }
-            // Of a hundred event rows: 38 pillars, 20 beams, 21 lava, the rest empty.
+            let ramp = ((i - HAZARDS_FROM) as f32 / (RAMP_UNTIL - HAZARDS_FROM) as f32).clamp(0.0, 1.0);
+            // Of a hundred event rows: 38 pillars, 20 beams, 25 lava, the rest empty. Lava skips
+            // the ramp: it costs little and lights the corridor.
             let h = hash(group, 2);
             let roll = h % 100;
-            if roll < 38 || (roll < 79 && i < JUMPS_FROM) {
+            let lava = roll >= 75;
+            if !lava && hash01(group, 7) > 0.5 + 0.5 * ramp {
+                return Row::Empty;
+            }
+            // While the run is slow, a jump lasts about one event row: a jump right after a jump
+            // leaves no time to land (faster, one jump clears both), so the second is pillars.
+            let landing = i < RAMP_UNTIL && matches!(row(i - 5), Row::Beam | Row::Lava);
+            if roll < 38 || (roll < 58 && i < JUMPS_FROM) || ((roll < 58 || lava) && landing) {
                 let others = match orb_lane(group - 1) {
                     -1 => [0, 1],
                     0 => [-1, 1],
@@ -157,7 +170,7 @@ fn row(i: i64) -> Row {
             }
             match roll {
                 38..=57 => Row::Beam,
-                58..=78 => Row::Lava,
+                75.. => Row::Lava,
                 _ => Row::Empty,
             }
         }
@@ -230,7 +243,7 @@ pub struct World {
     speed: f32,
     pub time: f32,
     orbs: u32,
-    /// 1 = unhurt; a pillar takes two tenths, a beam or lava one; the run ends at 0.
+    /// 1 = unhurt; a pillar takes two tenths, a beam one, lava a half; the run ends at 0.
     pub health: f32,
     /// Seconds left in which nothing hurts, after a hit.
     invulnerable: f32,
@@ -552,7 +565,7 @@ impl World {
             }
             Phase::Attract => {
                 input = self.pilot(dt);
-                self.speed = 12.0;
+                self.speed = 14.0;
                 // The title's run never shows the end: it starts over before the exit's light
                 // (which begins 600 units before the door).
                 if self.z >= EXIT - 700.0 {
@@ -613,7 +626,7 @@ impl World {
                 let damage = match kind {
                     Row::Pillars(mask) if hits(0.4, 1.6) && (-1..=1).any(|lane| mask & lane_bit(lane) != 0 && near(lane, 1.0)) => 0.2,
                     Row::Beam if hits(0.85, 1.15) && self.y < 0.75 => 0.1,
-                    Row::Lava if hits(0.15, 1.85) && self.y < 0.05 => 0.1,
+                    Row::Lava if hits(0.15, 1.85) && self.y < 0.05 => 0.05,
                     // The ghost is not collected: a surge or the grace after a hit passes through it,
                     // and the one that takes the run stays over the fallen runner.
                     Row::Power(lane, GHOST) if hits(0.5, 1.5) && near(lane, 0.9) && self.y < 1.7 => 0.3,
