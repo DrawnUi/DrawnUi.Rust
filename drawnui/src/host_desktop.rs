@@ -2202,6 +2202,9 @@ mod vulkan {
                 // SAFETY: as above, on the device.
                 unsafe { device_proc_addr(vk::Device::from_raw(device), name) }.map_or(std::ptr::null(), |f| f as *const c_void)
             };
+            // What the device was made with, for Skia: no core feature, the YCbCr sampler where on.
+            let mut ycbcr = vk::PhysicalDeviceSamplerYcbcrConversionFeatures::default().sampler_ycbcr_conversion(self.ycbcr);
+            let features = vk::PhysicalDeviceFeatures2::default().push_next(&mut ycbcr);
             // SAFETY: the handles live as long as this presenter, which the host drops after the context.
             // ponytail: a lost device is not made again; a new context on it fails (the host panics).
             unsafe {
@@ -2217,6 +2220,7 @@ mod vulkan {
                     &INSTANCE_EXTENSIONS,
                     &self.device_extensions.iter().map(String::as_str).collect::<Vec<_>>(),
                     self.ycbcr,
+                    &features as *const vk::PhysicalDeviceFeatures2 as *const c_void,
                     lost,
                 )
             }

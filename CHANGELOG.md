@@ -4,7 +4,14 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.11 (crates.io, 2026-10-21)
+
+### Added
+
+- Android on Vulkan: Skia is told the device features the device was made with (the sampler YCbCr
+  conversion), so images with a YCbCr conversion (camera frames in the device's own format, imported
+  with `import_vulkan_image`) can be drawn. `VulkanHandles::sampler_ycbcr_conversion` now means Skia
+  knows it too.
 
 ### Changed
 
@@ -14,6 +21,11 @@ version before it. Commits in parentheses.
   is active again (before: already when it came to the foreground); hidden on resigning active as
   before. Each change is reported once (Android and iOS sent several events for one change). Android
   apps need the DrawnUi/winit fork at rev fd36859 (README).
+
+### Toolchain
+
+The Skia crates move to 0.153.7 (drawnui-skia-safe `BackendContext::set_device_features2`); Skia
+itself is the same as 0.153.6.
 
 ## 0.1.0-preview.10 (crates.io, 2026-10-19)
 

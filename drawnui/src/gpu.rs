@@ -54,8 +54,8 @@ pub struct VulkanHandles {
     /// VK_ANDROID_external_memory_android_hardware_buffer (with VK_EXT_queue_family_foreign)
     /// is enabled: AHardwareBuffers can be imported as images.
     pub hardware_buffers: bool,
-    /// The device has the samplerYcbcrConversion feature on. Skia itself is not told yet (its
-    /// features are not reachable through the Skia crates): it does not sample YCbCr images.
+    /// The device has the samplerYcbcrConversion feature on, and Skia knows it: images with a
+    /// YCbCr conversion (camera frames in the device's own format) can be drawn.
     pub sampler_ycbcr_conversion: bool,
 }
 
@@ -244,6 +244,7 @@ impl Gpu {
         instance_extensions: &[&str],
         device_extensions: &[&str],
         ycbcr: bool,
+        device_features: *const std::ffi::c_void,
         lost: Option<&mut Gpu>,
     ) -> Option<Self> {
         use gpu::vk;
@@ -251,7 +252,7 @@ impl Gpu {
             vk::GetProcOf::Instance(instance, name) => instance_proc(instance as u64, name),
             vk::GetProcOf::Device(device, name) => device_proc(device as u64, name),
         };
-        let backend = unsafe {
+        let mut backend = unsafe {
             vk::BackendContext::new_builder(
                 instance as vk::Instance,
                 physical as vk::PhysicalDevice,
@@ -263,6 +264,9 @@ impl Gpu {
             .with_extensions(instance_extensions, device_extensions)
             .build()
         };
+        // The features the device was made with (the YCbCr sampler): without them Skia assumes
+        // none and cannot draw YCbCr images. SAFETY: the caller's chain outlives the context's making.
+        unsafe { backend.set_device_features2(device_features) };
         let ctx = gpu::direct_contexts::make_vulkan(&backend, None)?;
         let epoch = match lost {
             Some(lost) => {
