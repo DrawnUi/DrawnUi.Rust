@@ -114,6 +114,10 @@ struct Desktop {
     occluded: bool,
     /// In the background (iOS): no GPU work at all, the system kills an app that submits any.
     suspended: bool,
+    /// What the app was last told (`App::visibility`): several platform events mean the same
+    /// change (Android onPause then the window's end, iOS resigning then the background), it hears
+    /// it once.
+    shown: bool,
     /// The finger that drives the pointer (iOS, Android); other fingers are ignored.
     #[cfg(any(target_os = "ios", target_os = "android"))]
     touch: Option<u64>,
@@ -276,6 +280,7 @@ impl Desktop {
             window,
             occluded: false,
             suspended: false,
+            shown: true,
             #[cfg(any(target_os = "ios", target_os = "android"))]
             touch: None,
             #[cfg(any(target_os = "ios", target_os = "android"))]
@@ -530,6 +535,14 @@ impl Desktop {
         }
         for request in self.host.bakes.drain(..) {
             let _ = self.bakes.send(request);
+        }
+    }
+
+    /// Tells the app it is shown or hidden, once per change.
+    fn report_visible(&mut self, visible: bool) {
+        if visible != self.shown {
+            self.shown = visible;
+            self.app.visibility(visible);
         }
     }
 
@@ -1593,7 +1606,7 @@ impl ApplicationHandler<Arrived> for Desktop {
                 self.insets_read = false;
             }
             self.suspended = false;
-            self.app.visibility(true);
+            self.report_visible(true);
             self.redraw();
         }
     }
@@ -1605,7 +1618,7 @@ impl ApplicationHandler<Arrived> for Desktop {
         if let Some(ticker) = &self.ticker {
             ticker.run(false);
         }
-        self.app.visibility(false);
+        self.report_visible(false);
         // Android: the native window goes away with the activity's surface.
         #[cfg(target_os = "android")]
         {
@@ -1719,7 +1732,7 @@ impl ApplicationHandler<Arrived> for Desktop {
                 #[cfg(target_os = "windows")]
                 if let Some(minimized) = self.window.is_minimized().filter(|&m| m != self.occluded) {
                     self.occluded = minimized;
-                    self.app.visibility(!minimized);
+                    self.report_visible(!minimized);
                 }
                 self.redraw();
             }
@@ -1762,10 +1775,14 @@ impl ApplicationHandler<Arrived> for Desktop {
                 self.app.blur();
                 self.redraw();
             }
-            // Minimized or covered: an app pauses what it animates (a game).
+            // Minimized or covered (desktop), paused (Android onPause / onResume, our winit): an app
+            // pauses what it animates (a game). iOS reports its background here as well, but the
+            // app is told as C# does it: hidden on resigning active (`suspended`), shown only once
+            // active again (`resumed`), not already when it comes to the foreground.
             WindowEvent::Occluded(occluded) => {
                 self.occluded = occluded;
-                self.app.visibility(!occluded);
+                #[cfg(not(target_os = "ios"))]
+                self.report_visible(!occluded);
                 self.redraw();
             }
             WindowEvent::ModifiersChanged(modifiers) => {

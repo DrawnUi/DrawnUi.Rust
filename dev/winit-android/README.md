@@ -1,9 +1,10 @@
 # winit `drawnui-android`: the patch DrawnUi.Rust builds against
 
 The root `Cargo.toml` patches winit onto a sibling checkout `../winit` (branch `drawnui-android`):
-winit 0.30.13 plus this commit (Android: the event loop ends on the activity's Destroy, a new loop
-may be built for the next activity, insets changes arrive as a same-size `Resized`;
-`solved-android.md` 21, 22). Cargo needs the checkout on every machine, also where Android is not
+winit 0.30.13 plus these commits: (1) Android: the event loop ends on the activity's Destroy, a new
+loop may be built for the next activity, insets changes arrive as a same-size `Resized`
+(`solved-android.md` 21, 22); (2) Android onPause / onResume arrive as `WindowEvent::Occluded(true /
+false)`, so the app hears it is hidden at onPause, as DrawnUI C# does. Cargo needs the checkout on every machine, also where Android is not
 built (the change is Android-only). Until it is upstream, make it from upstream:
 
 ```sh

@@ -164,7 +164,7 @@ Per platform:
 
   ```toml
   [patch.crates-io]
-  winit = { git = "https://github.com/DrawnUi/winit", rev = "f1603c5c70f39e93e95839136d1d70c37fbd71f6" }
+  winit = { git = "https://github.com/DrawnUi/winit", rev = "fd3685990f74fb3e8917ee56f3a33690b9471d16" }
   android-activity = { git = "https://github.com/DrawnUi/android-activity", rev = "d45520c015edc340c16770c2266d711327ce01f1" }
   ```
 - **iOS:** [`dev/ios`](dev/ios) builds an `.app` bundle for the simulator, or a signed one for a

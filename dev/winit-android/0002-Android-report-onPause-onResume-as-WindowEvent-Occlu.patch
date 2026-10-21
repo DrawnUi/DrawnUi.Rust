@@ -1,0 +1,55 @@
+From fd3685990f74fb3e8917ee56f3a33690b9471d16 Mon Sep 17 00:00:00 2001
+From: AppoMobi <taublast@gmail.com>
+Date: Wed, 21 Oct 2026 13:33:04 +0200
+Subject: [PATCH] Android: report onPause / onResume as
+ WindowEvent::Occluded(true / false)
+
+The activity leaving the front (another app, a system dialog, home) was not reported until its
+window ended at onStop; onPause only cleared running. An app that pauses on hide (a camera) now
+hears it at onPause and onResume, as iOS reports its background and foreground.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0169kjt4N2gJdQhxEojiJGqH
+---
+ src/platform_impl/android/mod.rs | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/src/platform_impl/android/mod.rs b/src/platform_impl/android/mod.rs
+index dd84052d..35278e18 100644
+--- a/src/platform_impl/android/mod.rs
++++ b/src/platform_impl/android/mod.rs
+@@ -279,6 +279,15 @@ impl<T: 'static> EventLoop<T> {
+                 MainEvent::Resume { .. } => {
+                     debug!("App Resumed - is running");
+                     self.running = true;
++                    // onResume: the activity is in front again. Reported as the end of an
++                    // occlusion, as iOS reports its return to the foreground.
++                    callback(
++                        event::Event::WindowEvent {
++                            window_id: window::WindowId(WindowId),
++                            event: event::WindowEvent::Occluded(false),
++                        },
++                        self.window_target(),
++                    );
+                 },
+                 MainEvent::SaveState { .. } => {
+                     // XXX: how to forward this state to applications?
+@@ -288,6 +297,15 @@ impl<T: 'static> EventLoop<T> {
+                 MainEvent::Pause => {
+                     debug!("App Paused - stopped running");
+                     self.running = false;
++                    // onPause: the activity left the front (another app, a system dialog, the
++                    // home screen), while its window may still exist until onStop.
++                    callback(
++                        event::Event::WindowEvent {
++                            window_id: window::WindowId(WindowId),
++                            event: event::WindowEvent::Occluded(true),
++                        },
++                        self.window_target(),
++                    );
+                 },
+                 MainEvent::Stop => {
+                     // XXX: how to forward this state to applications?
+-- 
+2.49.0.windows.1
+

@@ -4,6 +4,17 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## Unreleased
+
+### Changed
+
+- App hidden / shown (`Ui::on_visibility_changed`, `Control::on_app_visibility`) follows DrawnUI C#'s
+  moments: Android hidden at onPause and shown at onResume (before: hidden only when the window ended
+  at onStop, so a system dialog or a split-screen switch counted as shown), iOS shown only when the app
+  is active again (before: already when it came to the foreground); hidden on resigning active as
+  before. Each change is reported once (Android and iOS sent several events for one change). Android
+  apps need the DrawnUi/winit fork at rev fd36859 (README).
+
 ## 0.1.0-preview.10 (crates.io, 2026-10-19)
 
 ### Added
