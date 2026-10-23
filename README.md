@@ -255,7 +255,7 @@ library to it: [`solved-win.md`](solved-win.md), [`solved-wasm.md`](solved-wasm.
 - `drawnui/`: the engine crate; `drawnui/web/drawnui_host.js` is the browser host.
 - `examples/hello/`: a counter. `examples/hellorust/`: the DrawnUI Hello app.
   `examples/bench/`: the benchmark scene. `examples/images/`: a photo feed. `examples/dungeon/`:
-  Dungeon Run.
+  Dungeon Run. `examples/popups/`: a right-click menu and a dropdown in popup windows.
 - `templates/app/`: the starter app.
 - `dev/`: build, release and platform scripts.
 

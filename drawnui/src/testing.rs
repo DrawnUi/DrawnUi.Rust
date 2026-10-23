@@ -278,6 +278,46 @@ impl<S: 'static> Headless<S> {
         std::mem::take(&mut self.ui.tree.history_ops)
     }
 
+    /// Plays a desktop host that shows popup windows in windows of their own (`on`), or one that
+    /// leaves them on the canvas (the default, as the browser).
+    pub fn popup_windows(&mut self, on: bool) {
+        self.ui.set_popup_windows(on);
+    }
+
+    /// The popup windows a desktop host would show after the last frame.
+    pub fn popup_window_requests(&self) -> Vec<crate::PopupWindowRequest> {
+        self.ui.popup_window_requests(self.scale).collect()
+    }
+
+    /// Plays the host making the window of popup `id`: its size in pixels, scale and corner
+    /// relative to the canvas (canvas pixels), then everything settles.
+    pub fn place_popup_window(&mut self, id: u32, width: f32, height: f32, scale: f32, offset: skia_safe::Point) {
+        self.ui.popup_window_placed(id, width, height, scale, offset);
+        self.settle();
+    }
+
+    /// The popup window `id` drawn into a surface of `width` x `height` pixels.
+    pub fn draw_popup_window(&mut self, id: u32, width: i32, height: i32) -> Surface {
+        let mut surface = surfaces::raster(&ImageInfo::new_n32_premul((width, height), None), None, None).expect("raster surface");
+        self.ui.draw_popup(id, surface.canvas(), &mut self.gpu);
+        surface
+    }
+
+    /// A tap in the popup window `id`, at its pixel position, as `tap`.
+    pub fn popup_tap(&mut self, id: u32, x: f32, y: f32) {
+        self.ui.popup_pointer(id, PointerKind::Down, MouseButton::Left, x, y, self.time_ms);
+        self.frame();
+        self.ui.popup_pointer(id, PointerKind::Up, MouseButton::Left, x, y, self.time_ms);
+        self.settle();
+    }
+
+    /// The mouse moves over the popup window `id` (`Some` pixel), or leaves it, then a frame.
+    pub fn popup_hover(&mut self, id: u32, at: Option<(f32, f32)>) {
+        let (kind, (x, y)) = at.map_or((PointerKind::Leave, (0.0, 0.0)), |at| (PointerKind::Hover, at));
+        self.ui.popup_pointer(id, kind, MouseButton::Left, x, y, self.time_ms);
+        self.frame_after(16.0);
+    }
+
     /// The drawing rect of a control, pixels.
     pub fn rect(&self, id: impl Into<ControlId>) -> Rect {
         self.ui.tree.base(id).map(|b| b.rect).unwrap_or_default()

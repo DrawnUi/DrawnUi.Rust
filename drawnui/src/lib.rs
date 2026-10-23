@@ -21,6 +21,7 @@ mod keyboard;
 mod layout;
 mod lottie;
 mod paint;
+mod popups;
 pub mod testing;
 mod tree;
 mod types;
@@ -36,6 +37,7 @@ pub use gestures::{ContextMenuSource, Gesture, GestureKind, LONG_PRESS_MS, Manip
 pub use gpu::{GlTarget, Gpu, GpuApi, VulkanHandles};
 pub use images::{Frames, ImageRequest, Images};
 pub use keyboard::{Cursor, InputKey, KEY_CODES, KeyEvent, KeyKind, Keyboard, Modifiers, key_name};
+pub use popups::{PopupAnchor, PopupId, PopupWindowOptions, PopupWindowRequest, place_popup};
 pub use tree::{Base, Build, Container, ControlId, ControlProps, Cx, Detached, Handle, IntoChildren, Mut, Tree};
 pub use ui::{ACCESSIBILITY_INTERVAL_MS, AccessibilityNode, AccessibilityTextLine, AccessibilityValue, Aria, ContextMenu, FrameStats, HistoryOp};
 pub use types::{
@@ -103,7 +105,7 @@ pub mod prelude {
         AccessibilityNode, AnimationId, Aria, Build, CacheType, FramesBuild, FramesSet, Container, ContextMenu, ContextMenuSource, Control,
         ControlId, CornerRadius, Cursor, Cx, Dirty, Easing, Gesture, GestureCx, GestureKind, GradientType, Handle, Handled,
         Has, InputKey, IntoChildren, KeyEvent, KeyKind, Keyboard, LayoutCx, LayoutOptions, LockTouch, Modifiers,
-        MouseButton, Mut, PaintCx, GesturesMode, GpuBackend, RenderingModeType, SkiaGradient, SkiaShadow, Thickness, Ui, ValueAnimator, Waker, easing, props,
+        MouseButton, Mut, PaintCx, PopupAnchor, PopupId, PopupWindowOptions, GesturesMode, GpuBackend, RenderingModeType, SkiaGradient, SkiaShadow, Thickness, Ui, ValueAnimator, Waker, easing, props,
     };
 }
 
@@ -185,6 +187,13 @@ pub struct Host {
     /// Set by a host with an event loop to wake from other threads (desktop, mobile): the app's
     /// [`Waker`] calls it.
     pub(crate) wake: Option<Box<dyn Fn() + Send + Sync>>,
+    /// Set by a host that shows popup windows in windows of their own (the desktop, not Wayland):
+    /// without it the app draws them on its canvas.
+    pub(crate) popup_windows_on: bool,
+    /// The popup windows the app shows, after every frame (`Cx::open_popup_window`). A host with
+    /// `popup_windows_on` makes a window for each new one, closes the windows of the ones gone,
+    /// and draws them with [`App::popup_frame`].
+    pub popup_windows: Vec<PopupWindowRequest>,
 }
 
 /// A picture the host decoded, ready to draw.
@@ -361,6 +370,27 @@ pub trait App {
     fn image(&mut self, _id: u32, _decoded: Option<Decoded>) {}
     /// The bitmap a worker made of a [`BakeRequest`]; `None` when none could be made.
     fn baked(&mut self, _id: u32, _image: Option<skia::Image>) {}
+    /// The host placed the popup window `id` (`Host::popup_windows`): its size in pixels, its
+    /// scale, and its top-left corner relative to the app window's canvas, in the canvas's pixels.
+    /// Told again when any of them changes.
+    fn popup_window_placed(&mut self, _id: u32, _width: f32, _height: f32, _scale: f32, _offset: skia::Point) {}
+    /// Draws the popup window `id` into its own surface, after the frame of the app's window laid
+    /// it out. `frame.width` / `height` / `scale` are the popup window's.
+    fn popup_frame(&mut self, _id: u32, _frame: &mut Frame) {}
+    /// After a frame of the app's window: whether the popup window `id` shows something else than
+    /// when it was last drawn. A host draws it only then (and when its surface is new).
+    fn popup_needs_frame(&self, _id: u32) -> bool {
+        true
+    }
+    /// Pointer input over the popup window `id`, in its pixels; as [`App::pointer_button`].
+    fn popup_pointer(&mut self, _id: u32, _kind: PointerKind, _button: MouseButton, _x: f32, _y: f32, _time_ms: f64) {}
+    /// The mouse wheel over the popup window `id`, in its pixels; as [`App::wheel`].
+    fn popup_wheel(&mut self, _id: u32, _x: f32, _y: f32, _delta: f32, _horizontal: bool, _time_ms: f64) -> bool {
+        false
+    }
+    /// The app's windows lost the keyboard to another app: every popup window closes, as native
+    /// menus do.
+    fn close_popup_windows(&mut self) {}
 }
 
 static MAX_FPS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);

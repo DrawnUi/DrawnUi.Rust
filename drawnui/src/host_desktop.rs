@@ -15,7 +15,9 @@ use std::{
 #[cfg(target_os = "android")]
 use android_gpu::Presenter;
 #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
-use gl::Presenter;
+use gl::{PopupTarget, Presenter};
+#[cfg(target_os = "macos")]
+use metal::PopupTarget;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use metal::Presenter;
 use winit::{
@@ -92,6 +94,15 @@ struct Desktop {
     images: Sender<ImageRequest>,
     /// ImageDoubleBuffered pictures go to the bake workers through it.
     bakes: Sender<BakeRequest>,
+    /// The popup windows open (`Cx::open_popup_window`), drawn in the frames of the app's window.
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    popups: Vec<PopupWindow>,
+    /// The window of ours that has the keyboard (`None`: another app's), and whether it went to
+    /// another app since the last events: the popup windows close then.
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    focus: Option<WindowId>,
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    focus_lost: bool,
     /// The window's Skia surface. GL keeps one until the size changes (`None` = make it at the
     /// next frame); Metal wraps each frame's drawable and drops it once presented.
     surface: Option<skia::Surface>,
@@ -255,6 +266,13 @@ impl Desktop {
         // The desktop has no keyboard navigation but ours: Tab, arrows in groups, Enter / Space,
         // Escape, the focus ring; it needs the accessibility snapshot, also for screen readers.
         let mut host = Host { bake_workers: true, keyboard_navigation: true, accessibility_on: true, ..Host::default() };
+        // Popup windows in windows of their own, except on Wayland (a window cannot place itself
+        // there; they stay on the canvas) and on phones.
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        {
+            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            host.popup_windows_on = !matches!(window.window_handle().map(|h| h.as_raw()), Ok(RawWindowHandle::Wayland(_)));
+        }
         let waking = std::sync::Mutex::new(proxy.clone());
         host.wake = Some(Box::new(move || {
             let _ = waking.lock().map(|proxy| proxy.send_event(Arrived::Wake));
@@ -269,6 +287,12 @@ impl Desktop {
             host,
             images: image_workers(proxy.clone()),
             bakes: bake_workers(proxy.clone()),
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
+            popups: Vec::new(),
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
+            focus: None,
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
+            focus_lost: false,
             surface: None,
             gpu,
             cpu,
@@ -602,6 +626,8 @@ impl Desktop {
             }
         };
         self.presenter.end_frame(&mut self.gpu, &mut self.surface);
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        self.draw_popups(time_ms);
         // A new accessibility snapshot (built only while a screen reader is connected).
         if let Some(nodes) = self.host.accessibility.take() {
             self.access_focus = host_access::refocus(&nodes, self.access_focus, height / scale.max(0.1));
@@ -657,11 +683,16 @@ impl Desktop {
             self.key(KeyKind::Char, "", &text, false);
         }
         if let Some(cursor) = self.host.cursor.take() {
-            self.window.set_cursor(match cursor {
+            let icon = match cursor {
                 Cursor::Default => CursorIcon::Default,
                 Cursor::Pointer => CursorIcon::Pointer,
                 Cursor::Text => CursorIcon::Text,
-            });
+            };
+            self.window.set_cursor(icon);
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
+            for popup in &self.popups {
+                popup.window.set_cursor(icon);
+            }
         }
         if let Some(area) = self.host.text_input.take() {
             // The IME composes over the focused editor; games and plain controls get raw keys.
@@ -1642,6 +1673,16 @@ impl ApplicationHandler<Arrived> for Desktop {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        {
+            // The keyboard went to another app (not from one of our windows to another): popup
+            // windows close, as native menus do.
+            if std::mem::take(&mut self.focus_lost) && self.focus.is_none() && !self.popups.is_empty() {
+                self.app.close_popup_windows();
+                self.redraw();
+            }
+            self.sync_popups(event_loop);
+        }
         #[cfg(target_os = "android")]
         if self.ime_open {
             self.take_soft_keyboard_text();
@@ -1703,7 +1744,27 @@ impl ApplicationHandler<Arrived> for Desktop {
         self.redraw();
     }
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        {
+            if let WindowEvent::Focused(focused) = event {
+                if focused {
+                    self.focus = Some(id);
+                } else if self.focus == Some(id) {
+                    (self.focus, self.focus_lost) = (None, true);
+                }
+            }
+            if id != self.window.id() {
+                // Keys typed while a popup window has the keyboard (macOS) are the app's, as in
+                // its window; everything else is the popup's own.
+                if !matches!(event, WindowEvent::KeyboardInput { .. } | WindowEvent::ModifiersChanged(_) | WindowEvent::Ime(_)) {
+                    self.popup_event(id, event);
+                    return;
+                }
+            }
+        }
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        let _ = id;
         if let Some(access) = &mut self.access {
             access.process_event(&self.window, &event);
         }
@@ -1892,6 +1953,315 @@ impl ApplicationHandler<Arrived> for Desktop {
             }
             WindowEvent::RedrawRequested => self.draw(),
             _ => {}
+        }
+    }
+}
+
+/// A popup window (`Cx::open_popup_window`): frameless, on top of every window, no taskbar or Dock
+/// entry; on Windows it never takes the activation (WS_EX_NOACTIVATE), on X11 the window manager
+/// leaves it alone (override-redirect). Field order is drop order: the surface before what it
+/// draws on, the window last.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+struct PopupWindow {
+    id: u32,
+    surface: Option<skia::Surface>,
+    target: PopupTarget,
+    window: Window,
+    /// What the app asked for when it was placed: another size places it again.
+    request: crate::PopupWindowRequest,
+    /// Shown once its first frame is drawn (no flash of an empty window).
+    shown: bool,
+    /// Its surface is new (made, resized): the next frame draws it whatever changed.
+    stale: bool,
+    cursor: (f32, f32),
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+impl Desktop {
+    /// The popup windows follow what the app asked for in its last frame: new ones are made
+    /// (hidden until drawn), the ones it closed go, one whose size changed is placed again.
+    fn sync_popups(&mut self, event_loop: &ActiveEventLoop) {
+        if !self.host.popup_windows_on {
+            return;
+        }
+        let before = self.popups.len();
+        let requests = &self.host.popup_windows;
+        self.popups.retain(|p| requests.iter().any(|r| r.id == p.id));
+        let mut changed = before != self.popups.len();
+        for i in 0..self.host.popup_windows.len() {
+            let request = self.host.popup_windows[i];
+            match self.popups.iter().position(|p| p.id == request.id) {
+                Some(index) if self.popups[index].request == request => {}
+                Some(index) => {
+                    let (position, size, _) = self.place_popup(event_loop, &request);
+                    let popup = &mut self.popups[index];
+                    popup.request = request;
+                    popup.window.set_outer_position(position);
+                    let _ = popup.window.request_inner_size(size);
+                    changed = true;
+                }
+                None => {
+                    let (position, size, _) = self.place_popup(event_loop, &request);
+                    let attributes = popup_attributes(&self.window).with_position(position).with_inner_size(size);
+                    let Some((window, target)) = self.presenter.popup_window(event_loop, attributes) else {
+                        eprintln!("drawnui: no popup window could be made");
+                        continue;
+                    };
+                    self.popups.push(PopupWindow { id: request.id, surface: None, target, window, request, shown: false, stale: true, cursor: (0.0, 0.0) });
+                    self.popup_placed(self.popups.len() - 1);
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            self.redraw();
+        }
+    }
+
+    /// Where the popup goes on the screen: at its anchor on the monitor the anchor is on, inside
+    /// that monitor's work area, flipped like a native menu where it does not fit. Windows and X11
+    /// place windows in physical pixels of one desktop; macOS in points.
+    fn place_popup(
+        &self,
+        event_loop: &ActiveEventLoop,
+        request: &crate::PopupWindowRequest,
+    ) -> (winit::dpi::Position, winit::dpi::Size, f64) {
+        let main_scale = self.window.scale_factor();
+        let origin = self.window.inner_position().unwrap_or_default();
+        let global = |x: f64, y: f64, scale: f64| if cfg!(target_os = "macos") { (x / scale, y / scale) } else { (x, y) };
+        let (ox, oy) = global(origin.x as f64, origin.y as f64, main_scale);
+        // The anchor from the canvas's pixels to the screen.
+        let (ax, ay) = global(request.anchor.left as f64, request.anchor.top as f64, main_scale);
+        let (aw, ah) = global(request.anchor.width() as f64, request.anchor.height() as f64, main_scale);
+        let anchor = skia::Rect::from_xywh((ox + ax) as f32, (oy + ay) as f32, aw as f32, ah as f32);
+        let bounds_of = |m: &winit::monitor::MonitorHandle| {
+            let (scale, position, size) = (m.scale_factor(), m.position(), m.size());
+            let (x, y) = global(position.x as f64, position.y as f64, scale);
+            let (w, h) = global(size.width as f64, size.height as f64, scale);
+            skia::Rect::from_xywh(x as f32, y as f32, w as f32, h as f32)
+        };
+        let on = |m: &winit::monitor::MonitorHandle| skia::Contains::contains(&bounds_of(m), skia::Point::new(anchor.left, anchor.top));
+        let monitor = event_loop.available_monitors().find(on).or_else(|| self.window.current_monitor());
+        let (scale, bounds) = match &monitor {
+            Some(m) => (m.scale_factor(), work_area(m).unwrap_or_else(|| bounds_of(m))),
+            None => (main_scale, skia::Rect::from_xywh(anchor.left, anchor.top, 1e6, 1e6)),
+        };
+        let size = if cfg!(target_os = "macos") { request.size } else { skia::Size::new(request.size.width * scale as f32, request.size.height * scale as f32) };
+        let size = skia::Size::new(size.width.ceil().max(1.0), size.height.ceil().max(1.0));
+        let rect = crate::place_popup(anchor, request.point, size, bounds);
+        if cfg!(target_os = "macos") {
+            let position = winit::dpi::LogicalPosition::new(rect.left as f64, rect.top as f64);
+            (position.into(), winit::dpi::LogicalSize::new(rect.width() as f64, rect.height() as f64).into(), scale)
+        } else {
+            let position = winit::dpi::PhysicalPosition::new(rect.left as i32, rect.top as i32);
+            (position.into(), winit::dpi::PhysicalSize::new(rect.width() as u32, rect.height() as u32).into(), scale)
+        }
+    }
+
+    /// Tells the app where the popup window is: its size in pixels, its scale, its corner from
+    /// the canvas's corner in the canvas's pixels.
+    fn popup_placed(&mut self, index: usize) {
+        let popup = &self.popups[index];
+        let (size, scale) = (popup.window.inner_size(), popup.window.scale_factor());
+        let (Ok(at), Ok(origin)) = (popup.window.inner_position(), self.window.inner_position()) else { return };
+        let offset = if cfg!(target_os = "macos") {
+            let main_scale = self.window.scale_factor();
+            let (x, y) = (at.x as f64 / scale - origin.x as f64 / main_scale, at.y as f64 / scale - origin.y as f64 / main_scale);
+            skia::Point::new((x * main_scale) as f32, (y * main_scale) as f32)
+        } else {
+            skia::Point::new((at.x - origin.x) as f32, (at.y - origin.y) as f32)
+        };
+        let id = popup.id;
+        self.app.popup_window_placed(id, size.width as f32, size.height as f32, scale as f32, offset);
+    }
+
+    /// Draws every popup window after the app's window's frame laid them out; each is shown with
+    /// its first frame.
+    fn draw_popups(&mut self, time_ms: f64) {
+        for popup in self.popups.iter_mut() {
+            // Unchanged: its window keeps showing the last frame.
+            if !popup.stale && !self.app.popup_needs_frame(popup.id) {
+                continue;
+            }
+            popup.stale = false;
+            let size = popup.window.inner_size();
+            let (width, height) = (size.width.max(1), size.height.max(1));
+            let Some(surface) = self.presenter.begin_popup(&mut popup.target, &mut self.gpu, &mut popup.surface, width, height) else { continue };
+            let scale = popup.window.scale_factor() as f32;
+            let gpu = match &mut self.cpu {
+                Some(cpu) => &mut cpu.gpu,
+                None => &mut self.gpu,
+            };
+            let mut frame = Frame { surface, gpu, width: width as f32, height: height as f32, scale, time_ms, host: &mut self.host };
+            self.app.popup_frame(popup.id, &mut frame);
+            self.presenter.end_frame(&mut self.gpu, &mut popup.surface);
+            self.presenter.present_popup(&mut popup.target, &mut popup.surface);
+            if !popup.shown {
+                popup.shown = true;
+                popup.window.set_visible(true);
+                // After showing: winit writes the extended style again when it shows the window.
+                #[cfg(windows)]
+                win::no_activate(&popup.window);
+            }
+        }
+    }
+
+    /// An event of a popup window: the mouse over it, its size, its scale.
+    fn popup_event(&mut self, id: WindowId, event: WindowEvent) {
+        let Some(index) = self.popups.iter().position(|p| p.window.id() == id) else { return };
+        let (popup_id, now) = (self.popups[index].id, self.now_ms());
+        match event {
+            WindowEvent::CursorMoved { position, .. } => {
+                let (x, y) = (position.x as f32, position.y as f32);
+                self.popups[index].cursor = (x, y);
+                let (kind, button) = self.pressed.map_or((PointerKind::Hover, MouseButton::Left), |b| (PointerKind::Move, b));
+                self.app.popup_pointer(popup_id, kind, button, x, y, now);
+                self.redraw();
+            }
+            WindowEvent::CursorLeft { .. } if self.pressed.is_none() => {
+                let (x, y) = self.popups[index].cursor;
+                self.app.popup_pointer(popup_id, PointerKind::Leave, MouseButton::Left, x, y, now);
+                self.redraw();
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                let Some(button) = mouse_button(button) else { return };
+                let (x, y) = self.popups[index].cursor;
+                if state == ElementState::Pressed {
+                    self.pressed.get_or_insert(button);
+                    self.app.popup_pointer(popup_id, PointerKind::Down, button, x, y, now);
+                } else {
+                    if self.pressed == Some(button) {
+                        self.pressed = None;
+                    }
+                    self.app.popup_pointer(popup_id, PointerKind::Up, button, x, y, now);
+                }
+                self.redraw();
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let (x, y) = match delta {
+                    MouseScrollDelta::LineDelta(x, y) => (x, y),
+                    MouseScrollDelta::PixelDelta(p) => {
+                        let notch = 100.0 * self.popups[index].window.scale_factor();
+                        ((p.x / notch) as f32, (p.y / notch) as f32)
+                    }
+                };
+                let (dominant, horizontal) = if y.abs() >= x.abs() { (y, false) } else { (x, true) };
+                let (cx, cy) = self.popups[index].cursor;
+                if self.app.popup_wheel(popup_id, cx, cy, dominant, horizontal, now) {
+                    self.redraw();
+                }
+            }
+            WindowEvent::Resized(size) => {
+                let popup = &mut self.popups[index];
+                (popup.surface, popup.stale) = (None, true);
+                self.presenter.resize_popup(&popup.target, &popup.window, size.width, size.height);
+                self.popup_placed(index);
+                self.redraw();
+            }
+            WindowEvent::ScaleFactorChanged { .. } | WindowEvent::Moved(_) => {
+                self.popup_placed(index);
+                self.redraw();
+            }
+            // Shown or uncovered: X11 keeps nothing of a window that was not on screen (what the
+            // first frame drew before it was mapped is gone), it is drawn again.
+            WindowEvent::RedrawRequested => {
+                self.popups[index].stale = true;
+                self.redraw();
+            }
+            _ => {}
+        }
+    }
+}
+
+/// A popup window: frameless, on top, no taskbar entry, not resizable, transparent where nothing
+/// is drawn (round corners), hidden until its first frame, not activated when shown. Windows: owned
+/// by the app's window (it stays above it and goes with it). X11: override-redirect (the window
+/// manager does not decorate, move or focus it).
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+fn popup_attributes(main: &Window) -> WindowAttributes {
+    let attributes = WindowAttributes::default()
+        .with_title("")
+        .with_decorations(false)
+        .with_resizable(false)
+        .with_transparent(true)
+        .with_visible(false)
+        .with_active(false)
+        .with_window_level(winit::window::WindowLevel::AlwaysOnTop);
+    #[cfg(windows)]
+    let attributes = {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use winit::platform::windows::WindowAttributesExtWindows;
+        let attributes = attributes.with_skip_taskbar(true);
+        match main.window_handle().map(|h| h.as_raw()) {
+            Ok(RawWindowHandle::Win32(handle)) => attributes.with_owner_window(handle.hwnd.get()),
+            _ => attributes,
+        }
+    };
+    #[cfg(target_os = "linux")]
+    let attributes = {
+        use winit::platform::x11::{WindowAttributesExtX11, WindowType};
+        let _ = main;
+        attributes.with_override_redirect(true).with_x11_window_type(vec![WindowType::PopupMenu])
+    };
+    #[cfg(target_os = "macos")]
+    let _ = main;
+    attributes
+}
+
+/// The part of the monitor windows may cover (Windows: without the taskbar). `None`: the whole
+/// monitor (other systems give no work area through winit).
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+fn work_area(monitor: &winit::monitor::MonitorHandle) -> Option<skia::Rect> {
+    #[cfg(windows)]
+    {
+        use winit::platform::windows::MonitorHandleExtWindows;
+        let mut info = win::MonitorInfo { size: std::mem::size_of::<win::MonitorInfo>() as u32, ..Default::default() };
+        // SAFETY: `info` is a MONITORINFO with its size set; the handle is winit's live monitor.
+        if unsafe { win::GetMonitorInfoW(monitor.hmonitor(), &mut info) } != 0 {
+            let [l, t, r, b] = info.work;
+            return Some(skia::Rect::new(l as f32, t as f32, r as f32, b as f32));
+        }
+        None
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = monitor;
+        None
+    }
+}
+
+/// Windows API the popup windows need beyond winit.
+#[cfg(windows)]
+mod win {
+    #[derive(Default)]
+    #[repr(C)]
+    pub(super) struct MonitorInfo {
+        pub size: u32,
+        pub monitor: [i32; 4],
+        pub work: [i32; 4],
+        pub flags: u32,
+    }
+
+    const GWL_EXSTYLE: i32 = -20;
+    const WS_EX_NOACTIVATE: isize = 0x0800_0000;
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        pub(super) fn GetMonitorInfoW(monitor: isize, info: *mut MonitorInfo) -> i32;
+        fn GetWindowLongPtrW(window: isize, index: i32) -> isize;
+        fn SetWindowLongPtrW(window: isize, index: i32, value: isize) -> isize;
+    }
+
+    /// A click on the window never activates it (native menus): the app's window keeps the
+    /// keyboard and its title bar stays active.
+    pub(super) fn no_activate(window: &winit::window::Window) {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        let Ok(RawWindowHandle::Win32(handle)) = window.window_handle().map(|h| h.as_raw()) else { return };
+        let hwnd = handle.hwnd.get();
+        // SAFETY: a live window of this thread.
+        unsafe {
+            let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE);
         }
     }
 }
@@ -2597,6 +2967,64 @@ mod gl {
                 gl_surface.resize(&self.gl_context, NonZeroU32::new(width).unwrap(), NonZeroU32::new(height).unwrap());
             }
         }
+
+        /// A popup window (`Cx::open_popup_window`) with the app window's GL config, and its own
+        /// GL surface for the same context: one Skia context draws every window. Its swaps do not
+        /// wait for vsync (the app's window paces the frames, both are drawn in one frame).
+        #[cfg(not(target_os = "android"))]
+        pub(super) fn popup_window(
+            &mut self,
+            event_loop: &winit::event_loop::ActiveEventLoop,
+            attributes: WindowAttributes,
+        ) -> Option<(Window, PopupTarget)> {
+            use glutin::prelude::PossiblyCurrentGlContext;
+            let window = glutin_winit::finalize_window(event_loop, attributes, &self.gl_config).ok()?;
+            let gl_surface = window_surface(&self.gl_config, &window);
+            if self.gl_context.make_current(&gl_surface).is_ok() {
+                let _ = gl_surface.set_swap_interval(&self.gl_context, SwapInterval::DontWait);
+            }
+            self.make_main_current();
+            Some((window, PopupTarget { gl_surface }))
+        }
+
+        /// The popup's surface, current: the default framebuffer of its window, wrapped once per size.
+        pub(super) fn begin_popup<'a>(
+            &mut self,
+            target: &mut PopupTarget,
+            gpu: &mut Gpu,
+            surface: &'a mut Option<skia::Surface>,
+            width: u32,
+            height: u32,
+        ) -> Option<&'a mut skia::Surface> {
+            use glutin::prelude::PossiblyCurrentGlContext;
+            self.gl_context.make_current(&target.gl_surface).ok()?;
+            if surface.is_none() {
+                *surface = gpu.window_surface(width as i32, height as i32, self.samples, self.stencil);
+            }
+            surface.as_mut()
+        }
+
+        /// Shows the popup's frame; the app's window is current again.
+        pub(super) fn present_popup(&mut self, target: &mut PopupTarget, _surface: &mut Option<skia::Surface>) {
+            let _ = target.gl_surface.swap_buffers(&self.gl_context);
+            self.make_main_current();
+        }
+
+        pub(super) fn resize_popup(&mut self, target: &PopupTarget, _window: &Window, width: u32, height: u32) {
+            target.gl_surface.resize(&self.gl_context, NonZeroU32::new(width.max(1)).unwrap(), NonZeroU32::new(height.max(1)).unwrap());
+        }
+
+        fn make_main_current(&self) {
+            use glutin::prelude::PossiblyCurrentGlContext;
+            if let Some(main) = &self.gl_surface {
+                let _ = self.gl_context.make_current(main);
+            }
+        }
+    }
+
+    /// A popup window's GL surface (`Presenter::popup_window`).
+    pub(super) struct PopupTarget {
+        gl_surface: GlSurfaceHandle<WindowSurface>,
     }
 
     /// A GL surface on the window, its size.
@@ -2793,6 +3221,78 @@ mod metal {
             self.layer.setContentsScale(window.scale_factor());
             self.layer.setDrawableSize(CGSize::new(width as f64, height as f64));
         }
+
+        /// A popup window (`Cx::open_popup_window`) with a layer of its own on the same device and
+        /// queue: one Skia context draws every window. The layer is not opaque (a popup with round
+        /// corners), and it does not wait for the display (the app's window paces the frames).
+        #[cfg(target_os = "macos")]
+        pub(super) fn popup_window(
+            &mut self,
+            event_loop: &winit::event_loop::ActiveEventLoop,
+            attributes: winit::window::WindowAttributes,
+        ) -> Option<(Window, PopupTarget)> {
+            let window = event_loop.create_window(attributes).ok()?;
+            let layer = CAMetalLayer::new();
+            layer.setDevice(Some(&self.device));
+            layer.setPixelFormat(MTLPixelFormat::BGRA8Unorm);
+            layer.setFramebufferOnly(false);
+            layer.setPresentsWithTransaction(false);
+            layer.setOpaque(false);
+            layer.setDisplaySyncEnabled(false);
+            let RawWindowHandle::AppKit(handle) = window.window_handle().ok()?.as_raw() else { return None };
+            // SAFETY: winit's view lives as long as the window, which outlives the layer's use.
+            let view = unsafe { &*(handle.ns_view.as_ptr() as *const NSView) };
+            view.setWantsLayer(true);
+            view.setLayer(Some(&layer.clone().into_super()));
+            let target = PopupTarget { drawable: None, layer };
+            let size = window.inner_size();
+            self.resize_popup(&target, &window, size.width.max(1), size.height.max(1));
+            Some((window, target))
+        }
+
+        /// The popup's frame surface on its layer's next drawable.
+        #[cfg(target_os = "macos")]
+        pub(super) fn begin_popup<'a>(
+            &mut self,
+            target: &mut PopupTarget,
+            gpu: &mut Gpu,
+            surface: &'a mut Option<skia::Surface>,
+            _width: u32,
+            _height: u32,
+        ) -> Option<&'a mut skia::Surface> {
+            let drawable = target.layer.nextDrawable()?;
+            let size = target.layer.drawableSize();
+            let texture = drawable.texture();
+            // SAFETY: the texture belongs to the drawable, kept until `present_popup` drops the surface.
+            *surface = unsafe { gpu.drawable_surface(Retained::as_ptr(&texture) as mtl::Handle, size.width as i32, size.height as i32) };
+            target.drawable = Some(drawable);
+            surface.as_mut()
+        }
+
+        #[cfg(target_os = "macos")]
+        pub(super) fn present_popup(&mut self, target: &mut PopupTarget, surface: &mut Option<skia::Surface>) {
+            *surface = None;
+            let Some(drawable) = target.drawable.take() else { return };
+            autoreleasepool(|_| {
+                let Some(commands) = self.queue.commandBuffer() else { return };
+                let drawable: Retained<ProtocolObject<dyn MTLDrawable>> = (&drawable).into();
+                commands.presentDrawable(&drawable);
+                commands.commit();
+            });
+        }
+
+        #[cfg(target_os = "macos")]
+        pub(super) fn resize_popup(&self, target: &PopupTarget, window: &Window, width: u32, height: u32) {
+            target.layer.setContentsScale(window.scale_factor());
+            target.layer.setDrawableSize(CGSize::new(width as f64, height as f64));
+        }
+    }
+
+    /// A popup window's layer and the drawable of its frame (`Presenter::popup_window`).
+    #[cfg(target_os = "macos")]
+    pub(super) struct PopupTarget {
+        drawable: Option<Retained<ProtocolObject<dyn CAMetalDrawable>>>,
+        layer: Retained<CAMetalLayer>,
     }
 }
 

@@ -110,3 +110,11 @@ Open, not solved yet: frame interval p99 of 25 to 33 ms at 20,000 draw calls on 
     with only the ARM64 libraries does not have: point `CC_aarch64_pc_windows_msvc` /
     `CXX_aarch64_pc_windows_msvc` at LLVM's clang-cl, which built Skia already.
     `dev\skia-binaries.ps1 -Target aarch64-pc-windows-msvc` does both.
+
+18. **A popup window that never takes the activation.** `WS_EX_NOACTIVATE` keeps a click on a
+    popup window (a menu) from activating it, so the app's window keeps the keyboard and its active
+    title bar. Set it with `SetWindowLongPtrW(GWL_EXSTYLE)` after the window is shown: winit writes
+    the extended style again when it shows a window (`set_visible`), and a style set before that is
+    gone. `with_active(false)` alone only shows it without activating (SW_SHOWNOACTIVATE). A second
+    GL window drawn with the same context: its own window surface, made current for its frame, swap
+    interval DontWait (the app's window keeps vsync: frame interval p50 16.66 ms with a popup open).

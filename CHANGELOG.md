@@ -4,6 +4,19 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## Unreleased
+
+### Added
+
+- Popup windows (`Cx::open_popup_window`, `PopupAnchor`, `PopupWindowOptions`, `PopupId`): any
+  controls shown over everything from a point, a rect or a control, placed as native menus are
+  (flipped where the screen ends). On Windows, macOS and Linux X11 each one is a window of its own that
+  may extend past the app's window (frameless, on top, no taskbar entry; on Windows it never takes the
+  activation); in the browser, on Android, iOS and Wayland it is drawn on the canvas. It closes on a
+  press outside, Escape, the app losing the keyboard, or `close_on_pointer_leave`. Hosts:
+  `Host::popup_windows`, `App::popup_frame` and the other `App::popup_*` methods. Example
+  `examples/popups`.
+
 ## 0.1.0-preview.11 (crates.io, 2026-10-21)
 
 ### Added

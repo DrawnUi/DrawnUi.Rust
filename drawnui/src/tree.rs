@@ -658,6 +658,10 @@ pub struct Tree {
     pub(crate) visibility_epoch: u64,
     /// `visibility_epoch` as the animators last followed it.
     pub(crate) animators_visibility: u64,
+    /// The popup windows open (`Cx::open_popup_window`), the last one on top; their roots are
+    /// roots of this tree besides `root`.
+    pub(crate) popups: Vec<crate::popups::Popup>,
+    pub(crate) popup_next_id: u32,
 }
 
 impl Tree {

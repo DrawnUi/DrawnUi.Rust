@@ -224,6 +224,10 @@ const POINTER_FINGER: u64 = u64::MAX;
 
 type UiKeyHandler<S> = Box<dyn FnMut(&mut S, &KeyEvent<'_>, &mut Cx<'_>) -> bool>;
 
+/// Queued pointer input: kind, button, a finger, location, arrival time in ms, `Some(id)` for a
+/// finger other than the one that drives the pointer, the popup window it came from.
+type PointerInput = (PointerKind, MouseButton, bool, Point, f64, Option<u64>, Option<u32>);
+
 pub struct Ui<S: 'static> {
     pub tree: Tree,
     pub state: S,
@@ -236,9 +240,7 @@ pub struct Ui<S: 'static> {
     gpu_backend: GpuBackend,
     /// DrawnUI `Canvas.Gestures`, read by the browser host at start.
     gestures: GesturesMode,
-    /// (kind, button, a finger, location, arrival time in ms, `Some(id)` for a finger other than
-    /// the one that drives the pointer).
-    input: VecDeque<(PointerKind, MouseButton, bool, Point, f64, Option<u64>)>,
+    input: VecDeque<PointerInput>,
     recognizer: Recognizer,
     /// The fingers down, for pinch and turn (`Gesture::manipulation`).
     fingers: Multitouch,
@@ -318,6 +320,18 @@ pub struct Ui<S: 'static> {
     accessibility_roles: Vec<(std::any::TypeId, &'static str)>,
     /// Children sorted by z order while the router walks them (`Routing::by_z`).
     by_z: Vec<ControlId>,
+    /// The host shows popup windows in windows of their own (`Host::popup_windows_on`); else
+    /// they are drawn on the canvas.
+    popup_windows_on: bool,
+    /// The popup window the input being routed came from (`None`: the app's window).
+    input_popup: Option<u32>,
+    /// The popup window the press began in, and the one the mouse is over.
+    press_popup: Option<u32>,
+    hover_popup: Option<u32>,
+    /// A press outside the popups closed them: the rest of that press goes nowhere (native menus).
+    eating_press: bool,
+    /// When the mouse left the last window it was over (`close_on_pointer_leave`).
+    left_all_at: Option<f64>,
 }
 
 /// The FPS overlay: frames per second over the last half second of frames drawn one after the
@@ -430,6 +444,12 @@ impl<S: 'static> Ui<S> {
             accessibility_revision: 0,
             accessibility_roles: Vec::new(),
             by_z: Vec::new(),
+            popup_windows_on: false,
+            input_popup: None,
+            press_popup: None,
+            hover_popup: None,
+            eating_press: false,
+            left_all_at: None,
         }
     }
 
@@ -615,7 +635,8 @@ impl<S: 'static> Ui<S> {
     pub fn wake_at(&self) -> Option<f64> {
         // React OnFrameEnd: a frame inside the interval brings one more frame when it has passed.
         let accessibility = (self.accessibility_on && self.accessibility_stale).then(|| self.accessibility_built_ms + ACCESSIBILITY_INTERVAL_MS);
-        [animators::next_wake(&self.tree), self.recognizer.long_press_due(), accessibility]
+        let leave = self.left_all_at.filter(|_| self.tree.popups.iter().any(|p| p.options.close_on_pointer_leave));
+        [animators::next_wake(&self.tree), self.recognizer.long_press_due(), accessibility, leave.map(|at| at + crate::popups::LEAVE_GRACE_MS)]
             .into_iter()
             .flatten()
             .filter(|t| *t > self.tree.time_ms)
@@ -657,21 +678,30 @@ impl<S: 'static> Ui<S> {
     /// Queues pointer input of any button. Hover moves are coalesced: only the last one before a
     /// frame is routed.
     pub fn pointer_button(&mut self, kind: PointerKind, button: MouseButton, x: f32, y: f32, time_ms: f64) {
-        self.queue_pointer(kind, button, false, x, y, time_ms);
+        self.queue_pointer(kind, button, false, x, y, time_ms, None);
     }
 
     /// Queues the input of a finger (`Gesture::touch`), as `pointer`.
     pub fn pointer_touch(&mut self, kind: PointerKind, x: f32, y: f32, time_ms: f64) {
-        self.queue_pointer(kind, MouseButton::Left, true, x, y, time_ms);
+        self.queue_pointer(kind, MouseButton::Left, true, x, y, time_ms, None);
     }
 
-    fn queue_pointer(&mut self, kind: PointerKind, button: MouseButton, touch: bool, x: f32, y: f32, time_ms: f64) {
+    /// Queues pointer input over the popup window `id`, in its pixels, as `pointer_button`.
+    /// Ignored for a popup that is closed.
+    pub fn popup_pointer(&mut self, id: u32, kind: PointerKind, button: MouseButton, x: f32, y: f32, time_ms: f64) {
+        if self.tree.popups.iter().any(|p| p.id == id) {
+            self.queue_pointer(kind, button, false, x, y, time_ms, Some(id));
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn queue_pointer(&mut self, kind: PointerKind, button: MouseButton, touch: bool, x: f32, y: f32, time_ms: f64, popup: Option<u32>) {
         if kind == PointerKind::Down && std::mem::take(&mut self.focus_ring) {
             self.tree.needs_frame = true;
         }
-        let event = (kind, button, touch, Point::new(x, y), time_ms, None);
+        let event = (kind, button, touch, Point::new(x, y), time_ms, None, popup);
         if kind == PointerKind::Hover
-            && let Some(last) = self.input.back_mut().filter(|last| last.0 == PointerKind::Hover)
+            && let Some(last) = self.input.back_mut().filter(|last| last.0 == PointerKind::Hover && last.6 == popup)
         {
             *last = event;
             return;
@@ -683,27 +713,33 @@ impl<S: 'static> Ui<S> {
     /// `finger` tells them apart): while the pointer is pressed, its moves make Panning gestures
     /// with `Gesture::manipulation` (pinch and turn), and the press is no tap any more.
     pub fn pointer_finger(&mut self, finger: u64, kind: PointerKind, x: f32, y: f32, time_ms: f64) {
-        self.input.push_back((kind, MouseButton::Left, true, Point::new(x, y), time_ms, Some(finger)));
+        self.input.push_back((kind, MouseButton::Left, true, Point::new(x, y), time_ms, Some(finger), None));
     }
 
     /// Routes a vertical wheel event now, after the pointer input that is still queued: the host
     /// must know at once whether a control used it (DrawnUI LastInputUsed). `delta` is in notches,
     /// positive = up (toward the start).
     pub fn wheel(&mut self, x: f32, y: f32, delta: f32, time_ms: f64) -> bool {
-        self.wheel_on_axis(x, y, delta, false, time_ms)
+        self.wheel_on_axis(x, y, delta, false, time_ms, None)
+    }
+
+    /// A wheel event over the popup window `id`, in its pixels, as `wheel` / `wheel_horizontal`.
+    pub fn popup_wheel(&mut self, id: u32, x: f32, y: f32, delta: f32, horizontal: bool, time_ms: f64) -> bool {
+        self.tree.popups.iter().any(|p| p.id == id) && self.wheel_on_axis(x, y, delta, horizontal, time_ms, Some(id))
     }
 
     /// A horizontal wheel event (a tilted wheel, the sideways part of a touchpad swipe), as
     /// `wheel`; positive = left (toward the start). A vertical scroll leaves it.
     pub fn wheel_horizontal(&mut self, x: f32, y: f32, delta: f32, time_ms: f64) -> bool {
-        self.wheel_on_axis(x, y, delta, true, time_ms)
+        self.wheel_on_axis(x, y, delta, true, time_ms, None)
     }
 
-    fn wheel_on_axis(&mut self, x: f32, y: f32, delta: f32, horizontal: bool, time_ms: f64) -> bool {
+    fn wheel_on_axis(&mut self, x: f32, y: f32, delta: f32, horizontal: bool, time_ms: f64, popup: Option<u32>) -> bool {
         if self.fonts_pending > 0 || delta == 0.0 {
             return false;
         }
         self.flush_input();
+        self.input_popup = popup;
         // Timers started by a wheel handler count from now, not from the last frame.
         self.tree.time_ms = self.tree.time_ms.max(time_ms);
         let mut gesture = plain_gesture(GestureKind::Wheel, Point::new(x, y), time_ms);
@@ -721,12 +757,14 @@ impl<S: 'static> Ui<S> {
             return false;
         }
         self.flush_input();
+        self.input_popup = None;
         self.tree.time_ms = self.tree.time_ms.max(time_ms);
         let mut gesture = plain_gesture(GestureKind::ContextMenu, Point::new(x, y), time_ms);
         gesture.source = source;
         let consumed = self.process_gesture(gesture);
-        if self.used(consumed) {
-            return true;
+        // Over a popup the app's own fallback does not open another one.
+        if self.used(consumed) || self.popup_on_canvas_at(Point::new(x, y)).is_some() {
+            return consumed.is_some();
         }
         let Some(fallback) = self.context_menu.as_mut() else { return false };
         let pixels = Point::new(x, y);
@@ -782,6 +820,15 @@ impl<S: 'static> Ui<S> {
             *state_dirty = true;
         }
         self.apply_focus_request();
+        // Escape that nothing used closes the top popup window (native menus).
+        if !handled
+            && kind == KeyKind::Down
+            && key == "Escape"
+            && let Some(top) = self.tree.popups.last().map(|p| p.id)
+        {
+            self.tree.close_popup(top);
+            return true;
+        }
         if !handled && kind == KeyKind::Down {
             if self.keyboard_navigation {
                 handled = self.navigate(key, modifiers.shift);
@@ -847,7 +894,10 @@ impl<S: 'static> Ui<S> {
     fn tab_stops(&self) -> Vec<ControlId> {
         let mut stops = Vec::new();
         let mut groups = Vec::new();
-        for n in self.tree.accessibility.iter().filter(|n| n.can_interact) {
+        // While popup windows are open, Tab stays in the top one.
+        let top = self.tree.popups.last().map(|p| p.root);
+        let in_scope = |control: ControlId| top.is_none_or(|top| self.tree.popup_of(control).is_some_and(|p| p.root == top));
+        for n in self.tree.accessibility.iter().filter(|n| n.can_interact && in_scope(n.control)) {
             match self.group_of(n.control) {
                 None => stops.push(n.control),
                 Some(group) if !groups.contains(&group) => {
@@ -1009,9 +1059,15 @@ impl<S: 'static> Ui<S> {
 
     /// The ring around the control the keyboard is on (C# DrawnView, 2 points of #6EA8FE, 2 points
     /// outside it, corners of 6), drawn over everything once the keyboard moved the focus.
-    fn draw_focus_ring(&self, canvas: &Canvas, scale: f32) {
+    /// The ring around the control the keyboard is on, when it is drawn on this canvas: the app's
+    /// window (`popup` None, popups on the canvas included) or the popup window with that root.
+    fn draw_focus_ring(&self, canvas: &Canvas, scale: f32, popup: Option<ControlId>) {
         // The browser draws its own ring around the overlay element.
         let Some(focused) = self.accessibility_focused().filter(|_| self.focus_ring && self.keyboard_navigation) else { return };
+        let window = self.tree.popup_of(focused).filter(|_| self.popup_windows_on).map(|p| p.root);
+        if window != popup {
+            return;
+        }
         // Not over a control that is not shown (C# draws it only where the control was drawn): a
         // page kept under the one pushed over it hides its controls.
         if !shown(&self.tree, focused) || !self.tree.accessibility.iter().any(|n| n.control == focused && n.can_interact) {
@@ -1178,9 +1234,10 @@ impl<S: 'static> Ui<S> {
         let Some(control) = self.tree.nodes.get(id as usize).and_then(|n| n.as_ref()).map(|n| n.id) else { return };
         let Some(rect) = self.tree.base(control).map(|b| b.rect) else { return };
         let scale = self.scale.max(0.1);
-        let location = match self.tree.accessibility.iter().find(|n| n.control == control) {
+        let in_window = self.popup_windows_on && self.tree.popup_of(control).is_some();
+        let location = match self.tree.accessibility.iter().find(|n| n.control == control).filter(|_| !in_window) {
             Some(n) => Point::new(n.rect.center_x() * scale, n.rect.center_y() * scale),
-            None => Point::new(rect.center_x(), rect.center_y()),
+            None => drawn_rect(&self.tree, control).map_or(Point::new(rect.center_x(), rect.center_y()), |r| Point::new(r.center_x(), r.center_y())),
         };
         let mut gesture = plain_gesture(GestureKind::Tapped, location, self.tree.time_ms);
         gesture.start = location;
@@ -1270,18 +1327,32 @@ impl<S: 'static> Ui<S> {
     }
 
     fn flush_input(&mut self) {
-        while let Some((kind, button, touch, location, time_ms, finger)) = self.input.pop_front() {
+        while let Some((kind, button, touch, location, time_ms, finger, popup)) = self.input.pop_front() {
+            self.input_popup = popup;
             if let Some(finger) = finger {
                 self.flush_finger(finger, kind, location, time_ms);
                 continue;
+            }
+            if kind == PointerKind::Hover {
+                self.left_all_at = None;
+                self.hover_popup = popup;
             }
             match kind {
                 // While content moves under the mouse, hover waits (one check when it stops).
                 PointerKind::Hover if self.hover_paused => self.last_pointer = Some(location),
                 PointerKind::Hover => self.hover(Some(location), time_ms),
-                // Leaving the canvas ends hover at once, also while content moves.
-                PointerKind::Leave => self.hover(None, time_ms),
+                // Leaving the canvas ends hover at once, also while content moves. Leaving a
+                // window the mouse already moved on from (into a popup window) changes nothing.
+                PointerKind::Leave if popup == self.hover_popup => {
+                    self.hover(None, time_ms);
+                    self.left_all_at = Some(time_ms);
+                }
+                PointerKind::Leave => {}
                 _ => {
+                    if kind == PointerKind::Down {
+                        self.press_popup = popup;
+                    }
+                    let scale = self.surface_scale(popup);
                     // The pointer is the first finger the fingers are measured from.
                     let manipulation = match kind {
                         PointerKind::Down if !self.recognizer.is_pressed() => {
@@ -1292,7 +1363,7 @@ impl<S: 'static> Ui<S> {
                         _ => None,
                     };
                     let touches = self.fingers.count().max(1) as u32;
-                    for mut gesture in self.recognizer.feed(kind, button, touch, location, time_ms, self.scale).into_iter().flatten() {
+                    for mut gesture in self.recognizer.feed(kind, button, touch, location, time_ms, scale).into_iter().flatten() {
                         gesture.touches = touches;
                         if gesture.kind == GestureKind::Panning {
                             gesture.manipulation = manipulation;
@@ -1307,8 +1378,121 @@ impl<S: 'static> Ui<S> {
         }
         // The press was held long enough: fires once, between the frames' input.
         if let Some(gesture) = self.recognizer.long_press(self.tree.time_ms) {
+            self.input_popup = self.press_popup;
             self.process_gesture(gesture);
         }
+    }
+
+    /// Pixels per point of the app's window, or of the popup window `popup`.
+    fn surface_scale(&self, popup: Option<u32>) -> f32 {
+        popup.and_then(|id| self.tree.popups.iter().find(|p| p.id == id)).map_or(self.scale, |p| p.scale)
+    }
+
+    /// The root of the popup drawn on the canvas under the pixel, the top one first.
+    fn popup_on_canvas_at(&self, point: Point) -> Option<ControlId> {
+        if self.popup_windows_on {
+            return None;
+        }
+        self.tree.popups.iter().rev().find(|p| skia_safe::Contains::contains(&p.rect, point)).map(|p| p.root)
+    }
+
+    /// Lays out the popup windows after the app's root: each measured at its scale (its window's,
+    /// else the canvas's) to its own size or the size asked for, then placed: on the canvas at its
+    /// anchor, kept inside `content`; in its window from 0, 0 at the size the host gave it.
+    fn layout_popups(&mut self, content: Rect, scale: f32) {
+        let mut popups = std::mem::take(&mut self.tree.popups);
+        for p in popups.iter_mut() {
+            let s = match p.window {
+                Some((_, s, _)) if self.popup_windows_on => s,
+                _ => scale,
+            };
+            let (w, h) = p.options.size.map_or((f32::INFINITY, f32::INFINITY), |size| (size.width * s, size.height * s));
+            let measured = layout::measure(&mut self.tree, &self.fonts, &self.state, p.root, w, h, s);
+            p.wanted = Size::new(measured.width / s, measured.height / s);
+            p.scale = s;
+            p.rect = match p.window {
+                Some((size, ..)) if self.popup_windows_on => Rect::from_size(size),
+                _ if self.popup_windows_on => Rect::from_size(measured),
+                _ => {
+                    let (anchor, point) = p.anchor.pixels(&self.tree, scale);
+                    crate::popups::place_popup(anchor, point, measured, content)
+                }
+            };
+            // Cut to the screen (the canvas): measured again inside what is left, so a scroll in
+            // it scrolls.
+            if p.rect.width() < measured.width || p.rect.height() < measured.height {
+                layout::measure(&mut self.tree, &self.fonts, &self.state, p.root, p.rect.width(), p.rect.height(), s);
+            }
+            layout::arrange(&mut self.tree, &self.fonts, &self.state, p.root, p.rect, s);
+        }
+        self.tree.popups = popups;
+    }
+
+    /// The host shows popup windows in windows of their own (`Host::popup_windows_on`).
+    pub(crate) fn set_popup_windows(&mut self, on: bool) {
+        self.popup_windows_on = on;
+    }
+
+    /// What a host with popup windows shows, for the canvas at `scale`.
+    pub(crate) fn popup_window_requests(&self, scale: f32) -> impl Iterator<Item = crate::PopupWindowRequest> + '_ {
+        self.tree.popups.iter().map(move |p| {
+            let (anchor, point) = p.anchor.pixels(&self.tree, scale);
+            crate::PopupWindowRequest { id: p.id, anchor, point, size: p.wanted }
+        })
+    }
+
+    /// The host placed the popup window `id`: its size in pixels, its scale, its corner relative
+    /// to the canvas in the canvas's pixels.
+    pub fn popup_window_placed(&mut self, id: u32, width: f32, height: f32, scale: f32, offset: Point) {
+        if let Some(p) = self.tree.popups.iter_mut().find(|p| p.id == id) {
+            p.window = Some((Size::new(width, height), scale, offset));
+            self.tree.needs_frame = true;
+        }
+    }
+
+    /// What the popup window shows now, to compare with what it showed (`Popup::painted`).
+    fn popup_paint_key(&self, p: &crate::popups::Popup) -> crate::popups::PaintKey {
+        let epoch = self.tree.base(p.root).map_or(0, |b| b.content_epoch);
+        let ring = self.accessibility_focused().filter(|f| self.focus_ring && self.tree.popup_of(*f).is_some_and(|q| q.root == p.root));
+        (epoch, self.tree.gpu_epoch, p.rect, p.scale, ring)
+    }
+
+    /// The popup window `id` would show something else than it showed when last painted: a host
+    /// paints it only then, not with every frame of the app's window.
+    pub fn popup_needs_paint(&self, id: u32) -> bool {
+        self.tree.popups.iter().find(|p| p.id == id).is_some_and(|p| p.painted != Some(self.popup_paint_key(p)))
+    }
+
+    /// Paints the popup window `id` onto its own canvas, after the frame of the app's window laid
+    /// it out.
+    pub fn draw_popup(&mut self, id: u32, canvas: &Canvas, gpu: &mut Gpu) {
+        canvas.clear(Color::TRANSPARENT);
+        let Some(index) = self.tree.popups.iter().position(|p| p.id == id) else { return };
+        let key = self.popup_paint_key(&self.tree.popups[index]);
+        let p = &mut self.tree.popups[index];
+        p.painted = Some(key);
+        let (root, rect, scale) = (p.root, p.rect, p.scale);
+        let Tree { nodes, render, drops, animators, bakes, .. } = &mut self.tree;
+        let image_blits = std::cell::Cell::new(0);
+        let mut cx = PaintCx {
+            canvas,
+            rect,
+            scale,
+            id: root,
+            fonts: &self.fonts,
+            nodes,
+            animators,
+            render,
+            drops,
+            gpu,
+            bakes,
+            offthread: false,
+            target: None,
+            playback_distorted: false,
+            image_blits: &image_blits,
+        };
+        paint::render(&mut cx, root);
+        self.draw_focus_ring(canvas, scale, Some(root));
     }
 
     /// Another finger than the pointer's, while the pointer is pressed: a second finger makes the
@@ -1474,6 +1658,7 @@ impl<S: 'static> Ui<S> {
         if !std::mem::take(&mut self.tree.hover_check) || self.last_pointer.is_none() || self.recognizer.is_pressed() {
             return;
         }
+        self.input_popup = self.hover_popup;
         self.hover(self.last_pointer, time_ms);
     }
 
@@ -1553,13 +1738,27 @@ impl<S: 'static> Ui<S> {
         }
         self.apply_focus_request();
         self.update_fps_labels();
+        // The mouse stayed outside every window: popups that close then close.
+        if let Some(at) = self.left_all_at
+            && time_ms - at >= crate::popups::LEAVE_GRACE_MS
+        {
+            self.left_all_at = None;
+            let leaving: Vec<u32> = self.tree.popups.iter().filter(|p| p.options.close_on_pointer_leave).map(|p| p.id).collect();
+            for id in leaving {
+                self.tree.close_popup(id);
+            }
+        }
         layout::commit(&mut self.tree);
+        if self.hover_popup.is_some_and(|id| !self.tree.popups.iter().any(|p| p.id == id)) {
+            self.hover_popup = None;
+        }
         animators::follow_visibility(&mut self.tree, time_ms);
 
         let root = self.tree.root;
         if let Some(root) = root {
             layout::measure(&mut self.tree, &self.fonts, &self.state, root, content.width(), content.height(), scale);
             layout::arrange(&mut self.tree, &self.fonts, &self.state, root, content, scale);
+            self.layout_popups(content, scale);
             // Image handlers run before the bitmap is first painted.
             if images::dispatch(&mut self.tree, &mut self.state) {
                 self.state_dirty = true;
@@ -1586,7 +1785,7 @@ impl<S: 'static> Ui<S> {
         let (Some(root), true) = (self.tree.root, laid_out) else { return };
         let full = content;
 
-        let Tree { nodes, render, drops, animators, bakes, .. } = &mut self.tree;
+        let Tree { nodes, render, drops, animators, bakes, popups, .. } = &mut self.tree;
         let fonts = &self.fonts;
         let image_blits = std::cell::Cell::new(0);
         let mut cx = PaintCx {
@@ -1607,6 +1806,13 @@ impl<S: 'static> Ui<S> {
             image_blits: &image_blits,
         };
         paint::render(&mut cx, root);
+        // Popup windows drawn on the canvas, over everything.
+        if !self.popup_windows_on {
+            for p in popups.iter() {
+                (cx.id, cx.rect) = (p.root, p.rect);
+                paint::render(&mut cx, p.root);
+            }
+        }
         // Shader files and textures paint found missing are fetched; arrived ones reach their effects.
         crate::effects::after_paint(&mut self.tree);
         // React OnCompilationError: shader effects that failed to compile or load during that paint.
@@ -1619,7 +1825,7 @@ impl<S: 'static> Ui<S> {
         }
         let frame_time_ms = started.elapsed().as_secs_f32() * 1000.0;
         self.tree.frame_stats = FrameStats { frame_time_ms, fps: self.frame_times.len() as u32 };
-        self.draw_focus_ring(canvas, scale);
+        self.draw_focus_ring(canvas, scale, None);
         self.fps.measure(time_ms);
         if self.fps.on {
             self.fps.draw(canvas, &self.fonts, content.bottom(), scale);
@@ -1647,7 +1853,24 @@ impl<S: 'static> Ui<S> {
         let mut list = std::mem::take(&mut self.accessibility_next);
         list.clear();
         let mut stack = std::mem::take(&mut self.accessibility_stack);
-        stack.push((root, Matrix::new_identity(), None));
+        // The app's root, then the popup windows over it, each read on its own: a popup in a
+        // window of its own maps from its pixels to the canvas's, wherever it is on the screen.
+        let mut main_len = 0;
+        for seed in 0..=self.tree.popups.len() {
+            let (seed_root, seed_matrix, popup) = match seed.checked_sub(1).map(|i| &self.tree.popups[i]) {
+                None => (root, Matrix::new_identity(), false),
+                Some(p) if !self.popup_windows_on => (p.root, Matrix::new_identity(), true),
+                Some(p) => match p.window {
+                    Some((_, own, offset)) => {
+                        let mut m = Matrix::translate(offset);
+                        m.pre_scale((scale / own.max(0.1), scale / own.max(0.1)), None);
+                        (p.root, m, true)
+                    }
+                    // Not shown yet.
+                    None => continue,
+                },
+            };
+            stack.push((seed_root, seed_matrix, None));
         while let Some((id, matrix, parent)) = stack.pop() {
             let mut below_parent = parent;
             let Some(node) = self.tree.node(id) else { continue };
@@ -1668,7 +1891,7 @@ impl<S: 'static> Ui<S> {
             };
             if !role.is_empty() && role != Aria::PRESENTATION {
                 let rect = matrix.map_rect(node.base.rect).0;
-                let outside = rect.right < -width || rect.bottom < -height || rect.left > 2.0 * width || rect.top > 2.0 * height;
+                let outside = !popup && (rect.right < -width || rect.bottom < -height || rect.left > 2.0 * width || rect.top > 2.0 * height);
                 if rect.width() > 0.0 && rect.height() > 0.0 && !outside {
                     let label = match p.accessibility_label.as_str() {
                         "" => kind.and_then(|k| k.accessibility_label()).map(|l| l.into_owned()).unwrap_or_default(),
@@ -1703,21 +1926,13 @@ impl<S: 'static> Ui<S> {
             // Reversed: children come off the stack in tree order, which equal positions keep.
             stack.extend(node.children.iter().rev().map(|c| (*c, below, below_parent)));
         }
-        list.sort_by(|a, b| a.rect.top.total_cmp(&b.rect.top).then(a.rect.left.total_cmp(&b.rect.left)));
-        // Reading order (C# SkiaAccessibilityManager): nodes whose tops are within half the smaller
-        // height of the row's first one form a row, read left to right, so a row of vertically
-        // centered controls of different heights keeps its visual order.
-        let mut row = 0;
-        for i in 1..=list.len() {
-            if let Some(next) = list.get(i).map(|n| n.rect) {
-                let first = list[row].rect;
-                if next.top - first.top < first.height().min(next.height()) / 2.0 {
-                    continue;
-                }
+            if seed == 0 {
+                main_len = list.len();
             }
-            list[row..i].sort_by(|a, b| a.rect.left.total_cmp(&b.rect.left));
-            row = i;
         }
+        let (app, popups) = list.split_at_mut(main_len);
+        reading_order(app);
+        reading_order(popups);
         // The arrow-key group of each node and the group's item that holds it.
         for i in 0..list.len() {
             let (mut at, mut group) = (list[i].parent, None);
@@ -1801,7 +2016,31 @@ impl<S: 'static> Ui<S> {
     }
 
     fn route_gesture(&mut self, gesture: Gesture) -> Option<ControlId> {
-        let root = self.tree.root?;
+        let pressing = matches!(
+            gesture.kind,
+            GestureKind::Down | GestureKind::Panning | GestureKind::Up | GestureKind::Tapped | GestureKind::LongPressing
+        );
+        let root = match self.input_popup {
+            Some(id) => self.tree.popups.iter().find(|p| p.id == id)?.root,
+            None => match self.popup_on_canvas_at(gesture.location) {
+                Some(root) => root,
+                None => {
+                    // A press outside the popup windows closes them and goes nowhere, as a click
+                    // beside a native menu does; a right click still asks for a new menu there.
+                    if gesture.kind == GestureKind::Down {
+                        self.eating_press = !self.tree.popups.is_empty();
+                        Cx { tree: &mut self.tree }.close_popup_windows();
+                    }
+                    if self.eating_press && pressing {
+                        return None;
+                    }
+                    self.tree.root?
+                }
+            },
+        };
+        if gesture.kind == GestureKind::Down {
+            self.eating_press = false;
+        }
         let claimed_before = self.tree.focus_request.is_some();
         let routing = Routing { state: &mut self.state, state_dirty: &mut self.state_dirty, over: &mut self.over_next, by_z: &mut self.by_z };
         let mut router = Router { tree: &mut self.tree, r: routing, pressed: None };
@@ -1869,6 +2108,24 @@ const GROUP_KEYS: [&str; 8] = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"
 const GROUP_ROLES: [&str; 8] = [Aria::LIST, Aria::LIST_BOX, Aria::GRID, Aria::TOOLBAR, Aria::RADIO_GROUP, Aria::TAB_LIST, Aria::MENU, Aria::MENU_BAR];
 
 /// The control and every control above it are visible (C# IsVisible, IsHiddenByAncestor).
+/// Reading order (C# SkiaAccessibilityManager): top to bottom; nodes whose tops are within half the
+/// smaller height of the row's first one form a row, read left to right, so a row of vertically
+/// centered controls of different heights keeps its visual order.
+fn reading_order(list: &mut [AccessibilityNode]) {
+    list.sort_by(|a, b| a.rect.top.total_cmp(&b.rect.top).then(a.rect.left.total_cmp(&b.rect.left)));
+    let mut row = 0;
+    for i in 1..=list.len() {
+        if let Some(next) = list.get(i).map(|n| n.rect) {
+            let first = list[row].rect;
+            if next.top - first.top < first.height().min(next.height()) / 2.0 {
+                continue;
+            }
+        }
+        list[row..i].sort_by(|a, b| a.rect.left.total_cmp(&b.rect.left));
+        row = i;
+    }
+}
+
 fn shown(tree: &Tree, id: ControlId) -> bool {
     let mut at = Some(id);
     while let Some(control) = at {
@@ -1882,7 +2139,7 @@ fn shown(tree: &Tree, id: ControlId) -> bool {
 
 /// Where a control is drawn on the canvas, pixels: its rect through every render matrix and
 /// scroll offset above it, as the accessibility snapshot maps it.
-fn drawn_rect(tree: &Tree, id: ControlId) -> Option<Rect> {
+pub(crate) fn drawn_rect(tree: &Tree, id: ControlId) -> Option<Rect> {
     let mut path = vec![id];
     while let Some(parent) = tree.parent(*path.last()?) {
         path.push(parent);
@@ -2678,7 +2935,7 @@ impl<S: 'static> App for Ui<S> {
     }
 
     fn wheel(&mut self, x: f32, y: f32, delta: f32, horizontal: bool, time_ms: f64) -> bool {
-        Ui::wheel_on_axis(self, x, y, delta, horizontal, time_ms)
+        Ui::wheel_on_axis(self, x, y, delta, horizontal, time_ms, None)
     }
 
     fn context_menu(&mut self, x: f32, y: f32, source: ContextMenuSource, time_ms: f64) -> bool {
@@ -2791,6 +3048,7 @@ impl<S: 'static> App for Ui<S> {
         self.tree.history_enabled = frame.host.history_on;
         self.keyboard_navigation = frame.host.keyboard_navigation;
         self.tree.bakes.enabled = frame.host.bake_workers;
+        self.popup_windows_on = frame.host.popup_windows_on;
         if frame.host.accessibility_on != self.accessibility_on {
             self.set_accessibility_enabled(frame.host.accessibility_on);
         }
@@ -2826,8 +3084,36 @@ impl<S: 'static> App for Ui<S> {
         if std::mem::take(&mut self.tree.paste_requested) {
             frame.host.request_paste();
         }
+        frame.host.popup_windows.clear();
+        if self.popup_windows_on {
+            frame.host.popup_windows.extend(self.popup_window_requests(frame.scale));
+        }
         frame.host.wake_ms = self.wake_at();
         self.needs_frame()
+    }
+
+    fn popup_window_placed(&mut self, id: u32, width: f32, height: f32, scale: f32, offset: Point) {
+        Ui::popup_window_placed(self, id, width, height, scale, offset)
+    }
+
+    fn popup_frame(&mut self, id: u32, frame: &mut Frame) {
+        self.draw_popup(id, frame.surface.canvas(), frame.gpu)
+    }
+
+    fn popup_needs_frame(&self, id: u32) -> bool {
+        Ui::popup_needs_paint(self, id)
+    }
+
+    fn popup_pointer(&mut self, id: u32, kind: PointerKind, button: MouseButton, x: f32, y: f32, time_ms: f64) {
+        Ui::popup_pointer(self, id, kind, button, x, y, time_ms)
+    }
+
+    fn popup_wheel(&mut self, id: u32, x: f32, y: f32, delta: f32, horizontal: bool, time_ms: f64) -> bool {
+        Ui::popup_wheel(self, id, x, y, delta, horizontal, time_ms)
+    }
+
+    fn close_popup_windows(&mut self) {
+        Cx { tree: &mut self.tree }.close_popup_windows();
     }
 }
 

@@ -104,3 +104,10 @@ were fixed. Short, for anyone porting a Rust + Skia library to Linux. Add every 
     gone) makes the next Orca hang at start, and its watchdog kills it ("Killed", the log ends at
     "Launching"), or it starts but speaks nothing: stop speech-dispatcher and remove
     `$XDG_RUNTIME_DIR/speech-dispatcher` between runs.
+
+14. **A popup window (override-redirect) stayed black.** X11 keeps nothing drawn into a window
+    before it is mapped. The host drew the popup's first frame, then mapped it, and drew it again only
+    when its content changed: it stayed black. A popup is drawn again on its `RedrawRequested`
+    (Expose). Also: the window gets the GL config's visual, opaque (depth 24), so it is not
+    transparent where nothing is drawn. WSLg focuses a new window then takes the focus away, which
+    closes popups as losing the keyboard should; test with the app in front.

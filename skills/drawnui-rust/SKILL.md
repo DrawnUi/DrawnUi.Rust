@@ -1,6 +1,6 @@
 ---
 name: drawnui-rust
-description: Building apps with DrawnUI for Rust (the `drawnui` crate, Skia via skia-safe) for Windows, Linux, Android and the browser — adding drawnui to a project (crates.io, Skia downloaded prebuilt with no setup, the starter template), the browser (wasm32-unknown-emscripten) build setup every app must copy into its own .cargo/config.toml, above all the 1 MB wasm stack and its overflow check, how to recognize and prove a wasm stack overflow, the web host page, the Linux build (clang 16+, X11 / Wayland, icon, clipboard), the Android app (GameActivity, Gradle, 16 KB pages, soft keyboard, TalkBack), and transforms in 2D and 3D (rotation_x / rotation_y with perspective, translation_z depth, a card's back side, cached content and taps under 3D). Load before building or debugging any Rust app that uses drawnui, especially its web or Android build, and before turning, flipping or scaling controls.
+description: Building apps with DrawnUI for Rust (the `drawnui` crate, Skia via skia-safe) for Windows, Linux, Android and the browser — adding drawnui to a project (crates.io, Skia downloaded prebuilt with no setup, the starter template), the browser (wasm32-unknown-emscripten) build setup every app must copy into its own .cargo/config.toml, above all the 1 MB wasm stack and its overflow check, how to recognize and prove a wasm stack overflow, the web host page, the Linux build (clang 16+, X11 / Wayland, icon, clipboard), the Android app (GameActivity, Gradle, 16 KB pages, soft keyboard, TalkBack), transforms in 2D and 3D (rotation_x / rotation_y with perspective, translation_z depth, a card's back side, cached content and taps under 3D), and popup windows (context menus and dropdowns that open past the app window's edge). Load before building or debugging any Rust app that uses drawnui, especially its web or Android build, before turning, flipping or scaling controls, and before opening menus or popups.
 ---
 
 # DrawnUI for Rust: building an app
@@ -508,6 +508,58 @@ fingers on every press gesture. A second finger makes the press no tap and no lo
 Down (`Handled::Yes`) to own the press, then read `manipulation` on its Panning. Android, iOS and
 the browser send the other fingers; in the browser use `GesturesMode::Lock` so the page does not
 zoom instead. Tests: `Headless::pinch(center, from, to, duration_ms, steps)`.
+
+## Popup windows (context menus, dropdowns)
+
+`cx.open_popup_window(content, anchor, options)` shows any controls over everything and returns a
+`PopupId`. On the desktop (Windows, macOS, Linux on X11) the popup is a window of its own, so it can
+open past the edges of a small app window, the way native menus do: frameless, always on top, no
+taskbar or Dock entry, on the monitor where it opens, at that monitor's scale. On Windows it never
+takes the activation, so the app keeps the keyboard. In the browser, on Android and iOS, and on
+Wayland it is drawn on the canvas and kept inside it. The code is the same everywhere.
+
+```rust
+// A right-click menu where the click was.
+ui.on_context_menu(|app: &mut App, menu, cx| {
+    app.popup = Some(cx.open_popup_window(my_menu(), menu.location, PopupWindowOptions::default()));
+    true
+})
+// A dropdown below its button: anchor it to the control.
+SkiaButton::new("Fruit").assign(&mut app.fruit).on_tapped(|_me, app: &mut App, cx| {
+    app.popup = Some(cx.open_popup_window(fruit_list(), app.fruit, PopupWindowOptions::default()));
+})
+// An item picks and closes.
+.on_tapped(|_me, app: &mut App, cx| {
+    if let Some(popup) = app.popup.take() {
+        cx.close_popup_window(popup);
+    }
+})
+```
+
+- The anchor is a point (canvas points, e.g. `menu.location`), a `Rect`, or a control (a handle or a
+  `ControlId`). A point opens the popup with its top-left corner there. A rect or a control opens it
+  below, left edges together. Where the screen ends, it opens on the other side.
+- Size: what the content measures to, or `options.size` in points. A popup taller than the screen is
+  cut to the screen, and its content is measured again inside it, so a scroll in it scrolls.
+- The window is transparent where nothing is drawn: give the panel its own background and round corners
+  if you like. Exception: Linux X11, where the window is opaque and the corners outside a round panel
+  show dark.
+- It closes on a press outside it (that press reaches nothing, as with a native menu; a right click
+  outside still asks for a context menu, so the next menu opens there), on Escape, when the app loses
+  the keyboard to another app, and on `cx.close_popup_window(id)` / `cx.close_popup_windows()`.
+  With `PopupWindowOptions { close_on_pointer_leave: true, .. }` it also closes once the mouse has been
+  outside both the popup and the app's window for 300 ms. `cx.is_popup_window_open(id)` says if it is
+  still open.
+- Its content is part of the app's tree: the same state, fonts and handlers. Taps, hover, the wheel and
+  screen readers work as in the window, and Tab stays inside the top popup. Give menu items
+  `accessibility_role(Aria::MENU_ITEM)`.
+- An open popup that does not change costs no frame time: it is drawn again only when its content
+  changes.
+- `SkiaShell`'s `open_popup` is a different thing: content centered over a dimmed page, inside the app.
+- Tests: `Headless::popup_windows(true)` plays a desktop host. Then `popup_window_requests()`,
+  `place_popup_window(id, width, height, scale, offset)`, `draw_popup_window(id, w, h)`,
+  `popup_tap(id, x, y)` and `popup_hover(id, at)` drive the popup's window. Without that call, popups
+  are on the canvas, as in the browser.
 
 ## Switching input off
 
