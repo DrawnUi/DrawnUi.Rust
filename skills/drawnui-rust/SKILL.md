@@ -6,7 +6,9 @@ description: Building apps with DrawnUI for Rust (the `drawnui` crate, Skia via 
 # DrawnUI for Rust: building an app
 
 Load `drawnui` too for engine semantics (layouts, caching, gestures): the Rust engine keeps the
-same public contract as DrawnUI for .NET and React.
+same public contract as DrawnUI for .NET and React. Porting an existing DrawnUI .NET app or control
+(C# or XAML) to Rust: load `drawnui-port-net-to-rust` as well, for the workflow and the C# to Rust
+mapping.
 
 ## Add drawnui to a project
 

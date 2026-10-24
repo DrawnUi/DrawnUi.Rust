@@ -7,6 +7,7 @@
 Save under `~/.claude/skills/<name>/SKILL.md` (or your agent's skill folder) to teach your agent DrawnUI for Rust.
 
 - [DrawnUI Rust skill](https://hellorust.drawnui.net/skills/drawnui-rust/SKILL.md): the browser build every app must copy (link flags, the 1 MB wasm stack and its overflow check), the web host page and version stamps, Windows build, app icon, assets next to the exe, cache types, no console window in release
+- [Porting .NET DrawnUI to Rust](https://hellorust.drawnui.net/skills/drawnui-port-net-to-rust/SKILL.md): porting an existing DrawnUI .NET app, page or custom control (C# or XAML) — the workflow, the C# to Rust mapping table, what replaces bindings, commands, ObservableCollection and async chains, custom controls with props!, a worked example
 - [DrawnUI framework skill](https://drawnui.net/skills/drawnui/SKILL.md): the engine itself — controls, layouts, caching, gestures, virtualization (the Rust engine keeps the same public contract)
 - Everything inlined: https://hellorust.drawnui.net/llms-full.txt
 

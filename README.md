@@ -180,6 +180,11 @@ build with its link flags and web page, Android, icons, accessibility.
   https://hellorust.drawnui.net/skills/drawnui-rust/SKILL.md
 - **Install for Claude Code:** save it as `~/.claude/skills/drawnui-rust/SKILL.md` (or in your
   agent's skill or rules folder).
+- **Porting a DrawnUI .NET app or control to Rust:**
+  [`skills/drawnui-port-net-to-rust/SKILL.md`](skills/drawnui-port-net-to-rust/SKILL.md), also at
+  https://hellorust.drawnui.net/skills/drawnui-port-net-to-rust/SKILL.md: the workflow, the C# to
+  Rust mapping (containers, properties, bindings, handlers, animations, lists, custom controls) and
+  a worked example.
 - **For any LLM:** https://hellorust.drawnui.net/llms.txt and
   https://hellorust.drawnui.net/llms-full.txt (every skill in one file).
 - **The DrawnUI framework skill** (controls, layouts, caching across all DrawnUI engines):

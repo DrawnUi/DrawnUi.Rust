@@ -16,6 +16,8 @@ version before it. Commits in parentheses.
   press outside, Escape, the app losing the keyboard, or `close_on_pointer_leave`. Hosts:
   `Host::popup_windows`, `App::popup_frame` and the other `App::popup_*` methods. Example
   `examples/popups`.
+- AI skill `skills/drawnui-port-net-to-rust`: porting DrawnUI .NET apps and controls to Rust
+  (workflow, C# to Rust mapping, custom controls, a worked example).
 
 ## 0.1.0-preview.11 (crates.io, 2026-10-21)
 
