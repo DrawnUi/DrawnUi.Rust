@@ -4,6 +4,17 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## 0.1.0-preview.16 (crates.io, 2026-10-25)
+
+### Changed
+
+- Frosted glass (SkiaBackdrop) follows every transform: inside a scaled, moved, rotated or 3D-turned
+  parent it shows exactly what is behind it, with the same blur on screen.
+
+### Toolchain
+
+Skia crates unchanged (0.153.7).
+
 ## 0.1.0-preview.15 (crates.io, 2026-10-25)
 
 ### Changed
