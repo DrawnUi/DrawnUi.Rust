@@ -768,6 +768,42 @@ mod tests {
         assert!(host.ui.tree.find::<SkiaBackdrop>(glass).unwrap().copies() >= 1, "the glass copied what is behind");
     }
 
+    /// The Shell page's turned frosted glass: the buttons turn and tilt it, and its backdrop copies
+    /// what is behind it again at every new angle.
+    #[test]
+    fn the_shell_turned_glass_rotates_tilts_and_resets() {
+        let mut host = host(1600);
+        open_page(&mut host, "Shell");
+        let glass: ControlId = host.ui.state.shell_page.glass.into();
+        let backdrop = all(&host)
+            .into_iter()
+            .filter(|id| host.ui.tree.find::<SkiaBackdrop>(*id).is_some())
+            .find(|id| {
+                let mut at = Some(*id);
+                while let Some(a) = at {
+                    if a == glass {
+                        return true;
+                    }
+                    at = host.ui.tree.parent(a);
+                }
+                false
+            })
+            .expect("the turned glass's backdrop");
+        run(&mut host, 300.0);
+        let copies = host.ui.tree.find::<SkiaBackdrop>(backdrop).unwrap().copies();
+        tap_on_page(&mut host, "Rotate 30°");
+        run(&mut host, 600.0);
+        assert_eq!(host.ui.tree.base(glass).unwrap().p.rotation, 30.0);
+        tap_on_page(&mut host, "Tilt in 3D");
+        run(&mut host, 700.0);
+        assert_eq!(host.ui.tree.base(glass).unwrap().p.rotation_y, 40.0);
+        assert!(host.ui.tree.find::<SkiaBackdrop>(backdrop).unwrap().copies() > copies, "the glass copied again while it turned");
+        tap_on_page(&mut host, "Reset");
+        run(&mut host, 700.0);
+        let p = &host.ui.tree.base(glass).unwrap().p;
+        assert_eq!((p.rotation, p.rotation_y), (0.0, 0.0));
+    }
+
     /// The Shaders page's effect ticks never record its image caches again (C# HelloMaui 1931af12:
     /// iTime, the ripple progress and SetUniform go through UpdateUniforms, a repaint): the wave
     /// photo while iTime runs and after a strength change, the ripple photo while a ripple plays.

@@ -23,6 +23,9 @@ pub struct State {
     pub(super) log: &'static str,
     /// Said once the popup or modal just asked for is up (React awaits OpenPopupAsync).
     waiting: Option<&'static str>,
+    /// The turned frosted glass and its angle in degrees.
+    pub(super) glass: Handle<SkiaLayout>,
+    glass_angle: f32,
 }
 
 /// The status of a shell as the React page prints it.
@@ -96,6 +99,7 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
             ),
         ),
         card(card_title("SkiaBackdrop — the Sandbox MainPageBackdrop frosted glass, same tree"), backdrop()),
+        card(card_title("SkiaBackdrop in a turned parent — Rotation and RotationY (3D)"), turned_backdrop(&mut page.glass)),
         card(
             card_title("Popups — OpenPopupAsync(content, options)"),
             SkiaWrap::new().spacing(8).children((
@@ -284,6 +288,63 @@ fn tab_page(name: String, color: u32) -> Build<SkiaLayout> {
 
 fn tab_button(caption: &str, action: fn(&mut App, &mut Cx)) -> Build<SkiaButton> {
     SkiaButton::new(caption).background_color(hex(0x212529)).font_size(13).on_tapped(move |_me, app: &mut App, cx| action(app, cx))
+}
+
+/// Frosted glass that turns over a photo: whatever the transform of the glass (a rotation, a 3D
+/// tilt), it shows exactly what is behind it on screen, with the same blur.
+fn turned_backdrop(glass: &mut Handle<SkiaLayout>) -> (Build<SkiaLayout>, Build<SkiaLayout>) {
+    let photo = SkiaLayer::new()
+        .height_request(240)
+        .fill_x()
+        .is_clipped_to_bounds(true)
+        .use_cache(CacheType::Image)
+        .children((
+            SkiaImage::new("assets/images/8.jpg").aspect(TransformAspect::AspectCover).fill(),
+            SkiaLayer::new().width_request(220).height_request(120).center().assign(glass).children(
+                // No picture cache above the backdrop: it would freeze its copy (drawnui-cross 6af).
+                SkiaShape::new()
+                    .use_cache(CacheType::None)
+                    .corner_radius(16)
+                    .background_color(Color::new(0x40FFFFFF))
+                    .clip_background_color(true)
+                    .stroke_color(Color::new(0x66FFFFFF))
+                    .stroke_width(1)
+                    .fill()
+                    .children(SkiaLayer::new().fill().children((
+                        SkiaBackdrop::new().blur(6).z_index(-1),
+                        SkiaLabel::new("Turned glass").font_size(20).text_color(hex(0xF8F9FA)).center(),
+                    ))),
+            ),
+        ));
+    let buttons = SkiaWrap::new().spacing(8).children((
+        button("Rotate 30°", 0x0D6EFD, |app, cx| turn_glass(app, cx, 30.0)),
+        button("Tilt in 3D", 0x6610F2, |app, cx| tilt_glass(app, cx, 40.0)),
+        button("Reset", 0x495057, |app, cx| {
+            let page = &mut app.shell_page;
+            page.glass_angle = 0.0;
+            cx.rotate_to(page.glass, 0.0, 400, easing::cubic_out);
+            tilt_glass(app, cx, 0.0);
+        }),
+    ));
+    (photo, buttons)
+}
+
+/// Turns the glass on by `by` degrees, animated.
+fn turn_glass(app: &mut App, cx: &mut Cx, by: f32) {
+    let page = &mut app.shell_page;
+    page.glass_angle += by;
+    cx.rotate_to(page.glass, page.glass_angle, 400, easing::cubic_out);
+}
+
+/// Tilts the glass in 3D to `to` degrees around its vertical axis, animated.
+fn tilt_glass(app: &mut App, cx: &mut Cx, to: f32) {
+    let glass = app.shell_page.glass;
+    let from = cx.base(glass).map_or(0.0, |b| b.p.rotation_y);
+    cx.animate(glass, 500, easing::cubic_out, move |v, cx| {
+        if let Some(mut layout) = cx.get_mut(glass) {
+            layout.set_rotation_y(from + (to - from) * v);
+        }
+    });
 }
 
 /// The Sandbox MainPageBackdrop: a photo, and over it a frosted glass card with a caption.
