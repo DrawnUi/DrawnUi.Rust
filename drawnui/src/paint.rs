@@ -41,6 +41,9 @@ pub(crate) struct CachedObject {
     /// A picture holding image cache blits, whose sampling was fixed when it was recorded (DrawnUI
     /// HasImageBlits): recorded again when its playback changes between straight and distorted.
     image_blits: bool,
+    /// A picture drawn into an image for the shader effects drawn in its place (DrawnUI
+    /// CachedObject.GetPictureImage): made at their first draw, kept while the cache lives.
+    picture_image: Option<Image>,
 }
 
 enum CachedContent {
@@ -64,7 +67,8 @@ impl CachedObject {
     /// The CPU bitmap of an ImageDoubleBuffered cache, made for `bounds`.
     fn double_buffered(image: Image, bounds: Rect, margin: Thickness, scale: f32) -> Self {
         let (playback_distorted, image_blits) = (false, false);
-        Self { content: CachedContent::Image(image), bounds, margin, scale, kind: CacheType::ImageDoubleBuffered, playback_distorted, image_blits }
+        let picture_image = None;
+        Self { content: CachedContent::Image(image), bounds, margin, scale, kind: CacheType::ImageDoubleBuffered, playback_distorted, image_blits, picture_image }
     }
 
     /// The bitmap of an Image cache and the canvas rect it was recorded for.
@@ -72,6 +76,31 @@ impl CachedObject {
         match &self.content {
             CachedContent::Image(image) => Some((image, self.bounds)),
             CachedContent::Picture(_) => None,
+        }
+    }
+
+    /// The cache as an image, for the post renderers drawn in its place (DrawnUI CachedImage): an
+    /// image cache itself; a picture drawn into an image of its bounds once (on the GPU when there
+    /// is one), kept while the cache lives, so a uniform change or a tick is one shader pass.
+    pub(crate) fn effect_image(&mut self, gpu: &mut crate::Gpu) -> Option<Image> {
+        match &self.content {
+            CachedContent::Image(image) => Some(image.clone()),
+            CachedContent::Picture(picture) => {
+                if self.picture_image.is_none() {
+                    let b = self.bounds;
+                    let (width, height) = (b.width().ceil() as i32, b.height().ceil() as i32);
+                    if width <= 0 || height <= 0 {
+                        return None;
+                    }
+                    let mut surface = gpu.offscreen(width, height)?;
+                    let canvas = surface.canvas();
+                    canvas.clear(Color::TRANSPARENT);
+                    canvas.translate((-b.left, -b.top));
+                    canvas.draw_picture(picture, None, None);
+                    self.picture_image = gpu.snapshot(&mut surface, None);
+                }
+                self.picture_image.clone()
+            }
         }
     }
 
@@ -415,12 +444,13 @@ enum Missing {
 fn draw_cache(cx: &mut PaintCx, id: ControlId, base: &Base, rect: Rect, r: Rect, offset: Point, post: bool, missing: Missing) {
     let slot = id.index as usize;
     let (left, top) = (r.left + offset.x, r.top + offset.y);
-    // DrawnUI DrawRenderObject: an Image cache is not blitted under post renderers, they sample
-    // it and draw in its place; a picture is replayed and they take what it painted.
-    let texture = match &cx.render[slot].cache {
-        Some(cache) if post => cache.image().map(|(image, _)| {
+    // DrawnUI DrawRenderObject: a cache is not drawn under post renderers, they sample it and draw
+    // in its place (a transparent result hides the control); a picture cache gives them its picture
+    // drawn into an image (drawnui-cross 6ae).
+    let texture = match &mut cx.render[slot].cache {
+        Some(cache) if post && !cx.offthread => cache.effect_image(cx.gpu).map(|image| {
             let bounds = Rect::from_xywh(left, top, image.width() as f32, image.height() as f32);
-            CachedTexture { image: image.clone(), bounds }
+            CachedTexture { image, bounds }
         }),
         _ => None,
     };
@@ -615,7 +645,7 @@ fn record(
             cx.target = outer;
             let picture = recorder.finish_recording_as_picture(None)?;
             let content = CachedContent::Picture(picture);
-            Some(CachedObject { content, bounds: r, margin, scale, kind: cache_type, playback_distorted, image_blits })
+            Some(CachedObject { content, bounds: r, margin, scale, kind: cache_type, playback_distorted, image_blits, picture_image: None })
         }
         CacheType::Image | CacheType::ImageDoubleBuffered => {
             let (w, h) = ((r.width().round() as i32).max(1), (r.height().round() as i32).max(1));
@@ -630,7 +660,7 @@ fn record(
             let image = offscreen.image_snapshot();
             let (playback_distorted, image_blits) = (false, false);
             let content = CachedContent::Image(image);
-            Some(CachedObject { content, bounds: r, margin, scale, kind: cache_type, playback_distorted, image_blits })
+            Some(CachedObject { content, bounds: r, margin, scale, kind: cache_type, playback_distorted, image_blits, picture_image: None })
         }
         CacheType::ImageComposite => {
             let playback = std::mem::replace(&mut cx.playback_distorted, false);
@@ -638,7 +668,7 @@ fn record(
             cx.playback_distorted = playback;
             let (playback_distorted, image_blits) = (false, false);
             let content = CachedContent::Image(image?);
-            Some(CachedObject { content, bounds: r, margin, scale, kind: cache_type, playback_distorted, image_blits })
+            Some(CachedObject { content, bounds: r, margin, scale, kind: cache_type, playback_distorted, image_blits, picture_image: None })
         }
         // `resolved` turned the GPU names into the caches above.
         CacheType::None | CacheType::GPU | CacheType::ImageCompositeGPU => None,
