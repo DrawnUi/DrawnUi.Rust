@@ -4,7 +4,7 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.12 (crates.io, 2026-10-25)
 
 ### Added
 
@@ -18,6 +18,11 @@ version before it. Commits in parentheses.
   `examples/popups`.
 - AI skill `skills/drawnui-port-net-to-rust`: porting DrawnUI .NET apps and controls to Rust
   (workflow, C# to Rust mapping, custom controls, a worked example).
+
+### Toolchain
+
+Skia crates unchanged (0.153.7). Popup windows are checked on Windows and on Linux X11; on macOS
+they build and pass their tests, a run on a Mac is still to come.
 
 ## 0.1.0-preview.11 (crates.io, 2026-10-21)
 
