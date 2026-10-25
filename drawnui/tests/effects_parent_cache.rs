@@ -1,7 +1,8 @@
 //! DrawnUi.Net d0b1f2b6 ShaderKeepParentCacheTests (drawnui-cross 6ae): a shader effect paints over
 //! its control's cache. In Rust a uniform change or a play_shader tick only repaints the control
 //! (`Mut::effect_mut`: Dirty::REPAINT), so the cache stays and the new value is drawn with it: the
-//! C# opt-in `KeepParentCache = true` is Rust's only behavior. Checked for Image and Operations caches.
+//! C# default (`ShouldInvalidateParentCache = false`, 0c6d9ef1; first `KeepParentCache = true`) is
+//! Rust's only behavior. Checked for Image and Operations caches.
 
 use drawnui::prelude::*;
 use drawnui::testing::Headless;
