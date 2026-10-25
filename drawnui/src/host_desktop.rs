@@ -2020,7 +2020,9 @@ impl Desktop {
                         eprintln!("drawnui: no popup window could be made");
                         continue;
                     };
-                    self.popups.push(PopupWindow { id: request.id, surface: None, target, window, request, shown: false, stale: true, cursor: (0.0, 0.0) });
+                    // macOS: made on screen already (see `popup_attributes`).
+                    let shown = cfg!(target_os = "macos");
+                    self.popups.push(PopupWindow { id: request.id, surface: None, target, window, request, shown, stale: true, cursor: (0.0, 0.0) });
                     self.popup_placed(self.popups.len() - 1);
                     changed = true;
                 }
@@ -2091,15 +2093,21 @@ impl Desktop {
     /// Draws every popup window after the app's window's frame laid them out; each is shown with
     /// its first frame.
     fn draw_popups(&mut self, time_ms: f64) {
+        let mut retry = false;
         for popup in self.popups.iter_mut() {
             // Unchanged: its window keeps showing the last frame.
             if !popup.stale && !self.app.popup_needs_frame(popup.id) {
                 continue;
             }
-            popup.stale = false;
             let size = popup.window.inner_size();
             let (width, height) = (size.width.max(1), size.height.max(1));
-            let Some(surface) = self.presenter.begin_popup(&mut popup.target, &mut self.gpu, &mut popup.surface, width, height) else { continue };
+            // No drawable yet (macOS gives none to a window before it is on screen): drawn again
+            // at the next frame, not dropped.
+            let Some(surface) = self.presenter.begin_popup(&mut popup.target, &mut self.gpu, &mut popup.surface, width, height) else {
+                (popup.stale, retry) = (true, true);
+                continue;
+            };
+            popup.stale = false;
             let scale = popup.window.scale_factor() as f32;
             let gpu = match &mut self.cpu {
                 Some(cpu) => &mut cpu.gpu,
@@ -2116,6 +2124,9 @@ impl Desktop {
                 #[cfg(windows)]
                 win::no_activate(&popup.window);
             }
+        }
+        if retry {
+            self.redraw();
         }
     }
 
@@ -2187,7 +2198,8 @@ impl Desktop {
 }
 
 /// A popup window: frameless, on top, no taskbar entry, not resizable, transparent where nothing
-/// is drawn (round corners), hidden until its first frame, not activated when shown. Windows: owned
+/// is drawn (round corners), hidden until its first frame (macOS: on screen at once, empty), not
+/// activated when shown. Windows: owned
 /// by the app's window (it stays above it and goes with it). X11: override-redirect (the window
 /// manager does not decorate, move or focus it).
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
@@ -2216,8 +2228,15 @@ fn popup_attributes(main: &Window) -> WindowAttributes {
         let _ = main;
         attributes.with_override_redirect(true).with_x11_window_type(vec![WindowType::PopupMenu])
     };
+    // macOS: on screen from the start. Its layer gives no drawable to a window that is not, so it
+    // could never draw the first frame it waits for; the layer is transparent until then. Made
+    // visible but not active, winit orders it front without taking the key window (showing it
+    // later with `set_visible` would make it key).
     #[cfg(target_os = "macos")]
-    let _ = main;
+    let attributes = {
+        let _ = main;
+        attributes.with_visible(true)
+    };
     attributes
 }
 
