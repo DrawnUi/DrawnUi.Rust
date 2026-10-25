@@ -332,6 +332,8 @@ pub struct Ui<S: 'static> {
     eating_press: bool,
     /// When the mouse left the last window it was over (`close_on_pointer_leave`).
     left_all_at: Option<f64>,
+    /// Runs when the app's window gets or loses the keyboard (`on_window_focus`).
+    window_focus: Option<Box<dyn FnMut(&mut S, bool, &mut Cx<'_>)>>,
 }
 
 /// The FPS overlay: frames per second over the last half second of frames drawn one after the
@@ -450,6 +452,7 @@ impl<S: 'static> Ui<S> {
             hover_popup: None,
             eating_press: false,
             left_all_at: None,
+            window_focus: None,
         }
     }
 
@@ -585,6 +588,17 @@ impl<S: 'static> Ui<S> {
     /// Runs when the page or window is hidden (`false`: a background tab, a minimized or covered
     /// window) or shown again (React Pong: `visibilitychange` pauses the game). Observers run
     /// after it.
+    /// Runs when the app's window gets the keyboard (`true`) or loses it to another app (`false`),
+    /// once per change; opening or using a popup window of the app is not leaving it. Desktop: from
+    /// the window's focus events, at once, so when a click on a background window activates it,
+    /// this runs before that click's Down reaches any control (Windows and macOS give the focus
+    /// before the click; an X11 window manager may give it after). Browser: window focus / blur.
+    /// Phones: `true` when the app is shown, `false` when hidden. `Cx::window_focused` reads it.
+    pub fn on_window_focus(mut self, f: impl FnMut(&mut S, bool, &mut Cx<'_>) + 'static) -> Self {
+        self.window_focus = Some(Box::new(f));
+        self
+    }
+
     pub fn on_visibility_changed(mut self, f: impl FnMut(&mut S, bool, &mut Cx<'_>) + 'static) -> Self {
         self.visibility = Some(Box::new(f));
         self
@@ -2956,6 +2970,19 @@ impl<S: 'static> App for Ui<S> {
 
     fn blur(&mut self) {
         Ui::blur(self)
+    }
+
+    fn window_focus(&mut self, focused: bool) {
+        if self.tree.window_focused == Some(focused) {
+            return;
+        }
+        self.tree.window_focused = Some(focused);
+        if let Some(handler) = self.window_focus.as_mut() {
+            handler(&mut self.state, focused, &mut Cx { tree: &mut self.tree });
+            self.state_dirty = true;
+            self.tree.needs_frame = true;
+            self.apply_focus_request();
+        }
     }
 
     fn accessibility_activate(&mut self, id: u32) {

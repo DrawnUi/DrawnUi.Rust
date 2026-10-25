@@ -662,6 +662,8 @@ pub struct Tree {
     /// roots of this tree besides `root`.
     pub(crate) popups: Vec<crate::popups::Popup>,
     pub(crate) popup_next_id: u32,
+    /// The app's window has the keyboard (`Cx::window_focused`); `None` until a host says.
+    pub(crate) window_focused: Option<bool>,
 }
 
 impl Tree {
@@ -950,6 +952,12 @@ pub struct Cx<'a> {
 }
 
 impl Cx<'_> {
+    /// The app's window has the keyboard: the last value `Ui::on_window_focus` got, `true` until
+    /// the host reported one.
+    pub fn window_focused(&self) -> bool {
+        self.tree.window_focused.unwrap_or(true)
+    }
+
     /// A handle another thread uses to mark controls dirty and wake the frame loop (a camera
     /// frame arrived): see [`crate::Waker`].
     pub fn waker(&self) -> crate::Waker {

@@ -315,6 +315,11 @@ pub trait App {
     }
     /// The window lost the keyboard: no key counts as held anymore.
     fn blur(&mut self) {}
+    /// The app's window got the keyboard (`true`) or lost it to another app (`false`); moving to a
+    /// popup window of the app changes nothing. A desktop host calls it at once, before the input
+    /// that follows (the click that activated the window); the browser on window focus / blur;
+    /// phones with the app shown / hidden.
+    fn window_focus(&mut self, _focused: bool) {}
     /// The page's focus went to an element outside the canvas (a field of the page): no drawn
     /// control keeps the keyboard (the browser host).
     fn focus_out(&mut self) {}

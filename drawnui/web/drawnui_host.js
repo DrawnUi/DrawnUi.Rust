@@ -427,11 +427,18 @@ window.DrawnUi = {
       },
       true,
     );
-    // Keys released while the page had no focus never come: nothing counts as held.
+    // Keys released while the page had no focus never come: nothing counts as held. The app hears
+    // its window losing and getting the keyboard (Ui::on_window_focus), first as it is now.
     window.addEventListener("blur", () => {
       module._dui_blur(app);
+      module._dui_window_focus(app, 0);
       requestFrame();
     });
+    window.addEventListener("focus", () => {
+      module._dui_window_focus(app, 1);
+      requestFrame();
+    });
+    module._dui_window_focus(app, document.hasFocus() ? 1 : 0);
     canvas.addEventListener("webglcontextlost", (e) => {
       e.preventDefault(); // without it the browser never gives the context back
       lost = true;

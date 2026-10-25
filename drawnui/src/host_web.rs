@@ -270,6 +270,12 @@ pub extern "C" fn dui_blur(s: *mut WebState) {
     state(s).app.blur();
 }
 
+/// The browser window got (`focused` 1) or lost the keyboard (DOM window `focus` / `blur`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dui_window_focus(s: *mut WebState, focused: i32) {
+    state(s).app.window_focus(focused != 0);
+}
+
 /// The page focus went to an element outside the canvas (a field of the page).
 #[unsafe(no_mangle)]
 pub extern "C" fn dui_focus_out(s: *mut WebState) {

@@ -563,6 +563,20 @@ SkiaButton::new("Fruit").assign(&mut app.fruit).on_tapped(|_me, app: &mut App, c
   `popup_tap(id, x, y)` and `popup_hover(id, at)` drive the popup's window. Without that call, popups
   are on the canvas, as in the browser.
 
+## Window focus (the app in front or not)
+
+`Ui::on_window_focus(|app: &mut App, focused, cx| ...)` runs when the app's window gets the keyboard
+(`true`) or loses it to another app (`false`), once per change. `cx.window_focused()` reads the last
+value; it is `true` until the host has reported one.
+- Desktop: it follows the window's own focus events, right away. Opening or clicking a popup window
+  of the app is not leaving it.
+- When a click on a window in the background brings it to the front, Windows and macOS give the
+  focus first: this callback runs before that click's Down reaches any control. An app that should
+  only come forward on such a click, and act on the next one, notes the time here and treats a
+  press that comes a few milliseconds later as the activating click. An X11 window manager may give
+  the focus after the click.
+- Browser: window focus and blur. Phones: `true` while the app is shown, `false` while hidden.
+
 ## Switching input off
 
 `responds_to_gestures(false)` is the one switch that turns a control off for the user: a button,

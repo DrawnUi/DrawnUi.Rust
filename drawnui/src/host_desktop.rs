@@ -562,11 +562,14 @@ impl Desktop {
         }
     }
 
-    /// Tells the app it is shown or hidden, once per change.
+    /// Tells the app it is shown or hidden, once per change. A phone's app has the keyboard
+    /// exactly while it is shown (`App::window_focus`).
     fn report_visible(&mut self, visible: bool) {
         if visible != self.shown {
             self.shown = visible;
             self.app.visibility(visible);
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            self.app.window_focus(visible);
         }
     }
 
@@ -1677,8 +1680,13 @@ impl ApplicationHandler<Arrived> for Desktop {
         {
             // The keyboard went to another app (not from one of our windows to another): popup
             // windows close, as native menus do.
-            if std::mem::take(&mut self.focus_lost) && self.focus.is_none() && !self.popups.is_empty() {
-                self.app.close_popup_windows();
+            // Lost to another app, not to a popup of ours (macOS gives a clicked popup the keyboard
+            // in the same events).
+            if std::mem::take(&mut self.focus_lost) && self.focus.is_none() {
+                self.app.window_focus(false);
+                if !self.popups.is_empty() {
+                    self.app.close_popup_windows();
+                }
                 self.redraw();
             }
             self.sync_popups(event_loop);
@@ -1749,6 +1757,11 @@ impl ApplicationHandler<Arrived> for Desktop {
         {
             if let WindowEvent::Focused(focused) = event {
                 if focused {
+                    // From another app (not from a popup of ours): the app hears it now, before
+                    // the click that may have activated the window reaches it.
+                    if self.focus.is_none() && !std::mem::take(&mut self.focus_lost) {
+                        self.app.window_focus(true);
+                    }
                     self.focus = Some(id);
                 } else if self.focus == Some(id) {
                     (self.focus, self.focus_lost) = (None, true);

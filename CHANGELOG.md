@@ -4,6 +4,20 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## 0.1.0-preview.13 (crates.io, 2026-10-25)
+
+### Added
+
+- `Ui::on_window_focus` and `Cx::window_focused`: the app's window got the keyboard or lost it to
+  another app, once per change. On the desktop it comes right away from the window's focus events
+  (a popup window of the app is not leaving it); when a click brings a background window forward,
+  Windows and macOS report the focus before that click's Down reaches any control. The browser
+  reports window focus and blur, phones the app being shown or hidden. Hosts: `App::window_focus`.
+
+### Toolchain
+
+Skia crates unchanged (0.153.7).
+
 ## 0.1.0-preview.12 (crates.io, 2026-10-25)
 
 ### Added
