@@ -52,7 +52,7 @@ pub struct State {
     pub(super) transition: &'static str,
     /// "· from → to" of the last transition.
     pub(super) from_to: String,
-    wave: Handle<SkiaImage>,
+    pub(super) wave: Handle<SkiaImage>,
     plasma: Handle<SkiaLayout>,
     blit_host: Handle<SkiaImage>,
     pub(super) strength: f32,

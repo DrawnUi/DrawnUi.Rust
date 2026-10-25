@@ -746,6 +746,38 @@ mod tests {
         }
     }
 
+    /// The Shaders page's effect ticks never record its image caches again (C# HelloMaui 1931af12:
+    /// iTime, the ripple progress and SetUniform go through UpdateUniforms, a repaint): the wave
+    /// photo while iTime runs and after a strength change, the ripple photo while a ripple plays.
+    #[test]
+    fn shader_ticks_and_uniforms_keep_the_image_caches() {
+        let mut host = host(1400);
+        open_page(&mut host, "Shaders");
+        let wave: ControlId = host.ui.state.shaders.wave.into();
+        let ripple = all(&host)
+            .into_iter()
+            .find(|id| host.ui.tree.any_mut(*id).is_some_and(|c| c.effect::<MultiRippleWithTouchEffect>().is_some()))
+            .expect("the ripple photo");
+        into_view(&mut host, "strength 0.03");
+        run(&mut host, 300.0);
+        let (wave_records, ripple_records) = (host.cache_records(wave), host.cache_records(ripple));
+        assert!(wave_records >= 1 && ripple_records >= 1, "the photos are cached: {wave_records} / {ripple_records}");
+        assert!(!host.ui.state.shaders.running.is_empty(), "iTime runs");
+        run(&mut host, 500.0);
+        tap_on_page(&mut host, "strength 0.03");
+        run(&mut host, 300.0);
+        assert_eq!(host.ui.state.shaders.strength, 0.03);
+        assert_eq!(host.cache_records(wave), wave_records, "iTime ticks or the strength change recorded the wave photo again");
+
+        let rect = on_screen(&host, ripple);
+        let (x, y) = (rect.center_x(), rect.top + 40.0);
+        host.ui.pointer(drawnui::PointerKind::Down, x, y, host.time_ms());
+        run(&mut host, 50.0);
+        host.ui.pointer(drawnui::PointerKind::Up, x, y, host.time_ms());
+        run(&mut host, 800.0);
+        assert_eq!(host.cache_records(ripple), ripple_records, "the ripple ticks recorded the photo again");
+    }
+
     #[test]
     fn shader_carousel_and_composite_spinner_move() {
         let mut host = host(1200);
