@@ -1119,6 +1119,26 @@ pub fn snapshot(cx: &mut PaintCx<'_>, rect: Rect) -> Option<CachedTexture> {
     Some(CachedTexture { image, bounds })
 }
 
+/// A copy of the surface pixels `rect` (the canvas' own coordinates) covers on the surface under
+/// `cx` (see `surface_under`), rounded out and cut to the surface: the copy and the surface rect it
+/// came from. Drawn back through `surface_to_canvas`, it lands 1:1 on those pixels under any matrix,
+/// a turned or projected one included (DrawnUI 6fd3bae3, drawnui-cross 6af). `None` while a picture
+/// is recorded with nothing under it.
+pub(crate) fn snapshot_surface(cx: &mut PaintCx<'_>, rect: Rect) -> Option<(Image, Rect)> {
+    let (canvas, matrix) = surface_under(cx)?;
+    let (image, taken) = cx.gpu.snapshot_canvas(canvas, round_out(matrix.map_rect(rect).0))?;
+    Some((image, Rect::from(taken)))
+}
+
+/// The matrix that draws pixels of the surface under `cx` (`snapshot_surface`) onto the canvas of
+/// `cx`: identity on a window or an Image cache; the inverse of the target's matrix while a picture
+/// records. Set it after the clip, which stays where the control's own matrix put it.
+pub(crate) fn surface_to_canvas(cx: &mut PaintCx<'_>) -> Option<Matrix> {
+    let local = cx.canvas.local_to_device_as_3x3();
+    let (_, matrix) = surface_under(cx)?;
+    Some(Matrix::concat(&local, &matrix.invert()?))
+}
+
 /// The device pixels `rect` (the canvas' own coordinates) covers on the surface `cx` draws onto.
 pub(crate) fn device_bounds(cx: &mut PaintCx<'_>, rect: Rect) -> IRect {
     let matrix = surface_under(cx).map_or_else(|| cx.canvas.local_to_device_as_3x3(), |(_, m)| m);

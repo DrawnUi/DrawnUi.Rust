@@ -145,7 +145,8 @@ impl Control for SkiaBackdrop {
             Some((made_for, texture)) if key == Some(*made_for) => texture.clone(),
             _ => {
                 // Nothing to copy while a picture is recorded: the children and the tint stay.
-                let Some(copy) = effects::snapshot(cx, d) else { return };
+                let Some((image, bounds)) = effects::snapshot_surface(cx, d) else { return };
+                let copy = CachedTexture { image, bounds };
                 self.copies.set(self.copies.get() + 1);
                 let Some(texture) = self.blur(cx, copy, blur, brightness) else { return };
                 if let Some(backdrop) = cx.render[slot].paints.as_deref_mut().and_then(|p| p.backdrop.as_mut()) {
@@ -154,9 +155,14 @@ impl Control for SkiaBackdrop {
                 texture
             }
         };
+        // Back on the surface pixels it was copied from (`texture.bounds`), 1:1 whatever the matrix
+        // (a turned or projected parent too), clipped to the box where the control's matrix puts it
+        // (DrawnUI 6fd3bae3).
+        let Some(to_canvas) = effects::surface_to_canvas(cx) else { return };
         let canvas = cx.canvas;
         canvas.save();
         canvas.clip_rect(d, ClipOp::Intersect, true);
+        canvas.set_matrix(&to_canvas.into());
         let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
         canvas.draw_image_rect_with_sampling_options(&texture.image, None, texture.bounds, sampling, &Paint::default());
         canvas.restore();
