@@ -4,6 +4,25 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## 0.1.0-preview.15 (crates.io, 2026-10-25)
+
+### Changed
+
+- A shader effect on a control with a picture cache (Operations, OperationsFull: the default of
+  SkiaShape, SkiaLabel, SkiaSvg) now replaces the control and works on its content, as on an Image
+  cache: its picture is drawn into an image once per cache, which is the effect's `iImage1`. Before, the
+  picture was drawn and the effect over it, so a transparent result (a dissolve) left the content
+  showing. Uncached controls are unchanged: they paint, then the effect draws over them.
+- A SkiaBackdrop inside a picture cache (a parent's Operations / OperationsFull cache, or its own)
+  keeps the copy of what is behind it that was made when the picture was recorded, as in DrawnUI for
+  .NET: the library no longer records a parent's cache again because a backdrop is inside it. Give
+  the parents of a backdrop `use_cache(CacheType::None)` (or an Image cache that holds what the glass
+  should show). The backdrop logs this once.
+
+### Toolchain
+
+Skia crates unchanged (0.153.7).
+
 ## 0.1.0-preview.14 (crates.io, 2026-10-25)
 
 ### Fixed
