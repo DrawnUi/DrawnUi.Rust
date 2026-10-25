@@ -36,6 +36,8 @@ pub struct SkiaBackdrop {
     pub p: BackdropProps,
     /// Times it copied and blurred what is under it (diagnostics).
     copies: Cell<u32>,
+    /// Said once that it is recorded into a parent's picture cache.
+    warned_picture: Cell<bool>,
 }
 
 impl SkiaBackdrop {
@@ -120,6 +122,13 @@ impl Control for SkiaBackdrop {
         // A worker's picture takes no texture: the children and the tint stay.
         if !self.has_effects() || cx.offthread {
             return;
+        }
+        // Recorded into a parent's picture cache, its copy of what is behind freezes there (as in
+        // C#): said once, the parent's cache is the app's to change (DrawnUI cf18cf29).
+        if effects::recording_picture(cx) && !self.warned_picture.replace(true) {
+            eprintln!(
+                "drawnui: a SkiaBackdrop is recorded into a parent's picture cache (Operations / OperationsFull, the default of SkiaShape): its copy of what is behind freezes. Set use_cache(CacheType::None) on its picture-cached parents."
+            );
         }
         let (blur, brightness) = (self.p.blur * cx.scale, self.p.brightness);
         // What is under the box and where the box is on the surface; `None`: not to be told.

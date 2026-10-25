@@ -127,20 +127,22 @@ fn in_its_own_picture_it_blurs_what_is_under_it() {
     }
 }
 
+/// In a picture cache (its own Operations cache here) the copy of what is under it is frozen: the
+/// picture is not recorded again when that changes (drawnui-cross 6af, as C#; the app uses no
+/// picture cache on a backdrop and its parents).
 #[test]
-fn its_picture_is_recorded_again_when_what_is_under_it_changes() {
+fn in_a_picture_its_copy_freezes() {
     let (mut host, [red, glass, above]) = glass_over(CacheType::Operations);
     let first = host.cache_records(glass);
-    // Something above it moves: nothing under it changed, the picture stays.
+    let frozen = host.pixel(45, 50);
     for i in 1..=3 {
         host.ui.tree.any_mut(above).unwrap().set_translation_x(i as f32);
         host.frame_after(16.0);
     }
-    assert_eq!(host.cache_records(glass), first);
     host.ui.tree.any_mut(red).unwrap().set_background_color(Color::YELLOW);
     host.settle();
-    assert_eq!(host.cache_records(glass), first + 1);
-    assert!(near(host.pixel(45, 50), Color::YELLOW, 2), "{:?}", host.pixel(45, 50));
+    assert_eq!(host.cache_records(glass), first, "the picture was recorded again because of what is under it");
+    assert_eq!(host.pixel(45, 50), frozen, "the copy is frozen");
 }
 
 #[test]

@@ -383,12 +383,6 @@ fn render_content(cx: &mut PaintCx, id: ControlId, base: &Base, offset: Point) {
     {
         stale = true;
     }
-    // A picture holding a copy of what is under it: also stale when that changed. Asked inside
-    // another picture being recorded, that picture now holds the copy too (`surface_under`).
-    if cx.render[slot].reads_below && !baked {
-        let below = below_key(cx, id, rect);
-        stale |= below.is_none() || below != cx.render[slot].below;
-    }
     let missing = if baked {
         double_buffered(cx, id, base, r, margin)
     } else {
@@ -409,11 +403,7 @@ fn render_content(cx: &mut PaintCx, id: ControlId, base: &Base, offset: Point) {
 #[allow(clippy::too_many_arguments)]
 fn record_stale(cx: &mut PaintCx, id: ControlId, base: &Base, cache_type: CacheType, r: Rect, margin: Thickness, offset: Point) {
     let slot = id.index as usize;
-    cx.render[slot].reads_below = false;
     let recorded = record(cx, id, base, cache_type, r, margin, offset);
-    if cx.render[slot].reads_below {
-        cx.render[slot].below = below_key(cx, id, base.rect.with_offset(offset));
-    }
     match recorded {
         // DrawnUI ImageDoubleBuffered: while a new cache cannot be made, the last one is drawn.
         None if cache_type == CacheType::ImageDoubleBuffered && cx.render[slot].cache.is_some() => {}
@@ -631,8 +621,8 @@ fn record(
             let here = Matrix::concat(&cx.canvas.local_to_device_as_3x3(), &Matrix::translate(offset));
             // SAFETY: only asked whether the canvas draws into a surface; nothing goes through it.
             let target = match unsafe { cx.canvas.surface() } {
-                Some(_) => Some(Target { canvas: cx.canvas, matrix: here, recording: id }),
-                None => cx.target.map(|t| Target { canvas: t.canvas, matrix: Matrix::concat(&t.matrix, &here), recording: id }),
+                Some(_) => Some(Target { canvas: cx.canvas, matrix: here }),
+                None => cx.target.map(|t| Target { canvas: t.canvas, matrix: Matrix::concat(&t.matrix, &here) }),
             };
             let outer = std::mem::replace(&mut cx.target, target);
             // Image caches blitted into the picture take the sampling it will be drawn with.
@@ -676,17 +666,6 @@ fn record(
 }
 
 // ---------------------------------------------------------------- what is under a control
-
-/// What the canvas shows under control `id` and where `rect` (its drawing rect on the canvas of
-/// `cx`) lands on the surface: a picture holding a copy of what is under it records again when
-/// this changes. `None` when that cannot be told.
-fn below_key(cx: &mut PaintCx, id: ControlId, rect: Rect) -> Option<u64> {
-    let below = painted_below(cx, id)?;
-    let device = effects::device_bounds(cx, rect);
-    let mut h = DefaultHasher::new();
-    (below, [device.left, device.top, device.right, device.bottom]).hash(&mut h);
-    Some(h.finish())
-}
 
 /// A key of what the canvas shows under control `id` when it paints (SkiaBackdrop): the own paint
 /// of its ancestors and every control drawn before it, up to the root. It changes when any of

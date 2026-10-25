@@ -1131,8 +1131,9 @@ fn round_out(r: Rect) -> IRect {
 
 /// The canvas whose surface holds what is under the control `cx` paints, and the matrix from the
 /// canvas of `cx` to that surface's pixels: the canvas' own surface, or while an Operations cache
-/// records, the surface its picture lands on (C# and React: `Context.Surface`). That picture then
-/// keeps a copy of what is under it: it is marked to record again when that changes.
+/// records, the surface its picture lands on (C# and React: `Context.Surface`). The copy is then
+/// frozen into that picture, as in C#: the library never records a parent's cache again because
+/// of it (drawnui-cross 6af); an app sets `use_cache(CacheType::None)` on such parents.
 fn surface_under<'a>(cx: &mut PaintCx<'a>) -> Option<(&'a skia_safe::Canvas, Matrix)> {
     let local = cx.canvas.local_to_device_as_3x3();
     // SAFETY: only asked whether the canvas draws into a surface; nothing goes through it.
@@ -1140,8 +1141,14 @@ fn surface_under<'a>(cx: &mut PaintCx<'a>) -> Option<(&'a skia_safe::Canvas, Mat
         return Some((cx.canvas, local));
     }
     let target = cx.target?;
-    cx.render[target.recording.index as usize].reads_below = true;
     Some((target.canvas, Matrix::concat(&target.matrix, &local)))
+}
+
+/// The canvas of `cx` records a picture (a parent's Operations / OperationsFull cache): what is
+/// drawn now is replayed as it is.
+pub(crate) fn recording_picture(cx: &PaintCx<'_>) -> bool {
+    // SAFETY: only asked whether the canvas draws into a surface; nothing goes through it.
+    cx.target.is_some() && unsafe { cx.canvas.surface() }.is_none()
 }
 
 // ---------------------------------------------------------------- touch ripples

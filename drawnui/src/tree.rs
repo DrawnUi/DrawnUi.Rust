@@ -193,10 +193,6 @@ pub(crate) struct RenderSlot {
     pub effects: Option<(u32, f32, Thickness)>,
     /// Shaders, paths and filters the control's paint reuses between frames.
     pub paints: Option<Box<PaintCache>>,
-    /// Its picture holds a copy of what is under it (a SkiaBackdrop inside an Operations cache),
-    /// made when the canvas showed `below` (`paint::below_key`); it records again when that changes.
-    pub reads_below: bool,
-    pub below: Option<u64>,
 }
 
 // ---------------------------------------------------------------- write access

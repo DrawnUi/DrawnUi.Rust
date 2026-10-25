@@ -451,8 +451,6 @@ pub(crate) struct Target<'a> {
     pub canvas: &'a Canvas,
     /// From the recording's coordinates to that surface's pixels.
     pub matrix: Matrix,
-    /// The control whose picture is recorded.
-    pub recording: ControlId,
 }
 
 impl<'a> PaintCx<'a> {
