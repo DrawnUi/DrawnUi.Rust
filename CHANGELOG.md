@@ -4,6 +4,18 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## 0.1.0-preview.14 (crates.io, 2026-10-25)
+
+### Fixed
+
+- macOS: popup windows never came on screen (the window was made at the right place but stayed
+  hidden). They now show at once, without taking the key window from the app; checked on a Mac in
+  the example and in an app.
+
+### Toolchain
+
+Skia crates unchanged (0.153.7).
+
 ## 0.1.0-preview.13 (crates.io, 2026-10-25)
 
 ### Added
@@ -36,7 +48,7 @@ Skia crates unchanged (0.153.7).
 ### Toolchain
 
 Skia crates unchanged (0.153.7). Popup windows are checked on Windows and on Linux X11; on macOS
-they build and pass their tests, a run on a Mac is still to come.
+they did not come on screen in this version (fixed in preview.14).
 
 ## 0.1.0-preview.11 (crates.io, 2026-10-21)
 
