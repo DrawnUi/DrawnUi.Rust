@@ -746,6 +746,28 @@ mod tests {
         }
     }
 
+    /// The Shell page's frosted glass: no picture cache between the backdrop and the layer's Image
+    /// cache it copies (a picture would freeze its copy, drawnui-cross 6af), and it blurs the photo.
+    #[test]
+    fn the_shell_glass_copies_the_photo_through_no_picture_cache() {
+        let mut host = host(1400);
+        open_page(&mut host, "Shell");
+        let glass = all(&host).into_iter().find(|id| host.ui.tree.find::<SkiaBackdrop>(*id).is_some()).expect("the frosted glass");
+        let mut at = host.ui.tree.parent(glass);
+        let mut first_cache = None;
+        while let Some(id) = at {
+            let cache = host.ui.tree.base(id).unwrap().p.use_cache;
+            if cache != CacheType::None {
+                first_cache = Some(cache);
+                break;
+            }
+            at = host.ui.tree.parent(id);
+        }
+        assert_eq!(first_cache, Some(CacheType::Image), "the nearest cache above the glass");
+        run(&mut host, 300.0);
+        assert!(host.ui.tree.find::<SkiaBackdrop>(glass).unwrap().copies() >= 1, "the glass copied what is behind");
+    }
+
     /// The Shaders page's effect ticks never record its image caches again (C# HelloMaui 1931af12:
     /// iTime, the ripple progress and SetUniform go through UpdateUniforms, a repaint): the wave
     /// photo while iTime runs and after a strength change, the ripple photo while a ripple plays.

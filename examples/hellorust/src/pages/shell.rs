@@ -316,8 +316,10 @@ fn backdrop() -> Build<SkiaLayout> {
                         )
                         .children(SkiaImage::new("assets/images/glass2.jpg").aspect(TransformAspect::AspectCover).opacity(0.15).fill()),
                 ),
-                // The frosted glass.
+                // The frosted glass. No picture cache: the backdrop inside would freeze its copy of
+                // what is behind into it (drawnui-cross 6af); it copies the layer's Image cache.
                 SkiaShape::new()
+                    .use_cache(CacheType::None)
                     .margin(16)
                     .background_color(Color::new(0x66FFFFFF))
                     .clip_background_color(true)
