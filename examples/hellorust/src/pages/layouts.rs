@@ -133,7 +133,7 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
     // Nothing here changes: every card is one bitmap, blitted while the page scrolls.
     scrolling(column().children((
         heading("SkiaLayout types", 24),
-        SkiaLabel::new("One class, five Type values; the aliases preset Type (+ HorizontalOptions=Fill for SkiaStack / SkiaLayer / SkiaWrap / SkiaGrid). Children position themselves with HorizontalOptions / VerticalOptions / Margin, the container adds Spacing and Padding.")
+        SkiaLabel::new("One class, six Type values; the aliases preset Type (+ HorizontalOptions=Fill for SkiaStack / SkiaLayer / SkiaWrap / SkiaGrid / SkiaMasonry). Children position themselves with HorizontalOptions / VerticalOptions / Margin, the container adds Spacing and Padding.")
             .font_size(13)
             .text_color(hex(0xD3D3D3))
             .fill_x()
