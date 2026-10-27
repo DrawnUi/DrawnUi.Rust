@@ -4,7 +4,7 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.18 (crates.io, 2026-10-27)
 
 ### Added
 
@@ -15,6 +15,10 @@ version before it. Commits in parentheses.
 
 - Keyboard arrows in a masonry go to the tile on screen that way: Up / Down along the column,
   Left / Right to the nearest tile of the next column, PageUp / PageDown one screen along the column.
+
+### Toolchain
+
+Skia crates unchanged (0.153.7).
 
 ## 0.1.0-preview.17 (crates.io, 2026-10-27)
 
