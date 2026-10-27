@@ -4,7 +4,7 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.17 (crates.io, 2026-10-27)
 
 ### Added
 
@@ -12,6 +12,10 @@ version before it. Commits in parentheses.
   placed under the shortest column, so items of different heights leave no gaps. Works with children
   and with `items` (recycled views, taps, `scroll_to_index`, `on_load_more`); an append or a changed
   item measures only those items.
+
+### Toolchain
+
+Skia crates unchanged (0.153.7).
 
 ## 0.1.0-preview.16 (crates.io, 2026-10-25)
 
