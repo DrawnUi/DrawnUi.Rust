@@ -954,7 +954,7 @@ impl<S: 'static> Ui<S> {
     /// Arrows, Home / End and PageUp / PageDown move between the items of a group by index (C#
     /// MoveInGroup): Down / Up in a column, Right / Left in a row, all four in a wrap, a grid or a
     /// split layout (Up / Down by one row), PageUp / PageDown by one viewport of the scroll around
-    /// it. No wrap: at an end the key still belongs to the group. The target is the item when it
+    /// it. A masonry goes by what is on screen instead (`masonry_target`). No wrap: at an end the key still belongs to the group. The target is the item when it
     /// takes input, else its first node that does; items that take none are skipped. Not ported:
     /// scrolling a recycled item that is not realized yet into view.
     fn move_in_group(&mut self, key: InputKey) -> bool {
@@ -1004,7 +1004,20 @@ impl<S: 'static> Ui<S> {
             Some(if size > 0.0 { ((viewport / size) as usize).max(1) } else { 1 })
         };
         let (count, last) = (items.len(), items.len() - 1);
+        let viewport = || {
+            let mut scroll = tree.parent(group);
+            while let Some(s) = scroll.filter(|s| tree.find::<crate::controls::scroll::SkiaScroll>(*s).is_none()) {
+                scroll = tree.parent(s);
+            }
+            Some(tree.base(scroll?)?.rect.height())
+        };
+        let masonry = match layout {
+            Some((LayoutType::Masonry, _)) => masonry_target(tree, &items, current, key, viewport()),
+            _ => None,
+        };
+        let forward = if matches!(key, "ArrowDown" | "ArrowRight" | "PageDown") { 1 } else { -1 };
         let (target, step) = match key {
+            _ if masonry.is_some() => (masonry.unwrap_or(current), forward),
             "ArrowDown" if axis == Axis::Vertical => (current + 1, 1),
             "ArrowRight" if axis != Axis::Vertical => (current + 1, 1),
             "ArrowUp" if axis == Axis::Vertical => (current.wrapping_sub(1), -1),
@@ -3142,6 +3155,49 @@ impl<S: 'static> App for Ui<S> {
     fn close_popup_windows(&mut self) {
         Cx { tree: &mut self.tree }.close_popup_windows();
     }
+}
+
+/// Where an arrow or page key goes in a Masonry group (C# MasonryTarget, 2ad608d1): its columns have
+/// uneven heights, so the item `split` places later is rarely under the focused one. Up / Down go
+/// to the previous / next item of the same column, Left / Right to the item of the neighbour column
+/// whose middle is nearest, PageUp / PageDown as far as one viewport along the column (else the
+/// next / previous item of it). `current` when there is no item that way; `None` for other keys
+/// and for a page key with no scroll around the group.
+fn masonry_target(tree: &Tree, items: &[ControlId], current: usize, key: InputKey, viewport: Option<f32>) -> Option<usize> {
+    if !matches!(key, "ArrowDown" | "ArrowUp" | "ArrowLeft" | "ArrowRight" | "PageDown" | "PageUp") {
+        return None;
+    }
+    if matches!(key, "PageDown" | "PageUp") && viewport.is_none() {
+        return None;
+    }
+    // The placed items: index and rect. Items of one column share their left edge.
+    let placed: Vec<(usize, Rect)> = items
+        .iter()
+        .enumerate()
+        .filter_map(|(i, id)| tree.base(*id).filter(|b| b.p.is_visible && !b.rect.is_empty()).map(|b| (i, b.rect)))
+        .collect();
+    let rect = placed.iter().find(|(i, _)| *i == current)?.1;
+    let mut lefts: Vec<f32> = placed.iter().map(|(_, r)| r.left).collect();
+    lefts.sort_by(f32::total_cmp);
+    lefts.dedup();
+    let column = |left: f32| placed.iter().filter(move |(_, r)| r.left == left);
+    let mut own: Vec<(usize, Rect)> = column(rect.left).copied().collect();
+    own.sort_by(|a, b| a.1.top.total_cmp(&b.1.top));
+    let below = || own.iter().find(|(_, r)| r.top > rect.top);
+    let above = || own.iter().rev().find(|(_, r)| r.top < rect.top);
+    let page = viewport.unwrap_or(0.0);
+    let found = match key {
+        "ArrowDown" => below(),
+        "ArrowUp" => above(),
+        "PageDown" => own.iter().rev().find(|(_, r)| r.top > rect.top && r.top <= rect.top + page).or_else(below),
+        "PageUp" => own.iter().find(|(_, r)| r.top < rect.top && r.top >= rect.top - page).or_else(above),
+        _ => {
+            let at = lefts.iter().position(|l| *l == rect.left)?;
+            let next = if key == "ArrowRight" { lefts.get(at + 1) } else { at.checked_sub(1).and_then(|a| lefts.get(a)) };
+            next.and_then(|left| column(*left).min_by(|a, b| (a.1.center_y() - rect.center_y()).abs().total_cmp(&(b.1.center_y() - rect.center_y()).abs())))
+        }
+    };
+    Some(found.map_or(current, |(i, _)| *i))
 }
 
 #[cfg(test)]

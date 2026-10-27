@@ -395,6 +395,11 @@ An item whose size changes (its image arrived, its text grew) is measured alone,
 placed again from the sizes already known: report a data change with `cx.items_changed(feed, index)`;
 a view that changes its own size needs nothing.
 
+Keyboard (a masonry with `accessibility_role(Aria::GRID)` is one Tab stop): Up / Down go along the
+column, Left / Right to the nearest tile of the next column, PageUp / PageDown one screen along the
+column. The item under a point (drag and drop): `layout.item_at(x, y)`, pixels from the layout's
+top left corner; it works for every templated layout with items side by side.
+
 ## Cache types
 
 `use_cache`: `Operations`, `OperationsFull` (records the canvas clip, for a control that paints

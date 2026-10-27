@@ -412,3 +412,60 @@ fn templated_padding_and_spacing_same_as_children() {
     let masonry = host.ui.state.masonry;
     assert_padded(&mut host, masonry);
 }
+
+// ---------------------------------------------------------------- item under a point
+
+#[derive(Default)]
+struct Picker {
+    layout: Handle<SkiaLayout>,
+}
+
+/// `item_at(x, y)` finds the item whose place holds the point in layouts with items side by side
+/// (a masonry, a split wrap, a grid), `None` in a gap; in a list it is the row at `y`.
+#[test]
+fn item_at_reads_x_and_y_in_two_dimensional_layouts() {
+    let kinds: [(&str, fn() -> Build<SkiaLayout>); 4] = [
+        ("masonry", || SkiaMasonry::new().spacing(4)),
+        ("wrap split 3", || SkiaWrap::new().split(3).spacing(4)),
+        ("grid split 3", || SkiaLayout::grid().split(3).column_spacing(4).row_spacing(4)),
+        ("list", || SkiaStack::new().spacing(4)),
+    ];
+    for (name, kind) in kinds {
+        let build = move |app: &mut Picker| {
+            SkiaScroll::new().fill().content(kind().assign(&mut app.layout).items(
+                |_: &Picker| 12,
+                || {
+                    let mut shape = Handle::default();
+                    (SkiaShape::new().fill_x().background_color(Color::BLUE).assign(&mut shape), shape)
+                },
+                |shape: &Handle<SkiaShape>, _: &Picker, index, cx| {
+                    if let Some(mut shape) = cx.get_mut(*shape) {
+                        shape.set_height_request(height(index));
+                    }
+                },
+            ))
+        };
+        let mut host = Headless::new(Ui::new(Picker::default(), build), 300, 2000, 1.0);
+        host.settle();
+        let id = host.ui.state.layout;
+        let origin = host.rect(id);
+        let slots = host.ui.tree.children(id).to_vec();
+        let layout = host.ui.tree.find::<SkiaLayout>(id).unwrap();
+        for (i, slot) in slots.iter().take(12).enumerate() {
+            let r = host.rect(*slot).with_offset((-origin.left, -origin.top));
+            assert_eq!(layout.item_at(r.center_x(), r.center_y()), Some(i), "{name}: #{i} at {r:?}");
+            assert_eq!(layout.item_at(r.left, r.top), Some(i), "{name}: top left corner of #{i}");
+        }
+        if name == "list" {
+            assert_eq!(layout.item_at(5.0, 50.0), layout.item_at_pixels(50.0), "{name}: the row at y");
+            continue;
+        }
+        // Between the first two columns, and past the right edge of the last one.
+        let first = host.rect(slots[0]).with_offset((-origin.left, -origin.top));
+        assert_eq!(layout.item_at(first.right + 2.0, first.top + 5.0), None, "{name}: the gap between columns");
+        assert_eq!(layout.item_at(origin.width() + 10.0, 5.0), None, "{name}: outside the layout");
+        // The old Y-only lookup cannot tell the columns apart: item_at can.
+        let second = host.rect(slots[1]).with_offset((-origin.left, -origin.top));
+        assert_eq!(layout.item_at(second.center_x(), second.top + 1.0), Some(1), "{name}: the second column");
+    }
+}

@@ -4,6 +4,18 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## Unreleased
+
+### Added
+
+- `SkiaLayout::item_at(x, y)`: the item under a point in any templated layout, also where items sit
+  side by side (Row, Wrap, Masonry, Grid, a split Column). For drag and drop over a grid of tiles.
+
+### Changed
+
+- Keyboard arrows in a masonry go to the tile on screen that way: Up / Down along the column,
+  Left / Right to the nearest tile of the next column, PageUp / PageDown one screen along the column.
+
 ## 0.1.0-preview.17 (crates.io, 2026-10-27)
 
 ### Added

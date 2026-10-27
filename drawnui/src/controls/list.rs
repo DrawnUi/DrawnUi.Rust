@@ -395,9 +395,9 @@ pub(crate) struct Items {
     placed: (usize, usize, f32, f32, f32, f32),
     /// Cells for the visible rows only (a list), or one per item laid out by the layout.
     list: bool,
-    /// Not a list: where the layout put each item at the last arrange, (top, height) in pixels
-    /// from the layout's top.
-    laid: Vec<(f32, f32)>,
+    /// Not a list: where the layout put each item at the last arrange, in pixels from the
+    /// layout's top left corner.
+    laid: Vec<Rect>,
     /// Cells made from the template so far (diagnostics).
     created: u32,
     /// A cell was made, bound, shown or hidden since `realize_all` last reported it.
@@ -831,8 +831,7 @@ impl Items {
             let ids = self.slots.iter().map(|s| s.node).chain(self.cells.iter().map(|c| c.id));
             self.laid.clear();
             self.laid.extend(ids.map(|id| {
-                let r = cx.child_base(id).rect;
-                (r.top - rect.top, r.height())
+                cx.child_base(id).rect.with_offset((-rect.left, -rect.top))
             }));
         }
         if self.slotted {
@@ -1402,7 +1401,7 @@ impl SkiaLayout {
         let Some(items) = self.items.as_ref() else { return 0.0 };
         match items.list {
             true => items.lead + items.sizes.offset(index.min(items.sizes.len), items.gap),
-            false => items.laid.get(index).map_or(0.0, |laid| laid.0),
+            false => items.laid.get(index).map_or(0.0, |laid| laid.top),
         }
     }
 
@@ -1411,12 +1410,14 @@ impl SkiaLayout {
         let Some(items) = self.items.as_ref().filter(|items| index < items.sizes.len) else { return 0.0 };
         match items.list {
             true => items.sizes.height(index),
-            false => items.laid.get(index).map_or(0.0, |laid| laid.1),
+            false => items.laid.get(index).map_or(0.0, |laid| laid.height()),
         }
     }
 
     /// The item at `y` pixels from the layout's top (the gap below a row belongs to it), `None`
-    /// above the first row or below the last one. For a drag: the slot under the pointer.
+    /// above the first row or below the last one. For a drag: the slot under the pointer. Made for
+    /// a list (a Column): in a layout with items side by side (Row, Wrap, Masonry, Grid, a split
+    /// Column) use `item_at`, which reads the x too.
     pub fn item_at_pixels(&self, y: f32) -> Option<usize> {
         let items = self.items.as_ref().filter(|items| items.sizes.len > 0)?;
         match items.list {
@@ -1424,7 +1425,19 @@ impl SkiaLayout {
                 let y = y - items.lead;
                 (y >= 0.0 && y < items.sizes.total(items.gap)).then(|| items.sizes.index_at(y, items.gap))
             }
-            false => items.laid.iter().position(|(top, height)| y >= *top && y < top + height),
+            false => items.laid.iter().position(|laid| y >= laid.top && y < laid.bottom),
+        }
+    }
+
+    /// The item at (`x`, `y`) pixels from the layout's top left corner, in any templated layout:
+    /// in a Row, Wrap, Masonry, Grid or split Column the item whose place holds the point (`None`
+    /// in a gap or outside every item); in a list (a Column) the row at `y`, as `item_at_pixels`.
+    /// For a drag: the slot under the pointer.
+    pub fn item_at(&self, x: f32, y: f32) -> Option<usize> {
+        let items = self.items.as_ref().filter(|items| items.sizes.len > 0)?;
+        match items.list {
+            true => self.item_at_pixels(y),
+            false => items.laid.iter().position(|laid| x >= laid.left && x < laid.right && y >= laid.top && y < laid.bottom),
         }
     }
 
