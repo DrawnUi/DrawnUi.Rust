@@ -352,3 +352,63 @@ fn templated_big_source_lays_out_every_item() {
     let host = templated(1_100);
     assert_placed_as_fresh(&host);
 }
+
+// ---------------------------------------------------------------- padding and spacing
+
+/// Padding 10,20,30,40 and spacing 4 in a 200 wide layout: columns of (200 - 10 - 30 - 4) / 2 = 78
+/// at x 10 and 92, items start 20 down and 4 apart. col0: #0 20..120, #4 124..224; col1: #1 20..40,
+/// #2 44..64, #3 68..168, #5 172..192. Height: tallest column 204 + padding 20 + 40 = 264.
+const PADDED: [(f32, f32); 6] = [(10.0, 20.0), (92.0, 20.0), (92.0, 44.0), (92.0, 68.0), (10.0, 124.0), (92.0, 172.0)];
+
+fn assert_padded<S>(host: &mut Headless<S>, masonry: Handle<SkiaLayout>) {
+    assert_eq!(measured_height(host, masonry), 264.0);
+    let rects = placed(host, masonry);
+    assert!(rects.len() >= PADDED.len(), "{} children", rects.len());
+    for (i, r) in rects.iter().take(PADDED.len()).enumerate() {
+        assert_eq!((r.left, r.top, r.width(), r.height()), (PADDED[i].0, PADDED[i].1, 78.0, HEIGHTS[i] as f32), "#{i}");
+    }
+    let origin = host.rect(masonry);
+    let mut filled = |x: f32, y: f32| host.pixel((origin.left + x) as i32, (origin.top + y) as i32).b() > 0x40;
+    for (i, (left, top)) in PADDED.iter().enumerate() {
+        assert!(filled(left + 39.0, top + HEIGHTS[i] as f32 / 2.0), "item {i} not drawn at {left},{top}");
+    }
+    assert!(!filled(5.0, 60.0), "left padding is drawn over");
+    assert!(!filled(40.0, 10.0), "top padding is drawn over");
+    assert!(!filled(90.0, 60.0), "spacing between the columns is drawn over");
+    assert!(!filled(185.0, 60.0), "right padding is drawn over");
+    assert!(!filled(40.0, 122.0), "spacing between items is drawn over");
+}
+
+#[test]
+fn children_padding_and_spacing_place_items_inside_the_padding() {
+    let build = |app: &mut Two| {
+        SkiaLayer::new().fill().children((boxes(SkiaMasonry::new(), &HEIGHTS).spacing(4).padding((10, 20, 30, 40)).assign(&mut app.masonry),))
+    };
+    let mut host = Headless::new(Ui::new(Two::default(), build).background(Color::BLACK), 200, 400, 1.0);
+    host.settle();
+    let masonry = host.ui.state.masonry;
+    assert_padded(&mut host, masonry);
+}
+
+#[test]
+fn templated_padding_and_spacing_same_as_children() {
+    let build = |app: &mut Feed| {
+        SkiaScroll::new().fill().content(SkiaMasonry::new().spacing(4).padding((10, 20, 30, 40)).assign(&mut app.masonry).items(
+            |app: &Feed| app.heights.len(),
+            || {
+                let mut shape = Handle::default();
+                (SkiaShape::new().fill_x().background_color(Color::from_rgb(72, 61, 139)).assign(&mut shape), shape)
+            },
+            |shape: &Handle<SkiaShape>, app: &Feed, index, cx| {
+                if let Some(mut shape) = cx.get_mut(*shape) {
+                    shape.set_height_request(app.heights[index]);
+                }
+            },
+        ))
+    };
+    let feed = Feed { heights: HEIGHTS.to_vec(), ..Feed::default() };
+    let mut host = Headless::new(Ui::new(feed, build).background(Color::BLACK), 200, 400, 1.0);
+    host.settle();
+    let masonry = host.ui.state.masonry;
+    assert_padded(&mut host, masonry);
+}
