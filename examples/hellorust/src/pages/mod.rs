@@ -409,6 +409,30 @@ mod tests {
         assert_eq!(host.ui.state.sprites.row, 0);
     }
 
+    /// The Masonry card: twelve tiles in three columns, each under the shortest column, so the
+    /// masonry is shorter than the same tiles in a Split 3 wrap (rows as tall as their tallest tile).
+    #[test]
+    fn layouts_masonry_fills_the_shortest_column() {
+        let mut host = host(4200);
+        open_page(&mut host, "Layouts");
+        let content = |host: &Headless<App>, title: &str| {
+            let stack = host.ui.tree.parent(showing(host, title)).unwrap();
+            host.ui.tree.children(stack)[1]
+        };
+        let masonry = content(&host, "SkiaMasonry · Split=3 · Spacing 8 · every tile goes to the shortest column");
+        let wrap = content(&host, "The same tiles in a SkiaWrap · Split=3: each row is as tall as its tallest tile");
+        let tiles = |layout| host.ui.tree.children(layout).iter().map(|t| host.rect(*t)).collect::<Vec<_>>();
+        let (columns, rows) = (tiles(masonry), tiles(wrap));
+        assert_eq!(columns.len(), 12);
+        // Tile 4 (50) goes under tile 2 (60), the column that ends highest, not to a new row.
+        assert_eq!(columns[3].left, columns[1].left);
+        assert_eq!(columns[3].top, columns[1].bottom + 8.0);
+        let height = |layout| host.ui.tree.base(layout).unwrap().measured.height;
+        assert!(height(masonry) < height(wrap), "masonry {} vs wrap {}", height(masonry), height(wrap));
+        assert_eq!(rows[3].top, rows[0].bottom + 8.0);
+        shot(&mut host, "Layouts masonry");
+    }
+
     #[test]
     fn layouts_templated_wrap_follows_count_and_split() {
         let mut host = host(4200);

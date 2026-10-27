@@ -1,5 +1,5 @@
 //! Every SkiaLayout type: Absolute (SkiaLayer), Column (SkiaStack), Row (SkiaRow), Grid (SkiaGrid),
-//! Wrap (SkiaWrap), ImageComposite caching, ItemsSource on Wrap / Row / Grid with Split. Ported from
+//! Wrap (SkiaWrap), Masonry (SkiaMasonry), ImageComposite caching, ItemsSource on Wrap / Row / Grid with Split. Ported from
 //! the React demo's LayoutsPage.tsx.
 
 use drawnui::controls::layout::SkiaDecoratedGrid;
@@ -268,6 +268,15 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
                         .into_iter()
                         .collect::<Vec<_>>(),
                 ),
+            ),
+            heading("Masonry · SkiaMasonry", 20),
+            card(
+                "SkiaMasonry · Split=3 · Spacing 8 · every tile goes to the shortest column",
+                SkiaMasonry::new().split(3).spacing(8).children(masonry_tiles()),
+            ),
+            card(
+                "The same tiles in a SkiaWrap · Split=3: each row is as tall as its tallest tile",
+                SkiaWrap::new().split(3).spacing(8).children(masonry_tiles()),
             ),
             heading("Caching · UseCache=ImageComposite", 20),
             // One child spins every 40 ms: the card is painted live, only the composite layer records.
@@ -539,6 +548,22 @@ fn cell(text: &str, color: u32, column: i32, row: i32) -> Build<SkiaShape> {
 }
 
 /// A small labeled box used by the stack / row / layer demos.
+/// Twelve numbered tiles of different heights in the palette colors, for the Masonry and Wrap cards.
+fn masonry_tiles() -> Vec<Build<SkiaShape>> {
+    [120, 60, 90, 50, 140, 70, 100, 60, 80, 130, 50, 90]
+        .iter()
+        .enumerate()
+        .map(|(i, height)| {
+            SkiaShape::new()
+                .corner_radius(8)
+                .height_request(*height)
+                .fill_x()
+                .background_color(hex(PALETTE[i % PALETTE.len()]))
+                .children(centered(&(i + 1).to_string(), 16, Color::WHITE))
+        })
+        .collect()
+}
+
 fn boxed(text: &str, color: u32) -> Build<SkiaShape> {
     SkiaShape::new()
         .corner_radius(6)

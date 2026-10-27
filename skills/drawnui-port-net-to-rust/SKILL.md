@@ -58,7 +58,7 @@ Linux, icons, assets) is in the `drawnui-rust` skill: load both.
 | `HorizontalTextAlignment = DrawTextAlignment.Center` | `.horizontal_text_alignment(TextAlignment::Center)` |
 | `SkiaScroll { Content = x }` / `.WithContent(x)` | `SkiaScroll::new().content(x)` |
 | `SkiaGrid` + `.WithColumnDefinitions("2*,3*")`, `.SetGrid(col, row)` | `SkiaGrid::new().column_definitions("2*,3*")`, `.column(c).row(r)`, `.column_span(n)` |
-| Aliases `SkiaStack`, `SkiaRow`, `SkiaLayer`, `SkiaWrap`, `SkiaGrid` | the same names; as in C#, a plain `SkiaLayout` does not fill, the aliases do |
+| Aliases `SkiaStack`, `SkiaRow`, `SkiaLayer`, `SkiaWrap`, `SkiaMasonry`, `SkiaGrid` | the same names; as in C#, a plain `SkiaLayout` does not fill, the aliases do |
 | XAML | rewrite as builders: element = constructor, attribute = builder method, child elements = `.children(...)` |
 | A page class `KeyboardPage : SkiaLayer` built in its constructor | a function `pub fn build(app: &mut App) -> Build<SkiaLayout>` in the page's module |
 

@@ -4,6 +4,15 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## Unreleased
+
+### Added
+
+- Masonry layout: `SkiaMasonry` (`LayoutType::Masonry`). `split` columns of equal width, each item
+  placed under the shortest column, so items of different heights leave no gaps. Works with children
+  and with `items` (recycled views, taps, `scroll_to_index`, `on_load_more`); an append or a changed
+  item measures only those items.
+
 ## 0.1.0-preview.16 (crates.io, 2026-10-25)
 
 ### Changed

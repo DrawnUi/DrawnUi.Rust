@@ -1,7 +1,7 @@
-//! SkiaLayout: Absolute, Column, Row, Wrap and Grid, plus the SkiaStack / SkiaRow / SkiaLayer / SkiaWrap / SkiaGrid
-//! aliases. The grid is in `grid.rs`.
-//! A Column with `items` is a list of recycled cells (`list.rs`); a Row, Wrap, Grid or split Column
-//! with `items` lays out every item like a child: through slots that views from a pool are bound
+//! SkiaLayout: Absolute, Column, Row, Wrap, Masonry and Grid, plus the SkiaStack / SkiaRow / SkiaLayer /
+//! SkiaWrap / SkiaMasonry / SkiaGrid aliases. The grid is in `grid.rs`.
+//! A Column with `items` is a list of recycled cells (`list.rs`); a Row, Wrap, Masonry, Grid or split
+//! Column with `items` lays out every item like a child: through slots that views from a pool are bound
 //! to while they can be seen (RecyclingTemplate Enabled), or one cell per item (Disabled).
 
 use skia_safe::{Rect, Size};
@@ -33,6 +33,9 @@ pub enum LayoutType {
     Wrap,
     /// Columns and rows; a child sits in the cell its `column` and `row` name.
     Grid,
+    /// `split` columns of equal width; each child goes under the column that ends highest, so
+    /// children of different heights leave no gaps between rows.
+    Masonry,
 }
 
 /// What a list does with the cell of a row that left the viewport.
@@ -73,7 +76,8 @@ props!(LayoutProps, LayoutBuild, LayoutSet {
     /// Points between children of a Column or a Row, and between the children and the lines of a Wrap.
     spacing / set_spacing: f32 = 8.0, MEASURE;
     /// Wrap: a fixed number of columns, a new line after that many children; 0 = as many as fit.
-    /// Column: more than 1 lays the children out in rows of that many equal columns. Grid with
+    /// Column: more than 1 lays the children out in rows of that many equal columns. Masonry: the
+    /// columns (at least 1). Grid with
     /// `items`: the columns, item `i` in column `i % split` of row `i / split`.
     split / set_split: i32 = 0, MEASURE;
     /// Wrap or Column with `split`: a last row with fewer children shares the whole width among them.
@@ -142,6 +146,11 @@ impl SkiaLayout {
         Self::new().layout_type(LayoutType::Wrap).horizontal_options(LayoutOptions::Fill)
     }
     /// Grid filling the width (SkiaGrid).
+    /// Masonry of 2 columns filling the width.
+    pub fn masonry() -> Build<SkiaLayout> {
+        Self::new().layout_type(LayoutType::Masonry).split(2).horizontal_options(LayoutOptions::Fill)
+    }
+
     pub fn grid() -> Build<SkiaLayout> {
         Self::new().layout_type(LayoutType::Grid).horizontal_options(LayoutOptions::Fill)
     }
@@ -244,6 +253,41 @@ impl SkiaLayout {
         content
     }
 
+    /// Masonry (C# BuildMasonryLayout): `split` columns as wide as those of a split Wrap; each child
+    /// is measured at the column's width with no height limit and goes under the column that ends
+    /// highest (the first of equal ones), `spacing` between columns and between children. Keeps the
+    /// slots for `arrange` like a Wrap. A child or slot keeps its size for the same constraints, so a
+    /// measure after an append or a change measures only the new or changed items and places all of
+    /// them again from the known sizes.
+    fn measure_masonry(&mut self, cx: &mut LayoutCx, kids: &mut Kids, w: f32) -> Size {
+        let scale = cx.scale;
+        let gap = snap(self.p.spacing * scale);
+        let columns = self.p.split.max(1) as usize;
+        let chunk = column_width(w, columns, self.p.spacing * scale);
+        // Per column: where it ends and how many children it holds.
+        let mut bottoms = vec![(0f32, 0usize); columns];
+        for i in 0..cx.child_count() {
+            let child = cx.child(i);
+            if !cx.child_base(child).p.is_visible {
+                continue;
+            }
+            let mut column = 0;
+            for c in 1..columns {
+                if bottoms[c].0 < bottoms[column].0 {
+                    column = c;
+                }
+            }
+            let (bottom, rows) = bottoms[column];
+            let (left, top) = (column as f32 * (chunk + gap), bottom + if rows > 0 { gap } else { 0.0 });
+            let size = measure_kid(kids, cx, child, chunk, f32::INFINITY);
+            self.slots.push((child, Rect::from_xywh(left, top, chunk, size.height)));
+            bottoms[column] = (top + size.height, rows + 1);
+        }
+        let used = bottoms.iter().filter(|(_, rows)| *rows > 0).count();
+        let width = if used > 0 { used as f32 * chunk + (used - 1) as f32 * gap } else { 0.0 };
+        Size::new(width, bottoms.iter().fold(0.0, |most, (bottom, _)| most.max(*bottom)))
+    }
+
     /// Column with `split` > 1: rows of that many equal columns, each row as tall as its tallest
     /// child (upstream MeasureStack with Split). Keeps the slots for `arrange` like a Wrap.
     // ponytail: a child that fills the height gets what is left under its row, not a share of it.
@@ -313,7 +357,7 @@ impl SkiaLayout {
         let along = |size: Size| match kind {
             LayoutType::Column => size.height,
             LayoutType::Row => size.width,
-            LayoutType::Absolute | LayoutType::Wrap | LayoutType::Grid => 0.0,
+            LayoutType::Absolute | LayoutType::Wrap | LayoutType::Masonry | LayoutType::Grid => 0.0,
         };
 
         // Pass 0: children sized by themselves. Pass 1: children filling an auto side, which has a
@@ -334,7 +378,7 @@ impl SkiaLayout {
                 }
                 let (fill_x, fill_y) = (fills_width(cp), fills_height(cp));
                 let order = match kind {
-                    LayoutType::Absolute | LayoutType::Wrap | LayoutType::Grid => fill_x as i32 + fill_y as i32,
+                    LayoutType::Absolute | LayoutType::Wrap | LayoutType::Masonry | LayoutType::Grid => fill_x as i32 + fill_y as i32,
                     LayoutType::Column => (fill_y && shares) as i32 * 2,
                     LayoutType::Row => (fill_x && shares) as i32 * 2,
                 };
@@ -359,7 +403,7 @@ impl SkiaLayout {
                 match kind {
                     LayoutType::Column => child_h = if order == 2 { slot } else { f32::INFINITY },
                     LayoutType::Row => child_w = if order == 2 { slot } else { f32::INFINITY },
-                    LayoutType::Absolute | LayoutType::Wrap | LayoutType::Grid => {}
+                    LayoutType::Absolute | LayoutType::Wrap | LayoutType::Masonry | LayoutType::Grid => {}
                 }
                 let s = measure_kid(kids, cx, child, child_w, child_h);
                 // A child with a share takes all of it, fraction included.
@@ -423,7 +467,7 @@ impl SkiaLayout {
         match kind {
             LayoutType::Column => content_h = snap(stacked + gaps),
             LayoutType::Row => content_w = snap(stacked + gaps),
-            LayoutType::Absolute | LayoutType::Wrap | LayoutType::Grid => {}
+            LayoutType::Absolute | LayoutType::Wrap | LayoutType::Masonry | LayoutType::Grid => {}
         }
         Size::new(content_w, content_h)
     }
@@ -617,6 +661,15 @@ impl SkiaGrid {
     }
 }
 
+/// DrawnUI alias: a Masonry layout of 2 columns (`split`) filling the width.
+pub struct SkiaMasonry;
+impl SkiaMasonry {
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new() -> Build<SkiaLayout> {
+        SkiaLayout::masonry()
+    }
+}
+
 /// DrawnUI alias: a Wrap layout filling the width.
 pub struct SkiaWrap;
 impl SkiaWrap {
@@ -737,6 +790,8 @@ impl SkiaLayout {
             self.slots.clear();
             self.content = if kind == LayoutType::Wrap {
                 self.measure_wrap(cx, kids, w, h)
+            } else if kind == LayoutType::Masonry {
+                self.measure_masonry(cx, kids, w)
             } else if kind == LayoutType::Column && self.p.split > 1 && w.is_finite() {
                 self.measure_columns(cx, kids, w, h)
             } else if kind == LayoutType::Grid {
@@ -756,7 +811,7 @@ impl SkiaLayout {
         let scale = cx.scale;
         let (inner, auto) = (content_rect(cx.base(), scale), auto_sides(&cx.base().p));
         let origin = (inner.left, inner.top);
-        // A Wrap and a Column with `split`: the measure left a slot for every child.
+        // A Wrap, a Masonry and a Column with `split`: the measure left a slot for every child.
         if !self.slots.is_empty() {
             for (child, slot) in &self.slots {
                 let cell = cell(cx.child_base(*child), *slot, scale);
@@ -767,7 +822,7 @@ impl SkiaLayout {
         match self.p.layout_type {
             LayoutType::Grid => self.grid.arrange(cx, &self.p, kids, inner.left, inner.top),
             LayoutType::Column | LayoutType::Row => self.arrange_stack(cx, kids, origin, auto),
-            LayoutType::Absolute | LayoutType::Wrap => {
+            LayoutType::Absolute | LayoutType::Wrap | LayoutType::Masonry => {
                 for i in 0..cx.child_count() {
                     let child = cx.child(i);
                     if cx.child_base(child).p.is_visible {

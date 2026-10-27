@@ -1,6 +1,6 @@
 ---
 name: drawnui-rust
-description: Building apps with DrawnUI for Rust (the `drawnui` crate, Skia via skia-safe) for Windows, Linux, Android and the browser — adding drawnui to a project (crates.io, Skia downloaded prebuilt with no setup, the starter template), the browser (wasm32-unknown-emscripten) build setup every app must copy into its own .cargo/config.toml, above all the 1 MB wasm stack and its overflow check, how to recognize and prove a wasm stack overflow, the web host page, the Linux build (clang 16+, X11 / Wayland, icon, clipboard), the Android app (GameActivity, Gradle, 16 KB pages, soft keyboard, TalkBack), transforms in 2D and 3D (rotation_x / rotation_y with perspective, translation_z depth, a card's back side, cached content and taps under 3D), and popup windows (context menus and dropdowns that open past the app window's edge). Load before building or debugging any Rust app that uses drawnui, especially its web or Android build, before turning, flipping or scaling controls, and before opening menus or popups.
+description: Building apps with DrawnUI for Rust (the `drawnui` crate, Skia via skia-safe) for Windows, Linux, Android and the browser — adding drawnui to a project (crates.io, Skia downloaded prebuilt with no setup, the starter template), the browser (wasm32-unknown-emscripten) build setup every app must copy into its own .cargo/config.toml, above all the 1 MB wasm stack and its overflow check, how to recognize and prove a wasm stack overflow, the web host page, the Linux build (clang 16+, X11 / Wayland, icon, clipboard), the Android app (GameActivity, Gradle, 16 KB pages, soft keyboard, TalkBack), transforms in 2D and 3D (rotation_x / rotation_y with perspective, translation_z depth, a card's back side, cached content and taps under 3D), popup windows (context menus and dropdowns that open past the app window's edge), and masonry feeds (SkiaMasonry: Pinterest-style columns, children or items, LoadMore). Load before building or debugging any Rust app that uses drawnui, especially its web or Android build, before turning, flipping or scaling controls, and before opening menus or popups.
 ---
 
 # DrawnUI for Rust: building an app
@@ -365,6 +365,35 @@ Windows: your font has the color gear, and Segoe UI Emoji has only the plain one
 - U+FE0F (VS16) does not switch a symbol to its emoji look.
 - Invisible code points (U+FE0F, the zero width joiner, tags) that no font of the label has draw
   nothing and take no room. They never draw a box, and `fallback_character` leaves them alone.
+
+## Masonry (Pinterest-style columns)
+
+`SkiaMasonry::new()` (a `SkiaLayout` with `LayoutType::Masonry`, `split(2)`, filling the width):
+`split` equal columns, every item goes under the column that ends highest (the first of equal
+ones), `spacing` between columns and between items. A `SkiaWrap` with the same `split` places items
+in rows instead, each row as tall as its tallest item. Items are measured at the column width with
+no height limit: give the masonry a width, and put long feeds in a vertical `SkiaScroll`.
+
+Works with children and with `items(count, template, bind)`: recycled views (only the items that
+can be seen have one), taps, `scroll_to_index`, `on_load_more`. Every item is laid out, so the first
+layout costs time in proportion to the number of items. After that only what changed is measured:
+
+```rust
+SkiaScroll::new().fill().load_more_offset(300)
+    .on_load_more(|_me, app: &mut App, cx| {
+        let at = app.photos.len();
+        app.photos.extend(next_page());
+        cx.items_inserted(app.feed, at, app.photos.len() - at); // only the new items are measured
+    })
+    .content(
+        SkiaMasonry::new().split(3).spacing(8).assign(&mut app.feed)
+            .items(|app: &App| app.photos.len(), photo_card, bind_photo),
+    )
+```
+
+An item whose size changes (its image arrived, its text grew) is measured alone, and every item is
+placed again from the sizes already known: report a data change with `cx.items_changed(feed, index)`;
+a view that changes its own size needs nothing.
 
 ## Cache types
 

@@ -82,8 +82,8 @@ pub mod prelude {
     pub use crate::controls::text_span::{IntoSpans, TextSpan};
     pub use crate::controls::layout::{
         DecoratedGridBuild, DecoratedGridSet, GridLength, LayoutBuild, LayoutSet, LayoutType, MeasureBudget,
-        MeasuringStrategy, RecyclingTemplate, SkiaDecoratedGrid, SkiaGrid, SkiaLayer, SkiaLayout, SkiaRow, SkiaStack,
-        SkiaWrap,
+        MeasuringStrategy, RecyclingTemplate, SkiaDecoratedGrid, SkiaGrid, SkiaLayer, SkiaLayout, SkiaMasonry, SkiaRow,
+        SkiaStack, SkiaWrap,
     };
     pub use crate::controls::scroll::{
         RelativePositionType, ScrollBarVisibility, ScrollBuild, ScrollOrientation, ScrollSet, SkiaScroll, SnapToChildrenType,
