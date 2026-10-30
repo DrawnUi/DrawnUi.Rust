@@ -2,3 +2,4 @@
 # WSL runs them from the Windows drive).
 *.sh text eol=lf
 gradlew text eol=lf
+dev/hooks/* text eol=lf
