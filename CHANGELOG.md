@@ -4,7 +4,7 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.20 (crates.io, 2026-10-30)
 
 ### Added
 
@@ -14,6 +14,10 @@ version before it. Commits in parentheses.
   emoji sequences (families, skin tones, flags, keycaps) draw as one emoji. Other text keeps the
   plain, faster path.
 - `SkiaRichLabel`: `***bold italic***` and `___bold italic___`.
+
+### Toolchain
+
+Skia crates unchanged (0.153.7). New dependencies: `harfrust` 0.15, `unicode-bidi` 0.3.
 
 ## 0.1.0-preview.19 (crates.io, 2026-10-30)
 

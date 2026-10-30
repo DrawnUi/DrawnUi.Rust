@@ -72,7 +72,7 @@ DrawnUI is MIT licensed in every language and on every platform: desktop, mobile
 - **Layout:** Absolute, Column, Row, Wrap, Masonry, Grid and decorated grids; templated lists with recycling
   and virtualization; measure / arrange / paint, render transforms (3D turns with perspective and depth included),
   opacity, clipping, z-index.
-- **Controls:** shapes, labels and rich text, buttons, an editor with IME, scroll with scroll bars
+- **Controls:** shapes, labels and rich text (shaped right-to-left and complex scripts, emoji sequences), buttons, an editor with IME, scroll with scroll bars
   and pull to refresh, carousels (also with shader transitions), drawer, shell (pages, tabs, popups,
   modals, toasts), toggles, switch, checkbox, radio buttons, slider, progress, backdrop blur.
 - **Media:** images (decoded off the frame thread), image tiles, SVG, GIF, Lottie, sprites, SkSL
@@ -92,7 +92,7 @@ DrawnUI is MIT licensed in every language and on every platform: desktop, mobile
 
 | Crate | What it is | Version |
 |---|---|---|
-| [`drawnui`](https://crates.io/crates/drawnui) | the engine: controls, layouts, caches, gestures, animations, accessibility, the desktop, mobile and browser hosts | 0.1.0-preview.19 |
+| [`drawnui`](https://crates.io/crates/drawnui) | the engine: controls, layouts, caches, gestures, animations, accessibility, the desktop, mobile and browser hosts | 0.1.0-preview.20 |
 | [`drawnui-skia-safe`](https://crates.io/crates/drawnui-skia-safe) | Skia for Rust: rust-skia's skia-safe plus SkMesh; drawnui re-exports it as `drawnui::skia` | 0.153.7 |
 | [`drawnui-skia-bindings`](https://crates.io/crates/drawnui-skia-bindings) | the native Skia under drawnui-skia-safe, downloaded prebuilt from [DrawnUi/rust-skia](https://github.com/DrawnUi/rust-skia/releases) | 0.153.7 |
 
