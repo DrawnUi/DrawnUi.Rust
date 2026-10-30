@@ -4,7 +4,7 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.22 (crates.io, 2026-10-30)
 
 ### Changed
 
@@ -16,6 +16,10 @@ version before it. Commits in parentheses.
 ### Added
 
 - `TextLine`: `lefts`, `rtl`, `base_rtl`, `index_at_x()` and `boxes()` for editors built on a label.
+
+### Toolchain
+
+Skia crates unchanged (0.153.7). New dependency: `unicode-segmentation` 1.13.
 
 ## 0.1.0-preview.21 (crates.io, 2026-10-30)
 
