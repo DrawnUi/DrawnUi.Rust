@@ -182,6 +182,9 @@ pub struct SkiaEditor {
     /// The caret, which is the left edge of the selection, and the selection's length:
     /// characters of the text.
     cursor: usize,
+    /// The caret was placed (by the app, a press or a key). Until then focusing from code puts
+    /// it at the end of the text, as a tap after the text does (C# CursorPosition -1, 2285b422).
+    cursor_set: bool,
     selection: usize,
     /// Characters in the text.
     chars: usize,
@@ -227,6 +230,7 @@ impl SkiaEditor {
             label: label.handle(),
             placeholder: placeholder.handle(),
             cursor: 0,
+            cursor_set: false,
             selection: 0,
             chars: 0,
             keyboard_edges: None,
@@ -318,6 +322,7 @@ impl SkiaEditor {
     }
 
     fn select(&mut self, start: usize, end: usize) -> Dirty {
+        self.cursor_set = true;
         let (s, e) = (start.min(end).min(self.chars), start.max(end).min(self.chars));
         self.cursor = s;
         self.selection = e - s;
@@ -1208,6 +1213,11 @@ impl Control for SkiaEditor {
 
     fn on_focus_changed(&mut self, cx: &mut GestureCx, focused: bool) {
         self.focused = focused;
+        // Focused from code before any caret was placed: the caret goes to the end, so typing appends.
+        if focused && !self.cursor_set {
+            (self.cursor, self.selection, self.cursor_set) = (self.chars, 0, true);
+            self.reveal = true;
+        }
         self.caret_on = true;
         self.blink_at = 0.0;
         if !focused {

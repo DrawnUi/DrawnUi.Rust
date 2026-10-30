@@ -98,6 +98,10 @@ pub struct SkiaCarousel {
     wrong_direction: bool,
     snap_if_no_pan_on_up: bool,
     had_down: bool,
+    /// The slide a finger gesture started on (the target of a snap it caught in flight), and that
+    /// slide while its release snaps: a release moves at most one slide from it (`limit_to_neighbours`).
+    gesture_home: Point,
+    release_home: Option<Point>,
     /// The frame animator is registered.
     ticking: bool,
     /// The position changed since the last tick: the content offset follows.
@@ -140,6 +144,8 @@ impl Default for SkiaCarousel {
             wrong_direction: false,
             snap_if_no_pan_on_up: false,
             had_down: false,
+            gesture_home: Point::default(),
+            release_home: None,
             ticking: false,
             moved: false,
             events: Vec::new(),
@@ -282,6 +288,24 @@ impl SkiaCarousel {
     /// React SkiaCarousel.SelectNextAnchor: the base choice, and at an end of a looped carousel the
     /// virtual anchor beyond it when the finger went that way.
     fn select_next_anchor(&self, origin: Point, velocity: Point) -> Point {
+        self.limit_to_neighbours(self.select_next_anchor_internal(origin, velocity))
+    }
+
+    /// A finger release moves at most one slide from the slide its gesture started on, as iOS paging
+    /// and the Android ViewPager do (C# 1070e0db): a drag past the middle makes the next slide the
+    /// nearest one, and the flick then went one further. Code moves (`scroll_to`, `selected_index`)
+    /// are not limited: `release_home` is set only while a release snaps. A looped wrap goes to a
+    /// virtual anchor next to the edge, one slide already: left as it is.
+    fn limit_to_neighbours(&self, target: Point) -> Point {
+        let Some(home) = self.release_home else { return target };
+        let s = &self.s.snap_points;
+        match (s.iter().position(|p| *p == home), s.iter().position(|p| *p == target)) {
+            (Some(from), Some(to)) if from.abs_diff(to) > 1 => s[if to > from { from + 1 } else { from - 1 }],
+            _ => target,
+        }
+    }
+
+    fn select_next_anchor_internal(&self, origin: Point, velocity: Point) -> Point {
         let base = self.s.select_next_anchor(origin, velocity);
         if !self.apply_looped_logic() {
             return base;
@@ -814,6 +838,12 @@ impl Control for SkiaCarousel {
         match gesture.kind {
             GestureKind::Down => {
                 self.had_down = true;
+                // A swipe that catches a snap in flight starts from the slide that snap was going to.
+                let in_flight = self.s.is_animating() || self.s.in_transition;
+                self.gesture_home = match in_flight && self.s.snap_points.contains(&self.s.snap) {
+                    true => self.s.snap,
+                    false => self.s.nearest_anchor(self.s.position),
+                };
                 self.reset_pan();
                 consumed = true;
             }
@@ -858,7 +888,9 @@ impl Control for SkiaCarousel {
                     // React reads the clock while it processes the Up: the frame time here.
                     let velocity = self.s.accumulator.final_velocity(cx.tree.time_ms, 500.0);
                     self.s.snap = self.s.position;
+                    self.release_home = Some(self.gesture_home);
                     self.scroll_to_nearest_anchor(self.s.snap, velocity);
+                    self.release_home = None;
                     (self.s.is_user_panning, self.s.is_user_focused, self.snap_if_no_pan_on_up) = (false, false, false);
                 } else if self.snap_if_no_pan_on_up {
                     // A press stopped a snap and no pan followed: it still comes to rest on a slide.

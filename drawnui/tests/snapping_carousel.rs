@@ -176,20 +176,16 @@ fn a_slow_drag_goes_back_or_on_by_the_nearest_slide() {
     assert_eq!(*trace.last().unwrap(), (0.0, 0, false));
 
     // 240 points in 1200 ms: the nearest slide is 1, and the finger still went left at 200 points
-    // per second (100 and more counts): on to slide 2.
+    // per second. React went on to slide 2; one gesture moves at most one slide (C# 1070e0db, Nick:
+    // "carousels should never jump over a slide from 1 swipe"): slide 1.
     let mut host = scene(1.0, |c| c);
     host.ui.state.heard.clear();
     host.pan((300.0, 100.0), (60.0, 100.0), 1200.0, 16);
-    assert_eq!(state(&host), (-240.0, 2, true));
+    assert_eq!(state(&host), (-240.0, 1, true));
     let trace = run(&mut host);
-    assert_eq!(trace.len(), 32);
-    for (frame, value) in [(0, -268.137), (10, -534.098), (20, -727.303), (30, -799.956)] {
-        assert!(close(trace[frame].0, value), "frame {frame}: {:?}", trace[frame]);
-    }
-    assert_eq!(*trace.last().unwrap(), (-800.0, 2, false));
+    assert_eq!(*trace.last().unwrap(), (-400.0, 1, false));
     let heard = &host.ui.state.heard;
-    assert_eq!(heard[..2], [Heard::Transition(true), Heard::Index(2)]);
-    assert_eq!(heard[2..], [Heard::Disappearing(0), Heard::Appearing(2), Heard::Transition(false), Heard::Appearing(3)]);
+    assert_eq!(heard[..2], [Heard::Transition(true), Heard::Index(1)]);
 }
 
 #[test]

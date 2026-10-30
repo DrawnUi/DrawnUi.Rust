@@ -4,6 +4,16 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## Unreleased
+
+### Changed
+
+- A swipe on a carousel moves at most one slide, as phone paging does: from slide N a release lands on
+  N-1, N or N+1, however far the finger dragged and however fast it flicked. `scroll_to` and
+  `selected_index` still go anywhere.
+- An editor focused from code shows its caret at once, at the end of its text, so typing appends. A
+  caret position the app set before focusing is kept.
+
 ## 0.1.0-preview.18 (crates.io, 2026-10-27)
 
 ### Added
