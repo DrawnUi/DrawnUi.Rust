@@ -134,3 +134,16 @@ fn a_space_keeps_the_style_of_its_span() {
     let big: f32 = label(&host).runs().take(2).map(|r| r.width).sum();
     assert!((to as f32 - big).abs() <= 2.0, "the highlight ends at {to}, \" BiG \" ends at {big}");
 }
+
+/// A word whose leftmost glyph carries a dot mark (ث, ي, ن) keeps its full advance and the space
+/// next to it: the run width comes from pen advances, not from where the glyphs are drawn
+/// (DrawnUi.React found "حيثالدقة" with a glyph-position width).
+#[test]
+fn a_dotted_letter_keeps_the_space_next_to_it() {
+    let (first, second) = ("\u{062D}\u{064A}\u{062B}", "\u{0627}\u{0644}\u{062F}\u{0642}\u{0629}");
+    let both = width(&format!("{first} {second}"), "FontArabic");
+    let space = width("\u{062D} \u{062D}", "FontArabic") - 2.0 * width("\u{062D}", "FontArabic");
+    let (a, b) = (width(first, "FontArabic"), width(second, "FontArabic"));
+    assert!(space > 2.0, "no space width: {space}");
+    assert!((both - (a + space + b)).abs() < 1.0, "\"{first} {second}\" is {both}, the words and the space {a} + {space} + {b}");
+}
