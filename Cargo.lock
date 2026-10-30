@@ -725,7 +725,7 @@ version = "0.1.1"
 
 [[package]]
 name = "drawnui"
-version = "0.1.0-preview.22"
+version = "0.1.0-preview.23"
 dependencies = [
  "accesskit",
  "accesskit_winit",

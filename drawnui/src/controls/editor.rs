@@ -517,8 +517,9 @@ impl SkiaEditor {
 
     /// Left / Right: the grapheme boundary of the caret's line whose caret is the nearest to the left
     /// or the right of this one on screen (logically nearest among equal x); at the line's visual edge
-    /// one grapheme on in reading order: Right = forward in a left to right paragraph, back in a right
-    /// to left one, Left the other way (drawnui-cross RTL caret).
+    /// one grapheme on in reading order when that goes to another line (Right = forward in a left to
+    /// right paragraph, back in a right to left one, Left the other way), else it stays (drawnui-cross
+    /// RTL caret).
     fn visual_step(&self, label: Option<&SkiaLabel>, from: usize, left: bool) -> usize {
         let text = &self.p.text;
         let logical = |forward: bool| if forward { grapheme_after(text, from) } else { grapheme_before(text, from) };
@@ -543,7 +544,13 @@ impl SkiaEditor {
         }
         match best {
             Some((stop, _)) => stop,
-            None => logical(left == line.base_rtl),
+            // At the line's visual edge: on to the neighbouring line in reading order, or nowhere (a
+            // logical step that stays on the line would jump back the other way on screen).
+            None => {
+                let to = logical(left == line.base_rtl);
+                let same_line = label.and_then(|l| line_of(l, to)).is_some_and(|other| other.start == line.start);
+                if same_line { from } else { to }
+            }
         }
     }
 

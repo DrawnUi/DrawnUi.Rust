@@ -189,15 +189,20 @@ fn arrows_move_on_screen() {
             break;
         }
         let nx = carets(&host)[now];
-        if nx < at - 0.01 {
-            // No caret further right on the line: the edge step goes one grapheme on in reading order.
-            let rightmost = x.iter().copied().fold(f32::MIN, f32::max);
-            assert!((at - rightmost).abs() < 0.01, "step {step}: Right went left from {at}, not the rightmost caret {rightmost}");
-            assert_eq!(now, before + 1, "the edge step goes forward in a left to right paragraph");
-            break;
-        }
+        assert!(nx > at - 0.01, "step {step}: Right went from {before} at {at} to {now} at {nx}");
         at = nx;
     }
+    // At the rightmost caret (the left edge of م, index 4) Right stays: a logical step would stay on
+    // the line and jump back to the left (React: the same).
+    let rightmost = x.iter().copied().fold(f32::MIN, f32::max);
+    assert!((at - rightmost).abs() < 0.01, "Right stopped at {at}, not the rightmost caret {rightmost}");
+    assert_eq!(editor(&host).cursor_position(), 4);
+    key(&mut host, "ArrowRight");
+    assert_eq!(editor(&host).cursor_position(), 4, "Right at the rightmost caret stays");
+    for _ in 0..12 {
+        key(&mut host, "ArrowLeft");
+    }
+    assert_eq!(editor(&host).cursor_position(), 0, "Left walks back to the start");
 }
 
 /// A selection across the direction change of the mixed line covers each character's box: the

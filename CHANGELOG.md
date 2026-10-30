@@ -4,6 +4,17 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## 0.1.0-preview.23 (crates.io, 2026-10-30)
+
+### Changed
+
+- `SkiaEditor`: Left / Right at the visual end of a line with mixed directions stays there; it moves
+  on only to the next or the previous line.
+
+### Toolchain
+
+Skia crates unchanged (0.153.7).
+
 ## 0.1.0-preview.22 (crates.io, 2026-10-30)
 
 ### Changed
