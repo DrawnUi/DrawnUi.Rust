@@ -88,6 +88,8 @@ DrawnUI is MIT licensed in every language and on every platform: desktop, mobile
 - **Tested:** about 700 headless tests, many of them ports of DrawnUI for .NET's tests with the same
   numbers.
 
+Please star ⭐ if you like it!
+
 ## Crates
 
 | Crate | What it is | Version |
