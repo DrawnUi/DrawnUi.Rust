@@ -189,6 +189,9 @@ build with its link flags and web page, Android, icons, accessibility.
   https://hellorust.drawnui.net/skills/drawnui-port-net-to-rust/SKILL.md: the workflow, the C# to
   Rust mapping (containers, properties, bindings, handlers, animations, lists, custom controls) and
   a worked example.
+- **Coming from Slint:** [`skills/drawnui-from-slint/SKILL.md`](skills/drawnui-from-slint/SKILL.md),
+  also at https://hellorust.drawnui.net/skills/drawnui-from-slint/SKILL.md: Slint concepts mapped to
+  DrawnUI for Rust (properties, callbacks, layouts, models, animations, timers) and the rules that differ.
 - **For any LLM:** https://hellorust.drawnui.net/llms.txt and
   https://hellorust.drawnui.net/llms-full.txt (every skill in one file).
 - **The DrawnUI framework skill** (controls, layouts, caching across all DrawnUI engines):
