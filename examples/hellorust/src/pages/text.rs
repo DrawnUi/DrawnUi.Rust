@@ -70,7 +70,7 @@ pub fn build(_app: &mut App) -> Build<SkiaLayout> {
                     TextSpan::new("struck out").strikeout(true),
                     (
                         TextSpan::new(", "),
-                        TextSpan::new("\u{A0}highlighted\u{A0}").background_color(hex(0x6610F2)).text_color(Color::WHITE),
+                        TextSpan::new("highlighted").background_color(hex(0x6610F2)).text_color(Color::WHITE),
                         TextSpan::new(" and a "),
                         TextSpan::new("tappable link →").text_color(hex(0x6EA8FE)).underline(true).on_tapped(|_me, app: &mut App, _cx| {
                             app.text.tapped = format!("link tapped at {}", clock());
@@ -95,7 +95,7 @@ pub fn build(_app: &mut App) -> Build<SkiaLayout> {
                     TextSpan::new("🌐🚒🙎🏽👻🤖"),
                     TextSpan::new(" Format text as "),
                     (
-                        TextSpan::new("\u{A0}BiG\u{A0}").font_size(20).background_color(hex(0xFFEB3B)).text_color(Color::BLACK),
+                        TextSpan::new("BiG").font_size(20).background_color(hex(0xFFEB3B)).text_color(Color::BLACK),
                         TextSpan::new(" and small! ").font_size(11).is_italic(true),
                         TextSpan::new("Add another tappable link!").font_size(14).text_color(hex(0x9CCC65)).underline(true).on_tapped(|_me, app: &mut App, _cx| {
                             app.text.tapped = format!("the link at {}", clock());
