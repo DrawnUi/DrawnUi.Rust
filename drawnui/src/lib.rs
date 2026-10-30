@@ -22,6 +22,7 @@ mod layout;
 mod lottie;
 mod paint;
 mod popups;
+mod shaping;
 pub mod testing;
 mod tree;
 mod types;

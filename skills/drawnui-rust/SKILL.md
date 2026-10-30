@@ -324,7 +324,7 @@ A character that none of the label's fonts has is drawn with a system font that 
 `SkiaRichLabel` and `SkiaEditor` (`use_unicode`) turn this on by themselves.
 - Windows: Segoe UI Emoji, in color, for characters that look like emoji by default (💤 ✋ 🔊 🔔 💬 😀).
   Symbols that look like text by default (⚙ ❤ ☀) come out in one color, even when followed by U+FE0F.
-  Their color version needs the U+FE0F sequence, and labels are not shaped (see below).
+  Their color version needs the U+FE0F sequence and a font that has it.
 - Linux (fontconfig), macOS, iOS and Android: the platform's emoji font through Skia's font
   manager. Not measured yet.
 
@@ -358,13 +358,20 @@ SkiaLabel::new("⚙ 4m").font_family_fallback("FontEmoji")
 Your font comes first, the system font fills the rest. This is the way to get a colored ⚙ on
 Windows: your font has the color gear, and Segoe UI Emoji has only the plain one.
 
-**No text shaping.** Labels draw one glyph per code point. So:
-- A joined sequence (👨‍👩‍👧) draws as its parts.
-- A skin tone (👍🏽) draws as the hand plus a color swatch.
-- A flag draws as its two regional letters.
-- U+FE0F (VS16) does not switch a symbol to its emoji look.
-- Invisible code points (U+FE0F, the zero width joiner, tags) that no font of the label has draw
-  nothing and take no room. They never draw a box, and `fallback_character` leaves them alone.
+**Text shaping.** Text that needs it is shaped with HarfBuzz (the `harfrust` crate):
+- Arabic, Hebrew and the other right-to-left scripts: letters join, words run right to left, and a
+  line mixing right-to-left and left-to-right text is ordered by the Unicode bidirectional rules.
+  A paragraph is right to left when its first letter is.
+- Indic and South-East Asian scripts (Devanagari, Bengali, Tamil, Thai...): conjuncts and vowel signs.
+- Emoji sequences: a ZWJ family (👨‍👩‍👧), a skin tone (👍🏽), a flag or a keycap is one emoji when
+  the emoji font has that sequence (Windows' Segoe UI Emoji has no flags: a flag stays two letters there).
+Other text keeps the plain path, one glyph per character, with no shaping cost. A script still needs
+a font that has it: ship one (the web has no system fonts) or turn on `system_font_fallback`.
+Alignment does not follow the paragraph's direction: use `horizontal_text_alignment(TextAlignment::End)`
+for right-to-left text. In an editor, the caret in right-to-left text is not placed visually yet.
+
+Invisible code points (U+FE0F, the zero width joiner, tags) that no font of the label has draw
+nothing and take no room. They never draw a box, and `fallback_character` leaves them alone.
 
 ## Masonry (Pinterest-style columns)
 

@@ -16,7 +16,8 @@ const REACT: &[Case] = &[
     ("esc \\*not\\* and \\\\ and a\\`b", &[("esc *not* and \\ and a`b", "", 0, "", "", "")]),
     ("**bold *nested italic* bold** ~~strike **sb**~~", &[("bold ", "b", 0, "", "", ""), ("nested italic", "bi", 0, "", "", ""), (" bold", "b", 0, "", "", ""), (" ", "", 0, "", "", ""), ("strike ", "s", 0, "", "", ""), ("sb", "bs", 0, "", "", "")]),
     ("unclosed **bold and *it and ~~st", &[("unclosed **bold and *it and ~~st", "", 0, "", "", "")]),
-    ("***both*** and ****", &[("*both", "b", 0, "", "", ""), ("* and ****", "", 0, "", "", "")]),
+    // Bold and italic as CommonMark and C# SkiaMarkdownLabel (React leaves a star: "*both" bold, then "*").
+    ("***both*** and ****", &[("both", "bi", 0, "", "", ""), (" and ****", "", 0, "", "", "")]),
     ("\u{E9}**\u{F1}**\u{FC} *\u{E7}* \u{2192} ~~\u{DF}~~", &[("\u{E9}", "", 0, "", "", ""), ("\u{F1}", "b", 0, "", "", ""), ("\u{FC} ", "", 0, "", "", ""), ("\u{E7}", "i", 0, "", "", ""), (" \u{2192} ", "", 0, "", "", ""), ("\u{DF}", "s", 0, "", "", "")]),
     ("[link](http://a.b \"title\") [](http://empty) [bad] (x) [x](y z) [t](u)", &[("link", "uc", 0, "#6495ED", "", "http://a.b"), (" ", "", 0, "", "", ""), ("http://empty", "uc", 0, "#6495ED", "", "http://empty"), (" [bad] (x) [x](y z) ", "", 0, "", "", ""), ("t", "uc", 0, "#6495ED", "", "u")]),
     ("# C#\n## Trailing ##\n####### seven\n#nospace", &[("C\n", "b", 24, "#FFFFFF", "", ""), ("Trailing\n", "b", 19, "#FFFFFF", "", ""), ("####### seven\n#nospace", "", 0, "", "", "")]),
@@ -116,4 +117,13 @@ fn a_new_text_or_font_size_builds_the_spans_again() {
     host.settle();
     let rich = host.ui.tree.find::<SkiaRichLabel>(id).unwrap();
     assert_eq!((rich.label().spans[0].text.as_str(), rich.label().spans[0].is_italic), ("plain", true));
+}
+
+/// `***bold italic***` and `___bold italic___` (CommonMark; C# SkiaMarkdownLabel draws both), as in
+/// the DrawnUI .NET demo's markdown.
+#[test]
+fn triple_markers_are_bold_and_italic() {
+    let got = spans("will ***auto-split*** it, ___SkiaMarkdownLabel___ here");
+    let texts: Vec<(&str, &str)> = got.iter().map(|s| (s.0.as_str(), s.1.as_str())).collect();
+    assert_eq!(texts, [("will ", ""), ("auto-split", "bi"), (" it, ", ""), ("SkiaMarkdownLabel", "bi"), (" here", "")]);
 }

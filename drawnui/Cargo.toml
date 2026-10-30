@@ -26,6 +26,10 @@ skia-safe = { workspace = true }
 skia-bindings = { package = "drawnui-skia-bindings", version = "=0.153.7", default-features = false }
 # SkiaLottie: the JSON as a `Value`; `preserve_order` keeps document order for the color tint.
 serde_json = { version = "1", features = ["preserve_order"] }
+# Text shaping (HarfBuzz in Rust) for Arabic, Hebrew, Indic and other complex scripts and emoji
+# sequences, and the bidirectional order of mixed right-to-left / left-to-right lines.
+harfrust = "0.15"
+unicode-bidi = "0.3.18"
 
 [target.'cfg(not(target_os = "emscripten"))'.dependencies]
 winit = "0.30"

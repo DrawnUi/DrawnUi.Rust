@@ -361,6 +361,17 @@ impl Parser<'_> {
                 i += len;
                 continue;
             }
+            // `***bold italic***` / `___bold italic___` (CommonMark, C# SkiaMarkdownLabel): both at once.
+            if let Some(three) = text.get(i..i + 3)
+                && matches!(three, "***" | "___")
+                && let Some(end) = closes(three, i + 3)
+                && end > i + 3
+            {
+                self.flush_literal(&mut literal, state);
+                self.inlines(&text[i + 3..end], Inline { bold: true, italic: true, ..state });
+                i = end + 3;
+                continue;
+            }
             if let Some(two) = text.get(i..i + 2)
                 && matches!(two, "**" | "__" | "~~")
                 && let Some(end) = closes(two, i + 2)

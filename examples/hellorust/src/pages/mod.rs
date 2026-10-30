@@ -169,6 +169,7 @@ mod tests {
             .font_bytes("FontSymbols", &font("NotoSansMathSymbols-Subset.ttf"))
             .font_bytes("FontSymbols2", &font("NotoSansSymbols2-Subset.ttf"))
             .font_bytes("FontEmoji", &font("NotoColorEmoji-Subset.ttf"))
+            .font_bytes("FontArabic", &font("NotoSansArabic-Subset.ttf"))
             .background(PAGE_BACKGROUND);
         ui.fonts.add_weight("FontText", 600, &font("OpenSans-Semibold.ttf"));
         Headless::new(ui, width, height, scale)
@@ -407,6 +408,27 @@ mod tests {
         press(&mut host, "ArrowUp");
         run(&mut host, 400.0);
         assert_eq!(host.ui.state.sprites.row, 0);
+    }
+
+    /// The cards from the DrawnUI .NET demo: the Arabic paragraph draws with the Arabic font
+    /// (shaped, right to left) and the emoji of the spans with the emoji font.
+    #[test]
+    fn text_shaped_cards_use_their_fonts() {
+        let mut host = host_sized(1000, 3600);
+        open_page(&mut host, "Text");
+        let label_with = |host: &Headless<App>, start: &str| {
+            let has = |l: &SkiaLabel| l.p.text.starts_with(start) || l.runs().any(|r| r.text.starts_with(start));
+            all(host).into_iter().find(|id| host.ui.tree.find::<SkiaLabel>(*id).is_some_and(has)).unwrap_or_else(|| panic!("no label with \"{start}\""))
+        };
+        let arabic = label_with(&host, "\u{0645}\u{0631}\u{062D}\u{0628}\u{064B}\u{0627}");
+        let arabic = host.ui.tree.find::<SkiaLabel>(arabic).unwrap();
+        assert_eq!(arabic.lines_count(), 5);
+        let plain: Vec<_> = arabic.runs().filter(|r| !r.text.trim().is_empty() && r.fallback != 1).map(|r| r.text.escape_unicode().to_string()).collect();
+        assert!(plain.is_empty(), "Arabic words without the Arabic font: {plain:?}");
+        let spans = label_with(&host, "ANY");
+        let spans = host.ui.tree.find::<SkiaLabel>(spans).unwrap();
+        assert!(spans.runs().any(|r| r.text.contains('\u{1F64E}') && r.fallback == 1), "the emoji without the emoji font");
+        shot(&mut host, "Text shaped");
     }
 
     /// The Masonry card: twelve tiles in three columns, each under the shortest column, so the

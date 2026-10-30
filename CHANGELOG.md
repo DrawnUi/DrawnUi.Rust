@@ -4,6 +4,17 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## Unreleased
+
+### Added
+
+- Text shaping with HarfBuzz (`harfrust`) where the text needs it: Arabic and Hebrew letters join and
+  run right to left, lines mixing right-to-left and left-to-right text follow the Unicode
+  bidirectional order, Indic and South-East Asian scripts get their conjuncts and vowel signs, and
+  emoji sequences (families, skin tones, flags, keycaps) draw as one emoji. Other text keeps the
+  plain, faster path.
+- `SkiaRichLabel`: `***bold italic***` and `___bold italic___`.
+
 ## 0.1.0-preview.19 (crates.io, 2026-10-30)
 
 ### Changed

@@ -23,6 +23,12 @@ let label = SkiaRichLabel::new(\"# Hello\");
 
 const LOREM: &str = "DrawnUI draws every pixel itself: text is shaped and rasterized by Skia, so a label wraps by words, respects MaxLines with an ellipsis, aligns horizontally and vertically, and never leaves the canvas for a native view. This paragraph is long on purpose so it wraps across several lines at whatever width the layout gives it.";
 
+/// The DrawnUI .NET demo's markdown (SkiaMarkdownLabel there), with its emoji run.
+const DEMO_MARKDOWN: &str = "~~Just put~~ a simple markdown string and this control will ***auto-split*** it into spans. It will recognize links _[a link](https://firstlink.app)_ rendered with ___SkiaMarkdownLabel___ Here it auto-created a span for \u{1F680}\u{1F434}\u{1F916}\u{1F47B} and switched back. _[More info..](https://moreinfo.app)_. Subclass this control or consume LinkTappedCommand property or LinkTapped event handler to react to taps.";
+
+/// The DrawnUI .NET demo's right-to-left paragraph: five Arabic lines.
+const DEMO_RTL: &str = "مرحبًا بكم في عصر العناصر البصرية المصممة\nحيث الدقة تلتقي بالإبداع في كل تفصيل\nنقدم لكم تجربة مستخدم فريدة ومتطورة\nاستمتع بالسلاسة والأداء العالي في التصميمات\nنحن نبتكر لنجعل تجربتكم أكثر تميزًا وسهولة";
+
 const BODY: Color = hex(0xDEE2E6);
 const MUTED: Color = hex(0xADB5BD);
 
@@ -75,6 +81,53 @@ pub fn build(_app: &mut App) -> Build<SkiaLayout> {
                 SkiaLabel::new("").font_size(13).text_color(MUTED).observe(|me, app: &App| me.set_text(format!("Last span tap: {}", app.text.tapped))),
             ),
         ),
+        (
+            card(
+                "Spans with colored emoji — the DrawnUI .NET demo; emoji sequences are shaped into one glyph",
+                SkiaLabel::new("").font_size(15).text_color(BODY).fill_x().line_spacing(1.5).font_family_fallback("FontEmoji").spans((
+                    TextSpan::new("ANY ").font_size(17).is_bold(true).is_italic(true).text_color(hex(0xFF5252)),
+                    TextSpan::new("span can be made "),
+                    TextSpan::new("tappable ").is_italic(true).text_color(hex(0xC77DFF)).on_tapped(|_me, app: &mut App, _cx| {
+                        app.text.tapped = format!("\"tappable\" at {}", clock());
+                    }),
+                    TextSpan::new("! ").font_size(12).is_italic(true),
+                    TextSpan::new("Use colored emojis "),
+                    TextSpan::new("🌐🚒🙎🏽👻🤖"),
+                    TextSpan::new(" Format text as "),
+                    (
+                        TextSpan::new(" BiG ").font_size(20).background_color(hex(0xFFEB3B)).text_color(Color::BLACK),
+                        TextSpan::new(" and small! ").font_size(11).is_italic(true),
+                        TextSpan::new("Add another tappable link!").font_size(14).text_color(hex(0x9CCC65)).underline(true).on_tapped(|_me, app: &mut App, _cx| {
+                            app.text.tapped = format!("the link at {}", clock());
+                        }),
+                        TextSpan::new(" ").font_size(14),
+                        TextSpan::new("Still in development but..").font_size(14).strikeout(true),
+                        TextSpan::new(" ").font_size(14),
+                        TextSpan::new("You can already use the nuget!").font_size(14).background_color(Color::new(0x33FF0000)),
+                    ),
+                )),
+            ),
+            card(
+                "SkiaRichLabel with an emoji run — the DrawnUI .NET demo",
+                SkiaRichLabel::new(DEMO_MARKDOWN)
+                    .font_size(14)
+                    .text_color(BODY)
+                    .fill_x()
+                    .line_spacing(1.5)
+                    .font_family_fallback("FontEmoji")
+                    .on_link_tapped(|_me, app: &mut App, _cx, url| app.text.link = url.to_owned()),
+            ),
+            card(
+                "Right to left — Arabic, shaped and in bidirectional order · HorizontalTextAlignment=End",
+                SkiaLabel::new(DEMO_RTL)
+                    .font_size(15)
+                    .text_color(BODY)
+                    .fill_x()
+                    .line_spacing(1.3)
+                    .horizontal_text_alignment(TextAlignment::End)
+                    .font_family_fallback("FontArabic"),
+            ),
+        ),
         card(
             "SkiaRichLabel — markdown in Text, rendered as spans",
             (
@@ -87,8 +140,10 @@ pub fn build(_app: &mut App) -> Build<SkiaLayout> {
                 SkiaLabel::new("").font_size(13).text_color(MUTED).observe(|me, app: &App| me.set_text(format!("Last link tapped: {}", app.text.link))),
             ),
         ),
-        card("MaxLines={2} · TailTruncation (default)", SkiaLabel::new(LOREM).font_size(15).text_color(BODY).fill_x().max_lines(2)),
-        card("LineSpacing={1.6}", SkiaLabel::new(LOREM).font_size(14).text_color(BODY).fill_x().line_spacing(1.6).max_lines(3)),
+        (
+            card("MaxLines={2} · TailTruncation (default)", SkiaLabel::new(LOREM).font_size(15).text_color(BODY).fill_x().max_lines(2)),
+            card("LineSpacing={1.6}", SkiaLabel::new(LOREM).font_size(14).text_color(BODY).fill_x().line_spacing(1.6).max_lines(3)),
+        ),
         card(
             "HorizontalTextAlignment Start / Center / End",
             SkiaWrap::new().spacing(12).children((

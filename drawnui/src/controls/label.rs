@@ -21,6 +21,7 @@ use crate::gestures::{Gesture, GestureKind};
 use crate::keyboard::{Cursor, KeyEvent, KeyKind};
 use crate::paint::create_gradient;
 use crate::props;
+use crate::shaping::{self, Shaped};
 use crate::tree::{Build, ControlId, Cx, Mut, Raw};
 use crate::types::{CacheType, Dirty, SkiaGradient, Thickness};
 
@@ -206,6 +207,11 @@ struct Run {
     width: f32,
     /// Glyphs positioned from x = 0 on the baseline.
     blob: Option<TextBlob>,
+    /// Pixels from the line's start to where it is drawn: the runs before it, or in a line with
+    /// right-to-left text the runs before it in visual order.
+    x: f32,
+    /// Bidirectional embedding level: odd = right to left (`split_bidi`).
+    level: u8,
 }
 
 struct Line {
@@ -284,6 +290,8 @@ struct Layout {
     advances: Vec<f32>,
     glyphs: Vec<GlyphId>,
     widths: Vec<f32>,
+    /// The last shaped run (`shaping`).
+    shaped: Shaped,
 }
 
 /// Gradient shaders rebuilt when the gradients, the layout or the box change; read by paint.
@@ -714,8 +722,8 @@ impl SkiaLabel {
             if point.y < origin.y || point.y >= origin.y + height {
                 continue;
             }
-            let mut x = origin.x;
             for run in &self.layout.runs[line.runs.clone()] {
+                let x = origin.x + run.x;
                 let width = run.width - spacing;
                 if point.x >= x && point.x < x + width
                     && let Some(span) = self.layout.styles[run.style].span
@@ -723,7 +731,6 @@ impl SkiaLabel {
                 {
                     return Some(span);
                 }
-                x += run.width;
             }
         }
         None
@@ -978,7 +985,7 @@ impl Layout {
     /// font or the first fallback that has the glyph (spaces always stay on the main font), and
     /// appends them to the word with the advance of every character.
     fn segment(&mut self, token: Token, spacing: f32) {
-        let Layout { styles, fonts, source, glyphs, widths, word_runs, word_widths, .. } = self;
+        let Layout { styles, fonts, source, glyphs, widths, word_runs, word_widths, shaped, .. } = self;
         let style = &styles[token.style];
         let word = &source[token.start..token.end];
         let count = fonts[style.font].count_str(word);
@@ -1005,6 +1012,16 @@ impl Layout {
         let mut run_start = (0usize, 0usize);
         let mut current = None;
         let mut flush = |from: (usize, usize), to: (usize, usize), (font, face): (usize, usize)| {
+            let text = token.start + from.1..token.start + to.1;
+            // Complex scripts and emoji sequences: the widths of the shaped glyphs.
+            let part = &word[from.1..to.1];
+            if part.chars().any(shaping::needs_shaping)
+                && shaping::shape(&fonts[font], part, part.chars().any(shaping::is_rtl), spacing, shaped).is_some()
+            {
+                word_widths.extend_from_slice(&shaped.advances);
+                word_runs.push(Run { text, style: token.style, font, width: shaped.width, blob: None, x: 0.0, level: 0 });
+                return;
+            }
             let ids = &glyphs[face * count + from.0..face * count + to.0];
             widths.resize(ids.len(), 0.0);
             fonts[font].get_widths(ids, widths);
@@ -1018,11 +1035,15 @@ impl Layout {
                 word_widths.push(w + spacing);
                 width += w + spacing;
             }
-            let text = token.start + from.1..token.start + to.1;
-            word_runs.push(Run { text, style: token.style, font, width, blob: None });
+            word_runs.push(Run { text, style: token.style, font, width, blob: None, x: 0.0, level: 0 });
         };
         for (i, (at, c)) in word.char_indices().enumerate() {
-            let font = font_of(i, c);
+            // A joiner, a variation selector or a skin tone stays with the glyph before it: an
+            // emoji sequence is one run in one font.
+            let font = match current {
+                Some(f) if shaping::joins_previous(c) => f,
+                _ => font_of(i, c),
+            };
             match current {
                 Some(f) if f == font => {}
                 Some(f) => {
@@ -1050,7 +1071,7 @@ impl Layout {
                 last.text.end = self.text.len();
                 last.width += width;
             }
-            _ => self.runs.push(Run { text: start..self.text.len(), style, font, width, blob: None }),
+            _ => self.runs.push(Run { text: start..self.text.len(), style, font, width, blob: None, x: 0.0, level: 0 }),
         }
         open.width += width;
         let st = &self.styles[style];
@@ -1285,22 +1306,79 @@ impl Layout {
         l.descent = l.descent.max(st.descent);
     }
 
-    /// One text blob per run: the glyphs on the baseline from x = 0.
+    /// Lines with right-to-left text (C# draws one direction per shaped span; this is the
+    /// Unicode bidirectional algorithm, `unicode-bidi`): every run is split where the direction
+    /// changes and gets its level. A paragraph is right to left when its first strong letter is.
+    /// Text without right-to-left letters is left as it is.
+    fn split_bidi(&mut self) {
+        if !self.text.chars().any(shaping::is_rtl) {
+            return;
+        }
+        let old = std::mem::take(&mut self.runs);
+        let mut base = unicode_bidi::Level::ltr();
+        for li in 0..self.lines.len() {
+            if li == 0 || self.lines[li].new_paragraph {
+                let end = self.lines[li + 1..].iter().position(|l| l.new_paragraph).map_or(self.lines.len(), |k| li + 1 + k);
+                let para = &self.text[self.lines[li].text.start..self.lines[end - 1].text.end];
+                let rtl = para.chars().find(|c| shaping::is_rtl(*c) || c.is_alphabetic()).is_some_and(shaping::is_rtl);
+                base = if rtl { unicode_bidi::Level::rtl() } else { unicode_bidi::Level::ltr() };
+            }
+            let line_text = self.lines[li].text.clone();
+            let start = self.runs.len();
+            let info = unicode_bidi::BidiInfo::new(&self.text[line_text.clone()], Some(base));
+            let level_at = |byte: usize| info.levels.get(byte - line_text.start).map_or(base.number(), |l| l.number());
+            for run in &old[self.lines[li].runs.clone()] {
+                let mut from = run.text.start;
+                let mut level = level_at(from);
+                for (b, _) in self.text[run.text.clone()].char_indices().skip(1) {
+                    let at = run.text.start + b;
+                    let next = level_at(at);
+                    if next != level {
+                        self.runs.push(Run { text: from..at, style: run.style, font: run.font, width: 0.0, blob: None, x: 0.0, level });
+                        (from, level) = (at, next);
+                    }
+                }
+                self.runs.push(Run { text: from..run.text.end, style: run.style, font: run.font, width: 0.0, blob: None, x: 0.0, level });
+            }
+            self.lines[li].runs = start..self.runs.len();
+        }
+    }
+
+    /// One text blob per run: the glyphs on the baseline from x = 0, shaped where the text needs
+    /// it (`shaping`), and where each run goes on its line.
     fn build_blobs(&mut self, spacing: f32) {
-        let Layout { lines, runs, text, fonts, glyphs, widths, advances, .. } = self;
+        self.split_bidi();
+        let Layout { lines, runs, text, fonts, glyphs, widths, advances, shaped, .. } = self;
         for line in lines.iter_mut() {
             let first = advances.len();
+            let mut bidi = false;
             for run in &mut runs[line.runs.clone()] {
                 let font = &fonts[run.font];
-                glyph_widths(font, &text[run.text.clone()], glyphs, widths);
+                let run_text = &text[run.text.clone()];
+                let rtl = run.level % 2 == 1;
+                bidi |= run.level > 0;
+                if (rtl || run_text.chars().any(shaping::needs_shaping)) && shaping::shape(font, run_text, rtl, spacing, shaped).is_some() {
+                    advances.extend_from_slice(&shaped.advances);
+                    run.width = shaped.width;
+                    if !shaped.glyphs.is_empty() {
+                        let mut builder = TextBlobBuilder::new();
+                        let (blob_glyphs, positions) = builder.alloc_run_pos(font, shaped.glyphs.len(), None);
+                        blob_glyphs.copy_from_slice(&shaped.glyphs);
+                        positions.copy_from_slice(&shaped.positions);
+                        run.blob = builder.make();
+                    }
+                    continue;
+                }
+                glyph_widths(font, run_text, glyphs, widths);
                 // An ignorable code point the font lacks: the space glyph (nothing), no room.
-                for (k, c) in text[run.text.clone()].chars().enumerate() {
+                for (k, c) in run_text.chars().enumerate() {
                     if glyphs[k] == 0 && ignorable(c) {
                         glyphs[k] = font.unichar_to_glyph(' ' as i32);
                         widths[k] = 0.0;
                     }
                 }
                 advances.extend(widths.iter().map(|w| w + spacing));
+                run.width = widths.iter().map(|w| w + spacing).sum();
                 if glyphs.is_empty() {
                     continue;
                 }
@@ -1315,7 +1393,44 @@ impl Layout {
                 run.blob = builder.make();
             }
             line.advances = first..advances.len();
+            let line_runs = &mut runs[line.runs.clone()];
+            if !line_runs.is_empty() {
+                line.width = line_runs.iter().map(|r| r.width).sum::<f32>() - spacing;
+            }
+            place_runs(line_runs, bidi);
         }
+    }
+}
+
+/// Where each run of a line is drawn: one after the other, or in a line with right-to-left text
+/// in visual order (Unicode rule L2: from the highest level down to the lowest odd one, every
+/// sequence of runs at that level or higher is reversed).
+fn place_runs(runs: &mut [Run], bidi: bool) {
+    let mut order: Vec<usize> = (0..runs.len()).collect();
+    if bidi {
+        let highest = runs.iter().map(|r| r.level).max().unwrap_or(0);
+        let lowest_odd = runs.iter().map(|r| r.level).filter(|l| l % 2 == 1).min().unwrap_or(highest + 1);
+        let mut level = highest;
+        while level >= lowest_odd && level > 0 {
+            let mut i = 0;
+            while i < order.len() {
+                if runs[order[i]].level >= level {
+                    let start = i;
+                    while i < order.len() && runs[order[i]].level >= level {
+                        i += 1;
+                    }
+                    order[start..i].reverse();
+                } else {
+                    i += 1;
+                }
+            }
+            level -= 1;
+        }
+    }
+    let mut x = 0.0;
+    for k in order {
+        runs[k].x = x;
+        x += runs[k].width;
     }
 }
 
@@ -1614,9 +1729,10 @@ impl Control for SkiaLabel {
             stroke.set_shader(stroke_shader);
             canvas.save();
             canvas.translate(shader_origin);
-            let (mut x, y) = (origin.x - shader_origin.x, origin.y - shader_origin.y);
+            let (line_x, y) = (origin.x - shader_origin.x, origin.y - shader_origin.y);
             let baseline = y + line.ascent;
             for run in &self.layout.runs[line.runs.clone()] {
+                let x = line_x + run.x;
                 let style = &self.layout.styles[run.style];
                 let span = style.span.map(|i| &self.spans[i]);
                 let width = run.width - sp;
@@ -1652,7 +1768,6 @@ impl Control for SkiaLabel {
                         canvas.draw_line((x, yl), (x + width, yl), &deco);
                     }
                 }
-                x += run.width;
             }
             canvas.restore();
         }

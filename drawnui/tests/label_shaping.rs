@@ -1,0 +1,115 @@
+//! Text shaping (harfrust) and bidirectional order (unicode-bidi) in SkiaLabel: Arabic letters
+//! join and run right to left, a right-to-left paragraph puts its Latin words on the left, an
+//! emoji with a skin tone is one glyph, and plain Latin text keeps its plain glyphs. The DrawnUI
+//! .NET demo (C# SkiaLabel DrawShapedText, HarfBuzzSharp) is the reference picture.
+
+use drawnui::prelude::*;
+use drawnui::testing::Headless;
+
+const FONT: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/hellorust/assets/OpenSans-Regular.ttf"));
+const ARABIC: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/hellorust/assets/NotoSansArabic-Subset.ttf"));
+const EMOJI: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/hellorust/assets/NotoColorEmoji-Subset.ttf"));
+
+type Host = Headless<Handle<SkiaLabel>>;
+
+fn host(label: Build<SkiaLabel>) -> Host {
+    let build = move |handle: &mut Handle<SkiaLabel>| SkiaLayout::new().fill().children(label.font_size(30).text_color(Color::WHITE).assign(handle));
+    let ui = Ui::new(Handle::default(), build)
+        .font_bytes("FontText", FONT)
+        .font_bytes("FontArabic", ARABIC)
+        .font_bytes("FontEmoji", EMOJI)
+        .background(Color::BLACK);
+    let mut host = Headless::new(ui, 600, 200, 1.0);
+    host.settle();
+    host
+}
+
+fn label(host: &Host) -> &SkiaLabel {
+    host.ui.tree.find(host.ui.state).unwrap()
+}
+
+/// Width of `text` as the label draws it, pixels.
+fn width(text: &str, fallback: &str) -> f32 {
+    let host = host(SkiaLabel::new(text).font_family_fallback(fallback));
+    label(&host).runs().map(|r| r.width).sum()
+}
+
+/// Lam + alef is one ligature glyph in an Arabic font: narrower than the two letters apart
+/// (each measured alone, in its isolated form). Without shaping the two isolated letters are drawn.
+#[test]
+fn arabic_letters_join() {
+    let (lam, alef, joined) = (width("\u{0644}", "FontArabic"), width("\u{0627}", "FontArabic"), width("\u{0644}\u{0627}", "FontArabic"));
+    assert!(lam > 0.0 && alef > 0.0, "the Arabic font draws nothing: {lam} {alef}");
+    assert!(joined < lam + alef - 1.0, "lam-alef is not a ligature: {joined} vs {lam} + {alef}");
+}
+
+/// Columns of the screen where a color shows (red or blue text on black).
+fn columns(host: &mut Host, color: fn(Color) -> bool) -> Option<(i32, i32)> {
+    let mut found: Option<(i32, i32)> = None;
+    for x in 0..600 {
+        if (0..120).any(|y| color(host.pixel(x, y))) {
+            found = Some(found.map_or((x, x), |(a, _)| (a, x)));
+        }
+    }
+    found
+}
+
+fn red(c: Color) -> bool {
+    c.r() > 150 && c.g() < 80 && c.b() < 80
+}
+
+fn blue(c: Color) -> bool {
+    c.b() > 150 && c.r() < 80 && c.g() < 80
+}
+
+/// A paragraph that starts with an Arabic letter is right to left: its Latin word comes after the
+/// Arabic one in reading order, so it is drawn on its left. A paragraph that starts with a Latin
+/// letter keeps the Latin word first, on the left.
+#[test]
+fn a_right_to_left_paragraph_puts_its_latin_word_on_the_left() {
+    let spans = |first_arabic: bool| {
+        let arabic = TextSpan::new("\u{0645}\u{0631}\u{062D}\u{0628}\u{0627} ").text_color(Color::RED);
+        let latin = TextSpan::new("Hello ").text_color(Color::BLUE);
+        let label = SkiaLabel::new("").font_family_fallback("FontArabic");
+        if first_arabic { label.spans((arabic, latin)) } else { label.spans((latin, arabic)) }
+    };
+    let mut rtl = host(spans(true));
+    let (arabic, latin) = (columns(&mut rtl, red).expect("Arabic drawn"), columns(&mut rtl, blue).expect("Latin drawn"));
+    assert!(latin.1 < arabic.0, "right to left: Latin {latin:?} should be left of Arabic {arabic:?}");
+    let mut ltr = host(spans(false));
+    let (arabic, latin) = (columns(&mut ltr, red).expect("Arabic drawn"), columns(&mut ltr, blue).expect("Latin drawn"));
+    assert!(latin.1 < arabic.0, "left to right: Latin {latin:?} should be left of Arabic {arabic:?}");
+}
+
+/// In a right-to-left paragraph the first Arabic word is on the right: the five Arabic letters of
+/// "مرحبا" end right of "بكم", which follows it.
+#[test]
+fn arabic_words_run_right_to_left() {
+    let mut host = host(SkiaLabel::new("").font_family_fallback("FontArabic").spans((
+        TextSpan::new("\u{0645}\u{0631}\u{062D}\u{0628}\u{0627} ").text_color(Color::RED),
+        TextSpan::new("\u{0628}\u{0643}\u{0645}").text_color(Color::BLUE),
+    )));
+    let (first, second) = (columns(&mut host, red).expect("first word"), columns(&mut host, blue).expect("second word"));
+    assert!(second.1 < first.0, "the second word {second:?} should be left of the first {first:?}");
+}
+
+/// A person with a skin tone is one emoji: as wide as the person alone, not the person plus a
+/// color swatch.
+#[test]
+fn an_emoji_with_a_skin_tone_is_one_glyph() {
+    let alone = width("\u{1F64E}", "FontEmoji");
+    let toned = width("\u{1F64E}\u{1F3FD}", "FontEmoji");
+    assert!(alone > 10.0, "the emoji font draws nothing: {alone}");
+    assert!((toned - alone).abs() < 1.0, "skin tone drawn apart: {toned} vs {alone}");
+}
+
+/// Latin text needs no shaping: the same widths as before (the plain path, one glyph per character).
+#[test]
+fn latin_text_keeps_its_plain_widths() {
+    let host = host(SkiaLabel::new("Hello world"));
+    let mut font = drawnui::skia::Font::from_typeface(drawnui::skia::FontMgr::new().new_from_data(drawnui::skia::Data::new_copy(FONT), None).unwrap(), 30.0);
+    font.set_linear_metrics(true);
+    let expected = font.measure_str("Hello world", None).0;
+    let got: f32 = label(&host).runs().map(|r| r.width).sum();
+    assert!((got - expected).abs() < 0.5, "{got} vs {expected}");
+}

@@ -159,6 +159,8 @@ pub fn run() {
                 .font_fallback("FontSymbols", "assets/NotoSansMathSymbols-Subset.ttf")
                 .font_fallback("FontSymbols2", "assets/NotoSansSymbols2-Subset.ttf")
                 .font_fallback("FontEmoji", "assets/NotoColorEmoji-Subset.ttf")
+                // Arabic letters for the right-to-left card of the Text page (Noto Sans Arabic subset).
+                .font_fallback("FontArabic", "assets/NotoSansArabic-Subset.ttf")
                 .background(pages::PAGE_BACKGROUND),
         )
     });
