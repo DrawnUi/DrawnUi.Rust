@@ -4,6 +4,19 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## Unreleased
+
+### Changed
+
+- `SkiaEditor` in right-to-left and mixed text: the caret is drawn where its position is on screen,
+  a tap puts it under the finger, Left and Right move it on screen, and a selection highlights the
+  selected letters. Taps and arrows never stop inside an emoji sequence or between a letter and its
+  marks. A label's own text selection follows the same rules.
+
+### Added
+
+- `TextLine`: `lefts`, `rtl`, `base_rtl`, `index_at_x()` and `boxes()` for editors built on a label.
+
 ## 0.1.0-preview.21 (crates.io, 2026-10-30)
 
 ### Changed

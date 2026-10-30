@@ -368,7 +368,8 @@ Windows: your font has the color gear, and Segoe UI Emoji has only the plain one
 Other text keeps the plain path, one glyph per character, with no shaping cost. A script still needs
 a font that has it: ship one (the web has no system fonts) or turn on `system_font_fallback`.
 Alignment does not follow the paragraph's direction: use `horizontal_text_alignment(TextAlignment::End)`
-for right-to-left text. In an editor, the caret in right-to-left text is not placed visually yet.
+for right-to-left text. In `SkiaEditor`, the caret, taps, Left / Right and the selection follow the screen in
+right-to-left and mixed lines, and never stop inside an emoji sequence or between a letter and its marks.
 
 Invisible code points (U+FE0F, the zero width joiner, tags) that no font of the label has draw
 nothing and take no room. They never draw a box, and `fallback_character` leaves them alone.

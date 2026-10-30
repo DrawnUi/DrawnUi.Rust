@@ -10,6 +10,8 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ops::Range;
 
+use unicode_segmentation::UnicodeSegmentation;
+
 use skia_safe::{Color, Contains, Font, GlyphId, Paint, PaintStyle, Point, Rect, Shader, Size, TextBlob, TextBlobBuilder};
 
 use crate::animators::{self, FrameTick};
@@ -179,8 +181,15 @@ pub struct TextLine<'a> {
     pub rect: Rect,
     /// Index of its first character in the label's text.
     pub start: usize,
-    /// Each character's advance, pixels.
+    /// Each character's advance, pixels, in logical order.
     pub advances: &'a [f32],
+    /// Each character's visual left edge, pixels from the line's left, in logical order: right-to-left
+    /// characters run from the right of their run to its left.
+    pub lefts: &'a [f32],
+    /// Each character is in right-to-left text.
+    pub rtl: &'a [bool],
+    /// The line's paragraph is right to left.
+    pub base_rtl: bool,
 }
 
 impl TextLine<'_> {
@@ -189,10 +198,85 @@ impl TextLine<'_> {
         self.start + self.advances.len()
     }
 
-    /// Where the character `index` (of the text) starts, pixels.
+    fn carets(&self) -> Carets<'_> {
+        Carets { advances: self.advances, lefts: self.lefts, rtl: self.rtl, width: self.rect.width() }
+    }
+
+    /// Where the caret before character `index` (of the text) is drawn, pixels: the trailing edge of
+    /// the character before it, at the line's start the leading edge of the first one (drawnui-cross
+    /// RTL caret). Left to right text: the sum of the advances before it.
     pub fn x_of(&self, index: usize) -> f32 {
-        let k = index.clamp(self.start, self.end()) - self.start;
-        self.rect.left + self.advances[..k].iter().sum::<f32>()
+        self.rect.left + self.carets().x(index.clamp(self.start, self.end()) - self.start)
+    }
+
+    /// The caret index nearest to `x` (pixels) on this line; on a tie the smaller index.
+    pub fn index_at_x(&self, x: f32) -> usize {
+        self.start + self.carets().nearest(x - self.rect.left)
+    }
+
+    /// The boxes the characters `start..end` (of the text) cover, pixels, neighbouring boxes merged:
+    /// one box in left to right text, more where the selection crosses a direction change.
+    pub fn boxes(&self, start: usize, end: usize) -> Vec<(f32, f32)> {
+        let (a, b) = (start.clamp(self.start, self.end()) - self.start, end.clamp(self.start, self.end()) - self.start);
+        self.carets().boxes(a, b).into_iter().map(|(l, r)| (self.rect.left + l, self.rect.left + r)).collect()
+    }
+}
+
+/// The caret geometry of one laid-out line (pixels from the line's left), shared by an editor
+/// (`TextLine`) and a label's own text selection. The rules are recorded in drawnui-cross (RTL
+/// caret) so every engine places the caret the same way.
+struct Carets<'a> {
+    advances: &'a [f32],
+    lefts: &'a [f32],
+    rtl: &'a [bool],
+    width: f32,
+}
+
+impl Carets<'_> {
+    /// The caret before character `k`: the trailing edge of character `k - 1` (left to right: its
+    /// right edge, right to left: its left edge); at the line's start the leading edge of the
+    /// first character.
+    fn x(&self, k: usize) -> f32 {
+        let n = self.advances.len().min(self.lefts.len());
+        if n == 0 {
+            return 0.0;
+        }
+        if k == 0 {
+            return if self.rtl[0] { self.lefts[0] + self.advances[0] } else { self.lefts[0] };
+        }
+        let c = (k - 1).min(n - 1);
+        if k > n {
+            return self.width;
+        }
+        if self.rtl[c] { self.lefts[c] } else { self.lefts[c] + self.advances[c] }
+    }
+
+    /// The caret index whose x is nearest to `x`; on a tie the smaller one.
+    fn nearest(&self, x: f32) -> usize {
+        let n = self.advances.len().min(self.lefts.len());
+        let mut best = (0, f32::MAX);
+        for k in 0..=n {
+            let d = (self.x(k) - x).abs();
+            if d < best.1 {
+                best = (k, d);
+            }
+        }
+        best.0
+    }
+
+    /// The boxes of characters `a..b`, sorted left to right, touching ones merged.
+    fn boxes(&self, a: usize, b: usize) -> Vec<(f32, f32)> {
+        let n = self.advances.len().min(self.lefts.len());
+        let mut boxes: Vec<(f32, f32)> = (a..b.min(n)).filter(|k| self.advances[*k] > 0.0).map(|k| (self.lefts[k], self.lefts[k] + self.advances[k])).collect();
+        boxes.sort_by(|p, q| p.0.total_cmp(&q.0));
+        let mut merged: Vec<(f32, f32)> = Vec::with_capacity(boxes.len());
+        for (l, r) in boxes {
+            match merged.last_mut() {
+                Some(last) if l <= last.1 + 0.5 => last.1 = last.1.max(r),
+                _ => merged.push((l, r)),
+            }
+        }
+        merged
     }
 }
 
@@ -212,6 +296,8 @@ struct Run {
     x: f32,
     /// Bidirectional embedding level: odd = right to left (`split_bidi`).
     level: u8,
+    /// Its characters in `Layout::advances` (set when the blobs are built).
+    chars: Range<usize>,
 }
 
 struct Line {
@@ -224,6 +310,8 @@ struct Line {
     descent: f32,
     /// First line after a `\n`.
     new_paragraph: bool,
+    /// Its paragraph is right to left (`split_bidi`).
+    base_rtl: bool,
     /// Indices in `Layout::advances`: one per character of the line.
     advances: Range<usize>,
 }
@@ -292,6 +380,10 @@ struct Layout {
     hang: f32,
     /// Every character's advance with its spacing, line by line.
     advances: Vec<f32>,
+    /// Every character's visual left edge from its line's left, and whether it is right to left;
+    /// parallel to `advances`.
+    lefts: Vec<f32>,
+    rtl: Vec<bool>,
     glyphs: Vec<GlyphId>,
     widths: Vec<f32>,
     /// The last shaped run (`shaping`).
@@ -402,9 +494,10 @@ impl SkiaLabel {
         self.placed(self.hit_area.0).enumerate().map(move |(i, (line, origin, height))| {
             next += (line.new_paragraph && i > 0) as usize;
             let advances = &self.layout.advances[line.advances.clone()];
+            let (lefts, rtl) = (&self.layout.lefts[line.advances.clone()], &self.layout.rtl[line.advances.clone()]);
             let start = next;
             next += advances.len();
-            TextLine { rect: Rect::from_xywh(origin.x, origin.y, line.width, height), start, advances }
+            TextLine { rect: Rect::from_xywh(origin.x, origin.y, line.width, height), start, advances, lefts, rtl, base_rtl: line.base_rtl }
         })
     }
 
@@ -511,10 +604,10 @@ impl SkiaLabel {
         (Cow::Owned(joined), starts)
     }
 
-    /// Where caret slot `slot` of a line is, pixels from the line's left (C# SlotX).
-    fn slot_x(&self, line: &Line, slot: usize) -> f32 {
-        let advances = &self.layout.advances[line.advances.clone()];
-        if slot < advances.len() { advances[..slot].iter().sum() } else { line.width }
+    /// The caret geometry of a line.
+    fn carets<'a>(&'a self, line: &Line) -> Carets<'a> {
+        let range = line.advances.clone();
+        Carets { advances: &self.layout.advances[range.clone()], lefts: &self.layout.lefts[range.clone()], rtl: &self.layout.rtl[range], width: line.width }
     }
 
     /// The text index under a point of the label's own space, pixels (C# IndexAt).
@@ -527,17 +620,20 @@ impl SkiaLabel {
             }
         }
         let Some((i, line, origin)) = found else { return 0 };
-        let advances = &self.layout.advances[line.advances.clone()];
-        let slots = advances.len().min(self.layout.text[line.text.clone()].chars().count());
-        let (x, mut at, mut best, mut best_distance) = (point.x - origin.x, 0.0, 0, f32::MAX);
-        for slot in 0..=slots {
-            let distance = (if slot < advances.len() { at } else { line.width } - x).abs();
-            if distance < best_distance {
-                (best, best_distance) = (slot, distance);
-            }
-            at += advances.get(slot).copied().unwrap_or(0.0);
-        }
-        starts.get(i).copied().unwrap_or(0) + best
+        // The grapheme boundary nearest on screen: never inside an emoji sequence or a letter's marks.
+        let (text, carets, x) = (&self.layout.text[line.text.clone()], self.carets(line), point.x - origin.x);
+        let mut at = 0;
+        let stops = text.graphemes(true).map(|g| {
+            let stop = at;
+            at += g.chars().count();
+            stop
+        });
+        let ends = stops.chain(std::iter::once(text.chars().count())).collect::<Vec<_>>();
+        let best = ends.iter().copied().fold((0, f32::MAX), |best, k| {
+            let d = (carets.x(k) - x).abs();
+            if d < best.1 { (k, d) } else { best }
+        });
+        starts.get(i).copied().unwrap_or(0) + best.0
     }
 
     /// The selection's rect on each line it covers, pixels, for lines placed in `inner`.
@@ -553,9 +649,16 @@ impl SkiaLabel {
             if a > b || (a == b && !continues) {
                 continue;
             }
-            let x0 = self.slot_x(line, a - line_start);
-            let x1 = if continues && b == line_end { line.width } else { self.slot_x(line, b - line_start) };
-            rects.push(Rect::new(origin.x + x0, origin.y, origin.x + x1.max(x0 + scale), origin.y + height));
+            let carets = self.carets(line);
+            let boxes = carets.boxes(a - line_start, b - line_start);
+            if boxes.is_empty() {
+                // An empty stretch (a selection that only crosses this line's end): a caret-wide mark.
+                let x0 = if continues && b == line_end { line.width } else { carets.x(a - line_start) };
+                rects.push(Rect::new(origin.x + x0, origin.y, origin.x + x0 + scale, origin.y + height));
+            }
+            for (x0, x1) in boxes {
+                rects.push(Rect::new(origin.x + x0, origin.y, origin.x + x1.max(x0 + scale), origin.y + height));
+            }
         }
         rects
     }
@@ -858,6 +961,8 @@ impl Layout {
         self.tokens.clear();
         self.paragraphs.clear();
         self.advances.clear();
+        self.lefts.clear();
+        self.rtl.clear();
     }
 
     /// One style: its font, the fallback fonts and the metrics of the main one.
@@ -1039,7 +1144,7 @@ impl Layout {
                 && shaping::shape(&fonts[font], part, part.chars().any(shaping::is_rtl), spacing, shaped).is_some()
             {
                 word_widths.extend_from_slice(&shaped.advances);
-                word_runs.push(Run { text, style: token.style, font, width: shaped.width, blob: None, x: 0.0, level: 0 });
+                word_runs.push(Run { text, style: token.style, font, width: shaped.width, blob: None, x: 0.0, level: 0, chars: 0..0 });
                 return;
             }
             let ids = &glyphs[face * count + from.0..face * count + to.0];
@@ -1055,7 +1160,7 @@ impl Layout {
                 word_widths.push(w + spacing);
                 width += w + spacing;
             }
-            word_runs.push(Run { text, style: token.style, font, width, blob: None, x: 0.0, level: 0 });
+            word_runs.push(Run { text, style: token.style, font, width, blob: None, x: 0.0, level: 0, chars: 0..0 });
         };
         for (i, (at, c)) in word.char_indices().enumerate() {
             // A joiner, a variation selector or a skin tone stays with the glyph before it: an
@@ -1091,7 +1196,7 @@ impl Layout {
                 last.text.end = self.text.len();
                 last.width += width;
             }
-            _ => self.runs.push(Run { text: start..self.text.len(), style, font, width, blob: None, x: 0.0, level: 0 }),
+            _ => self.runs.push(Run { text: start..self.text.len(), style, font, width, blob: None, x: 0.0, level: 0, chars: 0..0 }),
         }
         open.width += width;
         let st = &self.styles[style];
@@ -1188,7 +1293,7 @@ impl Layout {
             (st.ascent, st.descent)
         };
         let width = if has_runs { open.width - spacing } else { 0.0 };
-        let line = Line { runs: open.runs..self.runs.len(), text: open.text..self.text.len(), width, ascent, descent, new_paragraph, advances: 0..0 };
+        let line = Line { runs: open.runs..self.runs.len(), text: open.text..self.text.len(), width, ascent, descent, new_paragraph, base_rtl: false, advances: 0..0 };
         self.lines.push(line);
         *open = Open { runs: self.runs.len(), text: self.text.len(), width: 0.0, ascent: 0.0, descent: 0.0 };
     }
@@ -1337,6 +1442,7 @@ impl Layout {
                 let rtl = para.chars().find(|c| shaping::is_rtl(*c) || c.is_alphabetic()).is_some_and(shaping::is_rtl);
                 base = if rtl { unicode_bidi::Level::rtl() } else { unicode_bidi::Level::ltr() };
             }
+            self.lines[li].base_rtl = base.is_rtl();
             let line_text = self.lines[li].text.clone();
             let start = self.runs.len();
             let info = unicode_bidi::BidiInfo::new(&self.text[line_text.clone()], Some(base));
@@ -1348,11 +1454,11 @@ impl Layout {
                     let at = run.text.start + b;
                     let next = level_at(at);
                     if next != level {
-                        self.runs.push(Run { text: from..at, style: run.style, font: run.font, width: 0.0, blob: None, x: 0.0, level });
+                        self.runs.push(Run { text: from..at, style: run.style, font: run.font, width: 0.0, blob: None, x: 0.0, level, chars: 0..0 });
                         (from, level) = (at, next);
                     }
                 }
-                self.runs.push(Run { text: from..run.text.end, style: run.style, font: run.font, width: 0.0, blob: None, x: 0.0, level });
+                self.runs.push(Run { text: from..run.text.end, style: run.style, font: run.font, width: 0.0, blob: None, x: 0.0, level, chars: 0..0 });
             }
             self.lines[li].runs = start..self.runs.len();
         }
@@ -1362,7 +1468,7 @@ impl Layout {
     /// it (`shaping`), and where each run goes on its line.
     fn build_blobs(&mut self, spacing: f32) {
         self.split_bidi();
-        let Layout { lines, runs, text, fonts, glyphs, widths, advances, shaped, .. } = self;
+        let Layout { lines, runs, text, fonts, glyphs, widths, advances, lefts, rtl: rtl_chars, shaped, .. } = self;
         for line in lines.iter_mut() {
             let first = advances.len();
             let mut bidi = false;
@@ -1370,9 +1476,11 @@ impl Layout {
                 let font = &fonts[run.font];
                 let run_text = &text[run.text.clone()];
                 let rtl = run.level % 2 == 1;
+                run.chars = advances.len()..advances.len();
                 bidi |= run.level > 0;
                 if (rtl || run_text.chars().any(shaping::needs_shaping)) && shaping::shape(font, run_text, rtl, spacing, shaped).is_some() {
                     advances.extend_from_slice(&shaped.advances);
+                    run.chars.end = advances.len();
                     run.width = shaped.width;
                     if !shaped.glyphs.is_empty() {
                         let mut builder = TextBlobBuilder::new();
@@ -1392,6 +1500,7 @@ impl Layout {
                     }
                 }
                 advances.extend(widths.iter().map(|w| w + spacing));
+                run.chars.end = advances.len();
                 run.width = widths.iter().map(|w| w + spacing).sum();
                 if glyphs.is_empty() {
                     continue;
@@ -1412,6 +1521,24 @@ impl Layout {
                 line.width = line_runs.iter().map(|r| r.width).sum::<f32>() - spacing;
             }
             place_runs(line_runs, bidi);
+            // Where each character is drawn: left to right runs from their x, right to left runs from
+            // their right end.
+            lefts.resize(advances.len(), 0.0);
+            rtl_chars.resize(advances.len(), false);
+            for run in line_runs.iter() {
+                let backwards = run.level % 2 == 1;
+                let mut x = if backwards { run.x + run.width } else { run.x };
+                for k in run.chars.clone() {
+                    rtl_chars[k] = backwards;
+                    if backwards {
+                        x -= advances[k];
+                        lefts[k] = x;
+                    } else {
+                        lefts[k] = x;
+                        x += advances[k];
+                    }
+                }
+            }
         }
     }
 }

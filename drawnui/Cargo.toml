@@ -30,6 +30,9 @@ serde_json = { version = "1", features = ["preserve_order"] }
 # sequences, and the bidirectional order of mixed right-to-left / left-to-right lines.
 harfrust = "0.15"
 unicode-bidi = "0.3.18"
+# Grapheme boundaries for the editor caret: a tap or an arrow never stops inside an emoji sequence or
+# between a letter and its marks (Unicode extended grapheme clusters). Already used by winit on the desktop.
+unicode-segmentation = "1.13"
 
 [target.'cfg(not(target_os = "emscripten"))'.dependencies]
 winit = "0.30"

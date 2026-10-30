@@ -10,6 +10,8 @@
 
 use std::any::Any;
 
+use unicode_segmentation::UnicodeSegmentation;
+
 use skia_safe::{ClipOp, Color, Paint, PaintStyle, Point, RRect, Rect, Size};
 
 use crate::animators::{self, FrameTick};
@@ -468,17 +470,6 @@ impl SkiaEditor {
         i
     }
 
-    /// The caret one cluster to the left or the right (DrawnUi.React moves by UTF-16 units).
-    fn next_cluster(&self, index: usize, backwards: bool) -> usize {
-        let text = &self.p.text;
-        let at = byte_at(text, index);
-        if backwards {
-            index - text[cluster_start(text, at)..at].chars().count()
-        } else {
-            index + text[at..cluster_end(text, at)].chars().count()
-        }
-    }
-
     /// A key while focused (SkiaEditor.Blazor OnKeyDown / KeyChar).
     fn key(&mut self, event: &KeyEvent, label: Option<&SkiaLabel>) -> Option<Dirty> {
         let m = event.modifiers();
@@ -496,8 +487,19 @@ impl SkiaEditor {
             "Enter" | "NumpadEnter" => self.press_enter(m.alt, m.shift),
             "ArrowLeft" if ctrl => self.move_caret(|me, i| me.word_edge(i, true), true, m.shift),
             "ArrowRight" if ctrl => self.move_caret(|me, i| me.word_edge(i, false), false, m.shift),
-            "ArrowLeft" => self.move_caret(|me, i| me.next_cluster(i, true), true, m.shift),
-            "ArrowRight" => self.move_caret(|me, i| me.next_cluster(i, false), false, m.shift),
+            "ArrowLeft" | "ArrowRight" => {
+                let left = event.key == "ArrowLeft";
+                if !m.shift && self.selection > 0 {
+                    // A selection collapses to its edge on that side of the screen (Chrome, Windows fields).
+                    let (a, b) = (self.cursor, self.cursor + self.selection);
+                    let (xa, xb) = label.map_or((0.0, 1.0), |l| (caret_x(l, a), caret_x(l, b)));
+                    let to = if (xa <= xb) == left { a } else { b };
+                    (self.cursor, self.selection, self.keyboard_edges) = (to, 0, None);
+                    self.moved()
+                } else {
+                    self.move_caret(|me, i| me.visual_step(label, i, left), left, m.shift)
+                }
+            }
             "ArrowUp" | "ArrowDown" if self.is_multiline() => {
                 let up = event.key == "ArrowUp";
                 let Some(to) = label.and_then(|l| self.vertical_target(l, up)) else { return Some(Dirty::NONE) };
@@ -511,6 +513,38 @@ impl SkiaEditor {
             }
             _ => return None,
         })
+    }
+
+    /// Left / Right: the grapheme boundary of the caret's line whose caret is the nearest to the left
+    /// or the right of this one on screen (logically nearest among equal x); at the line's visual edge
+    /// one grapheme on in reading order: Right = forward in a left to right paragraph, back in a right
+    /// to left one, Left the other way (drawnui-cross RTL caret).
+    fn visual_step(&self, label: Option<&SkiaLabel>, from: usize, left: bool) -> usize {
+        let text = &self.p.text;
+        let logical = |forward: bool| if forward { grapheme_after(text, from) } else { grapheme_before(text, from) };
+        let Some(line) = label.and_then(|l| line_of(l, from)) else { return logical(!left) };
+        let here = line.x_of(from);
+        let mut best: Option<(usize, f32)> = None;
+        for stop in grapheme_stops(text, line.start, line.end()) {
+            let x = line.x_of(stop);
+            if stop == from || (left && x >= here - 0.01) || (!left && x <= here + 0.01) {
+                continue;
+            }
+            let better = match best {
+                None => true,
+                Some((b, bx)) => {
+                    let (d, bd) = ((x - here).abs(), (bx - here).abs());
+                    d < bd - 0.01 || ((d - bd).abs() <= 0.01 && stop.abs_diff(from) < b.abs_diff(from))
+                }
+            };
+            if better {
+                best = Some((stop, x));
+            }
+        }
+        match best {
+            Some((stop, _)) => stop,
+            None => logical(left == line.base_rtl),
+        }
     }
 
     /// Up / Down: the character under the caret's x on the neighboring line (C# HandleVerticalArrow).
@@ -535,7 +569,7 @@ impl SkiaEditor {
             previous = Some(line.rect);
         }
         let line = target?;
-        Some(index_at(label, caret.left, line.center_y()))
+        Some(index_at(label, &self.p.text, caret.left, line.center_y()))
     }
 
     /// Scroll that brings the caret into `inner` (pixels); the label is laid out.
@@ -699,26 +733,67 @@ fn cluster_start(text: &str, at: usize) -> usize {
     }
 }
 
-/// The caret before character `index` of a laid-out label (DrawnUi.React CaretRectLabelPx): at
-/// the glyph that starts there, else after the one that ends there. Pixels, label coordinates.
-fn caret_rect(label: &SkiaLabel, index: usize, scale: f32) -> Option<Rect> {
+/// The line that holds the caret before character `index`: the line it is on, or the one it ends.
+fn line_of(label: &SkiaLabel, index: usize) -> Option<TextLine<'_>> {
     let mut end_of_line = None;
     let mut first = None;
     for line in label.text_lines() {
-        let r = line.rect;
-        first.get_or_insert(r);
         if index >= line.start && index < line.end() {
-            return Some(Rect::from_xywh(line.x_of(index), r.top, CARET * scale, r.height()));
+            return Some(line);
         }
         if index == line.end() && end_of_line.is_none() {
-            end_of_line = Some(Rect::from_xywh(line.x_of(index), r.top, CARET * scale, r.height()));
+            end_of_line = Some(line);
+        } else if first.is_none() {
+            first = Some(line);
         }
     }
-    end_of_line.or_else(|| first.map(|r| Rect::from_xywh(r.left, r.top, CARET * scale, r.height())))
+    end_of_line.or(first)
 }
 
-/// The character nearest to a point (C# GetCursorPosition, DrawnUi.React HitTestIndex).
-fn index_at(label: &SkiaLabel, x: f32, y: f32) -> usize {
+/// Where the caret before character `index` is, pixels (`TextLine::x_of`).
+fn caret_x(label: &SkiaLabel, index: usize) -> f32 {
+    line_of(label, index).map_or(0.0, |line| line.x_of(index))
+}
+
+/// The caret before character `index` of a laid-out label: at the trailing edge of the character
+/// before it (its left edge in right to left text, where the caret is drawn to the left of that
+/// edge), at a line's start at the leading edge of the first character. Pixels, label coordinates.
+fn caret_rect(label: &SkiaLabel, index: usize, scale: f32) -> Option<Rect> {
+    let line = line_of(label, index)?;
+    let r = line.rect;
+    let x = line.x_of(index);
+    let k = index.saturating_sub(line.start);
+    let rtl = if index > line.start { line.rtl.get(k - 1) } else { line.rtl.first() }.copied().unwrap_or(line.base_rtl);
+    let left = if rtl { x - CARET * scale } else { x };
+    Some(Rect::from_xywh(left, r.top, CARET * scale, r.height()))
+}
+
+/// Character indices (from 0) where a grapheme starts in `from..=to`, `to` included: a caret never
+/// stops inside an emoji sequence or between a letter and its marks.
+fn grapheme_stops(text: &str, from: usize, to: usize) -> impl Iterator<Item = usize> + '_ {
+    let mut index = 0;
+    text.graphemes(true)
+        .map(move |g| {
+            let at = index;
+            index += g.chars().count();
+            at
+        })
+        .chain(std::iter::once(text.chars().count()))
+        .filter(move |i| *i >= from && *i <= to)
+}
+
+/// The grapheme boundary after / before character index `from`.
+fn grapheme_after(text: &str, from: usize) -> usize {
+    grapheme_stops(text, from + 1, usize::MAX).next().unwrap_or(from)
+}
+
+fn grapheme_before(text: &str, from: usize) -> usize {
+    grapheme_stops(text, 0, from.saturating_sub(1)).last().unwrap_or(0)
+}
+
+/// The caret index nearest to a point (C# GetCursorPosition, DrawnUi.React HitTestIndex): on the
+/// line under it, the grapheme boundary whose caret is nearest on screen; on a tie the smaller one.
+fn index_at(label: &SkiaLabel, text: &str, x: f32, y: f32) -> usize {
     let mut chosen: Option<TextLine> = None;
     for line in label.text_lines() {
         let below = y >= line.rect.bottom;
@@ -728,17 +803,14 @@ fn index_at(label: &SkiaLabel, x: f32, y: f32) -> usize {
         }
     }
     let Some(line) = chosen else { return 0 };
-    let mut left = line.rect.left;
-    if x <= left {
-        return line.start;
-    }
-    for (k, w) in line.advances.iter().enumerate() {
-        if x < left + w {
-            return line.start + k + (x >= left + w / 2.0) as usize;
+    let mut best = (line.start, f32::MAX);
+    for stop in grapheme_stops(text, line.start, line.end()) {
+        let d = (line.x_of(stop) - x).abs();
+        if d < best.1 {
+            best = (stop, d);
         }
-        left += w;
     }
-    line.end()
+    best.0
 }
 
 impl Has<EditorProps> for SkiaEditor {
@@ -1079,8 +1151,14 @@ impl Control for SkiaEditor {
                 if s >= e && !(s == e && line.advances.is_empty() && start <= line.start && line.start < end) {
                     continue;
                 }
-                let (left, right) = (line.x_of(s), line.x_of(e).max(line.x_of(s) + CARET * scale));
-                canvas.draw_rect(Rect::new(left, line.rect.top, right, line.rect.bottom).with_offset(shift), &paint);
+                let boxes = line.boxes(s, e);
+                if boxes.is_empty() {
+                    let left = line.x_of(s);
+                    canvas.draw_rect(Rect::new(left, line.rect.top, left + CARET * scale, line.rect.bottom).with_offset(shift), &paint);
+                }
+                for (left, right) in boxes {
+                    canvas.draw_rect(Rect::new(left, line.rect.top, right.max(left + CARET * scale), line.rect.bottom).with_offset(shift), &paint);
+                }
             }
             canvas.restore();
         }
@@ -1122,7 +1200,7 @@ impl Control for SkiaEditor {
         let dirty = match gesture.kind {
             GestureKind::Down => {
                 let Some(label) = label else { return Handled::Yes };
-                let pos = index_at(label, point.x, point.y);
+                let pos = index_at(label, &self.p.text, point.x, point.y);
                 let scale = cx.base().scale;
                 let near = |at: Point| (at - gesture.location).length() < TAPPED_CANCEL_MOVE_THRESHOLD_POINTS * scale;
                 let double = self.last_down.is_some_and(|(t, at)| gesture.time_ms - t < DOUBLE_TAP_MS && near(at));
@@ -1150,7 +1228,7 @@ impl Control for SkiaEditor {
             }
             GestureKind::Panning => {
                 let (Some(label), Some(anchor)) = (label, self.drag_anchor) else { return Handled::Yes };
-                let pos = index_at(label, point.x, point.y);
+                let pos = index_at(label, &self.p.text, point.x, point.y);
                 if (self.cursor, self.cursor + self.selection) == (anchor.min(pos), anchor.max(pos)) {
                     return Handled::Yes;
                 }
@@ -1159,7 +1237,7 @@ impl Control for SkiaEditor {
             GestureKind::LongPressing => {
                 let Some(label) = label else { return Handled::Yes };
                 let start = gesture.start + self.scroll - (gesture.location - cx.point);
-                let dirty = self.select_word(index_at(label, start.x, start.y));
+                let dirty = self.select_word(index_at(label, &self.p.text, start.x, start.y));
                 self.drag_anchor = Some(self.cursor);
                 if !self.focused {
                     cx.focus();

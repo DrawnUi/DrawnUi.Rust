@@ -750,6 +750,7 @@ dependencies = [
  "raw-window-handle",
  "serde_json",
  "unicode-bidi",
+ "unicode-segmentation",
  "winit",
 ]
 
