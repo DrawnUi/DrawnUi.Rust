@@ -31,6 +31,10 @@ fn main() {
 }
 ```
 
+## MIT, everywhere
+
+DrawnUI is MIT licensed in every language and on every platform: desktop, mobile, web and embedded devices. Ship it in commercial products with no attribution badge, no about screen and no per-device royalty.
+
 ## Why DrawnUI for Rust
 
 - **A complete UI engine, ready to use.** Rendering, layouts, gestures, a full set of UI controls
