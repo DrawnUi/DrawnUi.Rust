@@ -1,0 +1,7 @@
+#!/bin/sh
+# The public skills are edited in place (a maintainer's ~/.claude/skills entries are junctions to
+# skills/): refuse a commit whose staged skill text looks internal. Enable once per clone with
+#   git config core.hooksPath dev/hooks
+files=$(git diff --cached --name-only --diff-filter=ACM -- 'skills/*/SKILL.md')
+[ -z "$files" ] && exit 0
+exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File dev/check-public.ps1 $files

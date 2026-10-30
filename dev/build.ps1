@@ -80,8 +80,8 @@ try {
         Set-Content $page.FullName $html -NoNewline
     }
 
-    # Files for AI agents, when the example ships an llms.txt: the public skills (skills\, synced by
-    # dev\sync-skills.ps1) served under skills/, and llms-full.txt = llms.txt with every skill inlined.
+    # Files for AI agents, when the example ships an llms.txt: the public skills (skills\, edited in
+    # place) served under skills/, and llms-full.txt = llms.txt with every skill inlined.
     # Refuses anything that looks internal.
     if (Test-Path "$out\llms.txt") {
         . "$PSScriptRoot\public-guard.ps1"
