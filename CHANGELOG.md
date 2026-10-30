@@ -4,7 +4,7 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.19 (crates.io, 2026-10-30)
 
 ### Changed
 
@@ -13,6 +13,10 @@ version before it. Commits in parentheses.
   `selected_index` still go anywhere.
 - An editor focused from code shows its caret at once, at the end of its text, so typing appends. A
   caret position the app set before focusing is kept.
+
+### Toolchain
+
+Skia crates unchanged (0.153.7).
 
 ## 0.1.0-preview.18 (crates.io, 2026-10-27)
 
