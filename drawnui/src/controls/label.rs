@@ -253,8 +253,12 @@ struct Token {
     start: usize,
     end: usize,
     style: usize,
+    /// A space of its own span before it (between words, or the span starts with one).
     space_before: bool,
     trailing_space: bool,
+    /// The style of the space the span before it ends with: a space keeps the style of the span
+    /// it was written in (C#), so a highlighted or underlined span does not take the space before it.
+    carried: Option<usize>,
 }
 
 /// A line being filled.
@@ -902,7 +906,7 @@ impl Layout {
                     if let Some(missing) = missing {
                         self.replace_missing(start, style, missing);
                     }
-                    self.tokens.push(Token { start, end: self.source.len(), style, space_before: false, trailing_space: false });
+                    self.tokens.push(Token { start, end: self.source.len(), style, space_before: false, trailing_space: false, carried: None });
                     self.paragraphs[para].end = self.tokens.len();
                     rest = &rest[end..];
                 }
@@ -921,7 +925,7 @@ impl Layout {
                 }
                 let tokens = &mut self.paragraphs[para];
                 let space_before = w > 0 || (tokens.end > tokens.start && leading_space);
-                self.tokens.push(Token { start, end: self.source.len(), style, space_before, trailing_space: false });
+                self.tokens.push(Token { start, end: self.source.len(), style, space_before, trailing_space: false, carried: None });
                 tokens.end = self.tokens.len();
             }
             let tokens = self.paragraphs[para].clone();
@@ -970,14 +974,30 @@ impl Layout {
         }
     }
 
-    /// A fragment ending with a space puts the space before the next token.
+    /// A fragment ending with a space puts that space, in its own style, before the next token.
     fn spread_trailing_spaces(&mut self) {
         for para in &self.paragraphs {
             for i in para.clone() {
                 if self.tokens[i].trailing_space && i + 1 < para.end {
-                    self.tokens[i + 1].space_before = true;
+                    self.tokens[i + 1].carried = Some(self.tokens[i].style);
                 }
             }
+        }
+    }
+
+    /// The spaces before a token, in order: the one the span before it ends with, then its own.
+    fn spaces_before(token: Token) -> impl Iterator<Item = usize> {
+        [token.carried, token.space_before.then_some(token.style)].into_iter().flatten()
+    }
+
+    /// Puts the spaces before a token on the open line, each in its style.
+    fn append_spaces(&mut self, open: &mut Open, token: Token, spacing: f32) {
+        for style in Self::spaces_before(token) {
+            let font = self.styles[style].font;
+            let width = self.styles[style].space + spacing;
+            let at = self.source.len();
+            self.source.push(' ');
+            self.append(open, style, font, at..at + 1, width);
         }
     }
 
@@ -1187,7 +1207,7 @@ impl Layout {
             self.word_widths.clear();
             self.segment(token, sp);
             // Glued fragments (no space between spans) wrap as one word.
-            while !keep && i + 1 < para.end && !self.tokens[i + 1].space_before {
+            while !keep && i + 1 < para.end && !self.tokens[i + 1].space_before && self.tokens[i + 1].carried.is_none() {
                 i += 1;
                 self.segment(self.tokens[i], sp);
             }
@@ -1197,15 +1217,12 @@ impl Layout {
                 let word_width: f32 = self.word_runs.iter().map(|r| r.width).sum();
                 // Spaces that end the word hang past the line's end (kept spaces only).
                 let hang = if keep { self.hang } else { 0.0 };
-                let space = token.space_before && has_runs;
-                let space_width = if space { self.styles[token.style].space + sp } else { 0.0 };
+                let space = has_runs && (token.space_before || token.carried.is_some());
+                let space_width = if space { Self::spaces_before(token).map(|st| self.styles[st].space + sp).sum() } else { 0.0 };
                 let fits = |width: f32| width - sp <= prm.max_width;
                 if !prm.wrap || fits(open.width + space_width + word_width - hang) || (!has_runs && fits(word_width - hang)) {
                     if space {
-                        let (style, font) = (token.style, self.styles[token.style].font);
-                        let at = self.source.len();
-                        self.source.push(' ');
-                        self.append(&mut open, style, font, at..at + 1, space_width);
+                        self.append_spaces(&mut open, token, sp);
                     }
                     self.append_word(&mut open);
                     break;
@@ -1214,10 +1231,7 @@ impl Layout {
                     // Chinese / Japanese: the word fills the line up to its last break that fits.
                     if let Some(k) = self.fit_cjk(open.width + space_width, prm.max_width, sp).filter(|k| *k > 0) {
                         if space {
-                            let (style, font) = (token.style, self.styles[token.style].font);
-                            let at = self.source.len();
-                            self.source.push(' ');
-                            self.append(&mut open, style, font, at..at + 1, space_width);
+                            self.append_spaces(&mut open, token, sp);
                         }
                         self.append_chars(&mut open, 0..k);
                         self.close(&mut open, new_paragraph, sp, last_style);
@@ -1270,7 +1284,7 @@ impl Layout {
         self.word_widths.clear();
         let at = self.source.len();
         self.source.push_str(ELLIPSIS);
-        let token = Token { start: at, end: self.source.len(), style: tail_style, space_before: false, trailing_space: false };
+        let token = Token { start: at, end: self.source.len(), style: tail_style, space_before: false, trailing_space: false, carried: None };
         self.segment(token, sp);
         let ellipsis: f32 = self.word_runs.iter().map(|r| r.width).sum();
         let mut width: f32 = self.runs[self.lines[line].runs.clone()].iter().map(|r| r.width).sum();

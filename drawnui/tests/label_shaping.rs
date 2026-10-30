@@ -113,3 +113,24 @@ fn latin_text_keeps_its_plain_widths() {
     let got: f32 = label(&host).runs().map(|r| r.width).sum();
     assert!((got - expected).abs() < 0.5, "{got} vs {expected}");
 }
+
+/// A space keeps the style of the span it was written in (C# SkiaLabel): a highlighted span
+/// " BiG " after "as " has its own spaces inside the highlight, and the space of "as " before it
+/// stays plain. The DrawnUI .NET demo's "Format text as  BiG  and small!".
+#[test]
+fn a_space_keeps_the_style_of_its_span() {
+    let mut host = host(SkiaLabel::new("").spans((
+        TextSpan::new("as ").text_color(Color::WHITE),
+        TextSpan::new(" BiG ").background_color(Color::YELLOW).text_color(Color::BLACK),
+        TextSpan::new("and").text_color(Color::WHITE),
+    )));
+    let runs: Vec<(String, Option<usize>)> = label(&host).runs().map(|r| (r.text.to_owned(), r.span)).collect();
+    assert_eq!(runs, [("as ".to_owned(), Some(0)), (" BiG ".to_owned(), Some(1)), ("and".to_owned(), Some(2))]);
+    // The yellow starts after the plain space of "as " and ends after the space of " BiG ".
+    let yellow = |c: Color| c.r() > 200 && c.g() > 200 && c.b() < 80;
+    let (from, to) = columns(&mut host, yellow).expect("the highlight is drawn");
+    let space = label(&host).runs().next().map(|r| r.width).unwrap();
+    assert!(from as f32 >= space - 1.0, "the highlight covers the space of \"as \": starts at {from}, \"as \" ends at {space}");
+    let big: f32 = label(&host).runs().take(2).map(|r| r.width).sum();
+    assert!((to as f32 - big).abs() <= 2.0, "the highlight ends at {to}, \" BiG \" ends at {big}");
+}

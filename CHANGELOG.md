@@ -4,6 +4,14 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## Unreleased
+
+### Changed
+
+- A space between spans keeps the style of the span it was written in: a highlighted, underlined or
+  colored span no longer takes the space before it, and its own spaces stay inside its background.
+  Two spans that both have a space at their meeting point keep both spaces.
+
 ## 0.1.0-preview.20 (crates.io, 2026-10-30)
 
 ### Added
