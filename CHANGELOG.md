@@ -30,7 +30,9 @@ version before it. Commits in parentheses.
 
 - A popup with an arrow-key group in it (a menu, a dropdown list) takes the keyboard as it opens,
   on its checked item, else its first one.
-- The arrows move between the items of a group whose role sits on a wrapper around their layout.
+- The arrows move between the items of a group whose role sits on a wrapper around their layout,
+  and through a menu or list whose items sit in several columns, in reading order.
+- While a popup is open, Tab goes round its stops.
 
 ## 0.1.0-preview.26 (crates.io, 2026-10-31)
 

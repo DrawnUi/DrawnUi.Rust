@@ -672,9 +672,11 @@ adjust a slider by its step. A custom range control implements `Control::accessi
 swipe (iOS) and TalkBack's scroll actions; a screen reader moving onto a node off screen scrolls it
 into view. Give a container a role (`Aria::LIST`, `Aria::TOOLBAR`...) when its items form a group:
 arrow keys then move inside it and it is one Tab stop. The role can sit on a wrapper around the
-layout that holds the items (a menu panel shape around a column). A popup with a group in it (a menu,
-a dropdown list) takes the keyboard as it opens, on the item marked
-`accessibility_is_pressed(Some(true))` (the checked one), else its first item.
+layout that holds the items (a menu panel shape around a column); a menu or list whose items sit in
+several columns, after a title, moves through them in reading order. A popup with a group in it (a
+menu, a dropdown list) takes the keyboard as it opens, on its current choice (a radio, option or tab
+item with `accessibility_is_pressed(Some(true))`; a checkbox item that is on does not count), else
+its first item; while it is open, Tab goes round it.
 
 ## Rendering mode (GPU or CPU)
 

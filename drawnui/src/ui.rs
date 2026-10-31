@@ -936,9 +936,13 @@ impl<S: 'static> Ui<S> {
         let focused = self.accessibility_focused().or_else(|| self.focused());
         let group = focused.and_then(|f| self.group_of(f));
         let current = focused.and_then(|f| stops.iter().position(|s| *s == f || (group.is_some() && self.group_of(*s) == group)));
+        // In an open popup Tab goes round its stops, as in a native menu or dialog.
+        let round = !self.tree.popups.is_empty() && !stops.is_empty();
         let next = match (current, back) {
             (None, false) => (!stops.is_empty()).then_some(0),
             (None, true) => stops.len().checked_sub(1),
+            (Some(i), false) if round => Some((i + 1) % stops.len()),
+            (Some(i), true) if round => Some((i + stops.len() - 1) % stops.len()),
             (Some(i), false) => (i + 1 < stops.len()).then_some(i + 1),
             (Some(i), true) => i.checked_sub(1),
         };
@@ -991,6 +995,28 @@ impl<S: 'static> Ui<S> {
         let mut item = focused;
         while let Some(parent) = tree.parent(item).filter(|p| *p != group) {
             item = parent;
+        }
+        // A menu, list or radio group whose items are not the children of one layout (a panel with
+        // a title, a divider and columns of items): its items in reading order, one after another.
+        let role = self.tree.accessibility.iter().find(|n| n.control == role_holder).map(|n| n.role.clone()).unwrap_or_default();
+        let linear = [Aria::MENU, Aria::MENU_BAR, Aria::LIST, Aria::LIST_BOX, Aria::RADIO_GROUP].contains(&&*role);
+        let inside = |control: ControlId, ancestor: ControlId| std::iter::successors(Some(control), |c| tree.parent(*c)).any(|c| c == ancestor);
+        let holds_many = |child: &ControlId| self.tree.accessibility.iter().filter(|n| n.can_interact && inside(n.control, *child)).count() > 1;
+        if linear && item != focused && tree.children(group).iter().any(holds_many) {
+            let items: Vec<ControlId> =
+                self.tree.accessibility.iter().filter(|n| n.can_interact && self.group_of(n.control) == Some(role_holder)).map(|n| n.control).collect();
+            let Some(current) = items.iter().position(|c| *c == focused) else { return false };
+            let target = match key {
+                "ArrowDown" | "ArrowRight" => (current + 1).min(items.len() - 1),
+                "ArrowUp" | "ArrowLeft" => current.saturating_sub(1),
+                "Home" => 0,
+                "End" => items.len() - 1,
+                _ => return false,
+            };
+            if target != current {
+                self.keyboard_focus(items[target]);
+            }
+            return true;
         }
         let items = tree.children(group).to_vec();
         let Some(current) = items.iter().position(|i| *i == item) else { return false };
@@ -1096,15 +1122,18 @@ impl<S: 'static> Ui<S> {
         self.accessibility_stale = true;
         self.fresh_accessibility();
         let in_popup = |tree: &Tree, control: ControlId| tree.popup_of(control).is_some_and(|p| p.root == root);
-        let items: Vec<(ControlId, Option<bool>)> = self
+        // A current choice marks where the focus goes: a checked radio, option or tab, never an
+        // item that is only switched on (a checkbox).
+        let choice = |role: &str| [Aria::RADIO, Aria::MENU_ITEM_RADIO, Aria::OPTION, Aria::TAB].contains(&role);
+        let items: Vec<(ControlId, bool)> = self
             .tree
             .accessibility
             .iter()
             .filter(|n| n.can_interact && in_popup(&self.tree, n.control))
-            .map(|n| (n.control, n.is_pressed))
+            .map(|n| (n.control, n.is_pressed == Some(true) && choice(&n.role)))
             .filter(|(control, _)| self.group_of(*control).is_some())
             .collect();
-        let target = items.iter().find(|(_, checked)| *checked == Some(true)).or(items.first()).map(|(control, _)| *control);
+        let target = items.iter().find(|(_, current)| *current).or(items.first()).map(|(control, _)| *control);
         if let Some(target) = target {
             let ring = self.focus_ring;
             self.keyboard_focus(target);

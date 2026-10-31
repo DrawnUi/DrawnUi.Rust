@@ -70,9 +70,12 @@ menubar) is one stop that remembers its item and moves by index; Home / End, Pag
 Enter / Space activate; Escape leaves; a focus ring after keyboard use. The browser keeps its own
 Tab order and ring through the overlay (roving tabindex for groups). The group role may sit on a
 wrapper: the items are the children of the layout it holds (a menu shape around a column of items),
-through any wrapper with one child. A popup with such a group in it (a menu, a dropdown list) takes
-the keyboard as it opens, on its checked item, else its first one, however it was opened; the ring
-shows only when the keyboard was in use.
+through any wrapper with one child. A menu, menubar, list, listbox or radio group whose items sit in
+several layouts (a panel with a title, a divider and columns of items) moves through all of them in
+reading order. A popup with such a group in it (a menu, a dropdown list) takes the keyboard as it
+opens, on its current choice (a checked radio, option or tab item; a switched-on checkbox does not
+count), else its first item, however it was opened; the ring shows only when the keyboard was in
+use. While a popup is open, Tab goes round its stops instead of leaving it.
 
 **Selectable text.** `accessibility_text_selectable` on a label: the browser overlay renders its
 lines as real selectable text; the desktop hosts draw the selection (drag, double click, Ctrl / Cmd+C,
