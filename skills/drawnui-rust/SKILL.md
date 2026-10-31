@@ -367,8 +367,8 @@ Windows: your font has the color gear, and Segoe UI Emoji has only the plain one
   the emoji font has that sequence (Windows' Segoe UI Emoji has no flags: a flag stays two letters there).
 Other text keeps the plain path, one glyph per character, with no shaping cost. A script still needs
 a font that has it: ship one (the web has no system fonts) or turn on `system_font_fallback`.
-Alignment does not follow the paragraph's direction: use `horizontal_text_alignment(TextAlignment::End)`
-for right-to-left text. In `SkiaEditor`, the caret, taps, Left / Right and the selection follow the screen in
+`horizontal_text_alignment` Start and End follow each paragraph's direction: a right-to-left paragraph
+starts at the right (End puts it at the left); Center is the same in both. In `SkiaEditor`, the caret, taps, Left / Right and the selection follow the screen in
 right-to-left and mixed lines, and never stop inside an emoji sequence or between a letter and its marks.
 
 Invisible code points (U+FE0F, the zero width joiner, tags) that no font of the label has draw

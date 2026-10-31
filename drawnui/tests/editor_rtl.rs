@@ -250,3 +250,20 @@ fn an_arrow_collapses_a_selection_to_its_edge_on_screen() {
     key(&mut host, "ArrowRight");
     assert_eq!((editor(&host).cursor_position(), editor(&host).selection_length()), (0, 0), "Right goes to the right edge: the start");
 }
+
+/// An Arabic line in an editor starts at the editor's right edge (Start follows the paragraph's
+/// direction, drawnui-cross 6am), and its carets, taps and boxes keep the rules above there.
+#[test]
+fn an_arabic_editor_line_sits_at_the_right() {
+    let mut host = scene(ARABIC_LINE);
+    let label_box = host.rect(host.ui.tree.children(host.ui.state.editor)[1]);
+    let line = line_rect(&host);
+    assert!((line.right - label_box.right).abs() < 1.0, "the line ends at {}, the label at {}", line.right, label_box.right);
+    focus(&mut host);
+    let x = carets(&host);
+    tap_at(&mut host, x[2]);
+    assert_eq!(editor(&host).cursor_position(), 2);
+    let boxes = label(&host).text_lines().next().unwrap().boxes(0, 5);
+    assert_eq!(boxes.len(), 1);
+    assert!((boxes[0].1 - line.right).abs() < 0.5 && (boxes[0].0 - line.left).abs() < 0.5, "{boxes:?} vs {line:?}");
+}

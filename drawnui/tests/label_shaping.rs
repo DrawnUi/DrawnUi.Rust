@@ -147,3 +147,43 @@ fn a_dotted_letter_keeps_the_space_next_to_it() {
     assert!(space > 2.0, "no space width: {space}");
     assert!((both - (a + space + b)).abs() < 1.0, "\"{first} {second}\" is {both}, the words and the space {a} + {space} + {b}");
 }
+
+/// Ink columns of white text in the label's row band.
+fn ink(host: &mut Host) -> (i32, i32) {
+    columns(host, |c| c.r() > 150 && c.g() > 150 && c.b() > 150).expect("text drawn")
+}
+
+fn aligned(text: &'static str, alignment: Option<TextAlignment>) -> Host {
+    let label = SkiaLabel::new(text).font_family_fallback("FontArabic").fill_x().padding(10);
+    host(match alignment {
+        Some(a) => label.horizontal_text_alignment(a),
+        None => label,
+    })
+}
+
+/// Start (the default) follows the paragraph's direction: a right-to-left paragraph sits at the
+/// right edge, inside the padding; End puts it at the left (drawnui-cross 6am).
+#[test]
+fn a_right_to_left_paragraph_starts_at_the_right() {
+    let mut start = aligned("\u{0645}\u{0631}\u{062D}\u{0628}\u{0627} \u{0628}\u{0643}\u{0645}", None);
+    let (_, right) = ink(&mut start);
+    assert!((right - (600 - 10 - 1)).abs() <= 3, "Start: the ink ends at {right}, the label's right inside the padding is 589");
+    let mut end = aligned("\u{0645}\u{0631}\u{062D}\u{0628}\u{0627} \u{0628}\u{0643}\u{0645}", Some(TextAlignment::End));
+    let (left, _) = ink(&mut end);
+    assert!((left - 10).abs() <= 3, "End: the ink starts at {left}, the label's left inside the padding is 10");
+    // Left to right text keeps Start on the left.
+    let mut latin = aligned("Hello", None);
+    let (left, _) = ink(&mut latin);
+    assert!((left - 10).abs() <= 3, "Latin Start: {left}");
+}
+
+/// Each paragraph aligns by its own direction: an Arabic paragraph at the right, a Latin one at the
+/// left, in one label.
+#[test]
+fn each_paragraph_aligns_by_its_own_direction() {
+    let host = aligned("\u{0645}\u{0631}\u{062D}\u{0628}\u{0627}\nHello", None);
+    let lines: Vec<Rect> = label(&host).text_lines().map(|l| l.rect).collect();
+    assert_eq!(lines.len(), 2);
+    assert!((lines[0].right - 590.0).abs() < 1.0, "the Arabic line ends at {}, not the right edge 590", lines[0].right);
+    assert!((lines[1].left - 10.0).abs() < 1.0, "the Latin line starts at {}, not the left edge 10", lines[1].left);
+}

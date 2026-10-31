@@ -118,13 +118,12 @@ pub fn build(_app: &mut App) -> Build<SkiaLayout> {
                     .on_link_tapped(|_me, app: &mut App, _cx, url| app.text.link = url.to_owned()),
             ),
             card(
-                "Right to left — Arabic, shaped and in bidirectional order · HorizontalTextAlignment=End",
+                "Right to left — Arabic, shaped and in bidirectional order · starts at the right (HorizontalTextAlignment Start)",
                 SkiaLabel::new(DEMO_RTL)
                     .font_size(15)
                     .text_color(BODY)
                     .fill_x()
                     .line_spacing(1.3)
-                    .horizontal_text_alignment(TextAlignment::End)
                     .font_family_fallback("FontArabic"),
             ),
         ),

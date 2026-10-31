@@ -133,7 +133,8 @@ props!(LabelProps, LabelBuild, LabelSet {
     /// font that has it (C# SkiaRichLabel: `SkiaFontManager.MatchCharacter`; the web has no system
     /// fonts). SkiaRichLabel and SkiaEditor (`use_unicode`) turn it on.
     system_font_fallback / set_system_font_fallback: bool = false, MEASURE;
-    /// Where each line sits in the label.
+    /// Where each line sits in the label. Start and End follow each paragraph's direction (its first
+    /// strong letter): in a right-to-left paragraph Start is the right edge and End the left one.
     horizontal_text_alignment / set_horizontal_text_alignment: TextAlignment = TextAlignment::Start, DRAW;
     /// Where the text block sits in the label.
     vertical_text_alignment / set_vertical_text_alignment: TextAlignment = TextAlignment::Start, DRAW;
@@ -538,8 +539,15 @@ impl SkiaLabel {
                 y += self.paragraph_space;
             }
             let width = line.width + self.extra.0;
+            // Start and End follow the paragraph's direction: a right-to-left paragraph starts at the
+            // right edge (drawnui-cross 6am).
+            let alignment = match (self.p.horizontal_text_alignment, line.base_rtl) {
+                (TextAlignment::Start, true) => TextAlignment::End,
+                (TextAlignment::End, true) => TextAlignment::Start,
+                (alignment, _) => alignment,
+            };
             let x = inner.left + self.extra.2 / 2.0
-                + match self.p.horizontal_text_alignment {
+                + match alignment {
                     TextAlignment::Start => 0.0,
                     TextAlignment::Center => (inner.width() - width) / 2.0,
                     TextAlignment::End => inner.width() - width,

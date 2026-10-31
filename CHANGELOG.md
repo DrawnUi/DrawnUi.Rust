@@ -4,6 +4,18 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## 0.1.0-preview.24 (crates.io, 2026-10-31)
+
+### Changed
+
+- `HorizontalTextAlignment` Start and End follow each paragraph's direction: an Arabic or Hebrew
+  paragraph starts at the right edge of a label or an editor (End puts it at the left). Center is
+  unchanged, and left-to-right text works as before.
+
+### Toolchain
+
+Skia crates unchanged (0.153.7).
+
 ## 0.1.0-preview.23 (crates.io, 2026-10-30)
 
 ### Changed
