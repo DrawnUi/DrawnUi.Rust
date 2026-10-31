@@ -374,6 +374,16 @@ right-to-left and mixed lines, and never stop inside an emoji sequence or betwee
 Invisible code points (U+FE0F, the zero width joiner, tags) that no font of the label has draw
 nothing and take no room. They never draw a box, and `fallback_character` leaves them alone.
 
+## Stacks sized by their content
+
+A Column with no width set that does not fill (a Row with no height set, likewise) is as wide as
+its widest child. A child that fills that side counts with its content size, up to the room there
+is, and is then stretched to the column's width. So a centered column with a `maximum_width_request`
+holding cards that fill it is as wide as its widest text needs, up to that maximum, and a short
+title with a `fill_x()` divider under it is as wide as the title. A child that fills but has no
+content of its own (a divider) only adds its own size requests. Give the column a width, or make
+it fill, when it should take all the room.
+
 ## Masonry (Pinterest-style columns)
 
 `SkiaMasonry::new()` (a `SkiaLayout` with `LayoutType::Masonry`, `split(2)`, filling the width):
