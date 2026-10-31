@@ -461,6 +461,23 @@ pub struct SkiaLabel {
     /// A tapped span whose handler runs on the next frame.
     pub(crate) pending_tap: Option<usize>,
     selection: Selection,
+    /// The last layout when it was made with no limit on the width (a content-size measure) and
+    /// cut nothing: a later measure that only changes the room keeps it while the room holds it.
+    reuse: Option<Reuse>,
+    /// Scale and `Reuse::key` of the styles and shaped words in `layout`: a measure that only
+    /// changes the room breaks those words into lines again without shaping them.
+    shaped: Option<(u32, (usize, usize, usize))>,
+}
+
+/// What a kept layout needs and returns (`SkiaLabel::reuse`).
+struct Reuse {
+    scale: f32,
+    /// Text length, span count, spans' text length: a change made without marking the label
+    /// for a measure still lays it out again.
+    key: (usize, usize, usize),
+    /// The room the lines need: the widest line, all lines with their spacing.
+    needs: (f32, f32),
+    size: Size,
 }
 
 impl SkiaLabel {
@@ -964,6 +981,16 @@ struct Params {
 }
 
 impl Layout {
+    /// Clears what line breaking made, keeping the styles and the shaped words.
+    fn clear_lines(&mut self) {
+        self.lines.clear();
+        self.runs.clear();
+        self.text.clear();
+        self.advances.clear();
+        self.lefts.clear();
+        self.rtl.clear();
+    }
+
     fn clear(&mut self) {
         self.lines.clear();
         self.runs.clear();
@@ -1653,65 +1680,85 @@ impl Control for SkiaLabel {
         let scale = cx.scale;
         let padding = cx.base().p.padding;
         let (px, py) = (padding.horizontal() * scale, padding.vertical() * scale);
+        let key = (self.p.text.len(), self.spans.len(), self.spans.iter().map(|s| s.text.len()).sum());
+        if let Some(r) = &self.reuse
+            && !cx.base().need_measure
+            && r.scale == scale
+            && r.key == key
+            && width - px - self.extra.0 >= r.needs.0
+            && height - py - self.extra.1 >= r.needs.1
+        {
+            return r.size;
+        }
+        self.reuse = None;
+        let relayout = !cx.base().need_measure && self.shaped == Some((scale.to_bits(), key));
         let p = &self.p;
+        let keep = p.keep_spaces_on_line_breaks;
         let layout = &mut self.layout;
-        layout.clear();
         self.serial = self.serial.wrapping_add(1);
         self.block = (0.0, 0.0);
-
-        // Styles: the label's own, then one per span.
-        let bold = p.font_attributes.is_bold();
-        let italic = p.font_attributes.is_italic();
-        let weight = if p.font_weight > 0 { p.font_weight } else if bold { BOLD } else { 0 };
-        let system = p.system_font_fallback;
-        let Some(main) = layout.add_style(cx.fonts, &p.font_family, &p.font_family_fallback, weight, italic, p.font_size * scale, None, system) else {
-            return Size::new(px, py);
-        };
-        let (mut top, mut bottom) = (0f32, 0f32);
-        if p.font_family.is_empty() && let Some(alias) = cx.fonts.default_alias() && self.default_family != alias {
-            self.default_family = alias.to_owned();
-        }
-        let keep = p.keep_spaces_on_line_breaks;
-        let wrap = p.line_break_mode != LineBreakMode::NoWrap;
-        if self.spans.is_empty() {
-            layout.add_tokens(cx.fonts, &p.text, main, p.text_transform, p.fallback_character, keep, wrap);
+        let main = if relayout {
+            layout.clear_lines();
+            0
         } else {
-            for (index, span) in self.spans.iter().enumerate().filter(|(_, s)| s.is_visible && !s.text.is_empty()) {
-                let span_weight = if span.font_weight > 0 {
-                    span.font_weight
-                } else if span.is_bold {
-                    BOLD
-                } else {
-                    weight
-                };
-                let family = span.font_family.as_deref().unwrap_or(&p.font_family);
-                let size = span.font_size.unwrap_or(p.font_size) * scale;
-                let fallback = &p.font_family_fallback;
-                let Some(style) = layout.add_style(cx.fonts, family, fallback, span_weight, italic || span.is_italic, size, Some(index), system) else { continue };
-                layout.add_tokens(cx.fonts, &span.text, style, p.text_transform, p.fallback_character, keep, wrap);
+            layout.clear();
+            self.shaped = None;
+
+            // Styles: the label's own, then one per span.
+            let bold = p.font_attributes.is_bold();
+            let italic = p.font_attributes.is_italic();
+            let weight = if p.font_weight > 0 { p.font_weight } else if bold { BOLD } else { 0 };
+            let system = p.system_font_fallback;
+            let Some(main) = layout.add_style(cx.fonts, &p.font_family, &p.font_family_fallback, weight, italic, p.font_size * scale, None, system) else {
+                return Size::new(px, py);
+            };
+            let (mut top, mut bottom) = (0f32, 0f32);
+            if p.font_family.is_empty() && let Some(alias) = cx.fonts.default_alias() && self.default_family != alias {
+                self.default_family = alias.to_owned();
             }
-        }
-        let mut right = 0f32;
-        for font in &layout.fonts {
-            let (_, m) = font.metrics();
-            top = top.max(m.ascent - m.top);
-            bottom = bottom.max(m.bottom - m.descent);
-            // A synthetic italic leans right by its skew times the height above the baseline.
-            right = right.max(-font.skew_x() * -m.top);
-        }
-        self.overshoot = (top, bottom, right);
-        self.spoken.clear();
-        for span in &self.spans {
-            self.spoken.push_str(&span.text);
-        }
-        if self.spans.is_empty() && p.text.is_empty() && !keep {
-            return Size::new(px, py);
-        }
-        // Text of spaces only, or only hidden spans: one empty line (DrawnUi.React).
-        if layout.paragraphs.is_empty() {
-            layout.paragraphs.push(0..0);
-        }
-        layout.spread_trailing_spaces();
+            let wrap = p.line_break_mode != LineBreakMode::NoWrap;
+            if self.spans.is_empty() {
+                layout.add_tokens(cx.fonts, &p.text, main, p.text_transform, p.fallback_character, keep, wrap);
+            } else {
+                for (index, span) in self.spans.iter().enumerate().filter(|(_, s)| s.is_visible && !s.text.is_empty()) {
+                    let span_weight = if span.font_weight > 0 {
+                        span.font_weight
+                    } else if span.is_bold {
+                        BOLD
+                    } else {
+                        weight
+                    };
+                    let family = span.font_family.as_deref().unwrap_or(&p.font_family);
+                    let size = span.font_size.unwrap_or(p.font_size) * scale;
+                    let fallback = &p.font_family_fallback;
+                    let Some(style) = layout.add_style(cx.fonts, family, fallback, span_weight, italic || span.is_italic, size, Some(index), system) else { continue };
+                    layout.add_tokens(cx.fonts, &span.text, style, p.text_transform, p.fallback_character, keep, wrap);
+                }
+            }
+            let mut right = 0f32;
+            for font in &layout.fonts {
+                let (_, m) = font.metrics();
+                top = top.max(m.ascent - m.top);
+                bottom = bottom.max(m.bottom - m.descent);
+                // A synthetic italic leans right by its skew times the height above the baseline.
+                right = right.max(-font.skew_x() * -m.top);
+            }
+            self.overshoot = (top, bottom, right);
+            self.spoken.clear();
+            for span in &self.spans {
+                self.spoken.push_str(&span.text);
+            }
+            if self.spans.is_empty() && p.text.is_empty() && !keep {
+                return Size::new(px, py);
+            }
+            // Text of spaces only, or only hidden spans: one empty line (DrawnUi.React).
+            if layout.paragraphs.is_empty() {
+                layout.paragraphs.push(0..0);
+            }
+            layout.spread_trailing_spaces();
+            self.shaped = Some((scale.to_bits(), key));
+            main
+        };
 
         let stroke = if p.stroke_width > 0.0 && p.stroke_color.a() > 0 { p.stroke_width * 2.0 * scale } else { 0.0 };
         let (shadow_w, shadow_h) = if p.drop_shadow_size > 0.0 && p.drop_shadow_color.a() > 0 {
@@ -1756,7 +1803,9 @@ impl Control for SkiaLabel {
             fit += 1;
         }
         kept = kept.min(fit);
+        let natural = prm.max_width.is_infinite() && kept == layout.lines.len();
         if kept < layout.lines.len() {
+            self.shaped = None;
             layout.truncate(kept, &prm, main);
         }
         layout.build_blobs(prm.spacing);
@@ -1772,7 +1821,11 @@ impl Control for SkiaLabel {
             }
         }
         self.block = (text_width + self.extra.0, text_height + self.extra.1);
-        Size::new(self.block.0.ceil() + px, self.block.1.ceil() + py)
+        let size = Size::new(self.block.0.ceil() + px, self.block.1.ceil() + py);
+        if natural {
+            self.reuse = Some(Reuse { scale, key, needs: (text_width, used), size });
+        }
+        size
     }
 
     fn arrange(&mut self, cx: &mut LayoutCx) {
