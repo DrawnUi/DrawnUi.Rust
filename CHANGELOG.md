@@ -4,6 +4,21 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## Unreleased
+
+### Added
+
+- Hot reload in the browser (feature `hot-reload`): an app built as a side module is swapped into
+  the running page with `hotSwap` and keeps its state (`hot_reload!`). (b96284a)
+
+### Changed
+
+- A Column with no width set (a Row with no height set) that does not fill is as wide as its widest
+  child; a child that fills it counts with its content size, up to the room there is, and is then
+  stretched to the column's width. (35c2508)
+- Labels lay their text out less often when only the room around them changes. (aaf89be)
+- Popup windows close when the app's window is moved, resized or minimized, as native menus do.
+
 ## 0.1.0-preview.26 (crates.io, 2026-10-31)
 
 ### Changed

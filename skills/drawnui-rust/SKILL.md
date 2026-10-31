@@ -600,7 +600,7 @@ SkiaButton::new("Fruit").assign(&mut app.fruit).on_tapped(|_me, app: &mut App, c
   show dark.
 - It closes on a press outside it (that press reaches nothing, as with a native menu; a right click
   outside still asks for a context menu, so the next menu opens there), on Escape, when the app loses
-  the keyboard to another app, and on `cx.close_popup_window(id)` / `cx.close_popup_windows()`.
+  the keyboard to another app, when the app's window is moved, resized or minimized, and on `cx.close_popup_window(id)` / `cx.close_popup_windows()`.
   With `PopupWindowOptions { close_on_pointer_leave: true, .. }` it also closes once the mouse has been
   outside both the popup and the app's window for 300 ms. `cx.is_popup_window_open(id)` says if it is
   still open.

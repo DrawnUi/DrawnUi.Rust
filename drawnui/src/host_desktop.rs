@@ -252,6 +252,15 @@ pub fn run(title: &str, size: (f64, f64), make: fn() -> Box<dyn App>) {
 }
 
 impl Desktop {
+    /// Closes the popup windows (desktop), when there are any.
+    fn close_popups(&mut self) {
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        if !self.popups.is_empty() {
+            self.app.close_popup_windows();
+            self.redraw();
+        }
+    }
+
     fn new(window: Window, presenter: Presenter, mut app: Box<dyn App>, proxy: EventLoopProxy<Arrived>) -> Self {
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         let ticker = ticker::Ticker::new(proxy.clone(), &window);
@@ -1783,6 +1792,9 @@ impl ApplicationHandler<Arrived> for Desktop {
         }
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
+            // The app window moved: popup windows close, as native menus do (they would stay where
+            // they were).
+            WindowEvent::Moved(_) => self.close_popups(),
             WindowEvent::Resized(size) => {
                 // The same size: only the safe area changed (Android hears insets as a resize),
                 // the surface stays.
@@ -1791,6 +1803,8 @@ impl ApplicationHandler<Arrived> for Desktop {
                 #[cfg(not(target_os = "android"))]
                 let kept = self.surface.as_ref().is_some_and(|s| (s.width() as u32, s.height() as u32) == (size.width, size.height));
                 if !kept {
+                    // A real size change (minimizing included): popup windows close, as native menus do.
+                    self.close_popups();
                     self.resized_at = Some(Instant::now());
                     self.surface = None;
                     self.presenter.resize(&self.window, size.width.max(1), size.height.max(1));
@@ -1854,6 +1868,9 @@ impl ApplicationHandler<Arrived> for Desktop {
             // app is told as C# does it: hidden on resigning active (`suspended`), shown only once
             // active again (`resumed`), not already when it comes to the foreground.
             WindowEvent::Occluded(occluded) => {
+                if occluded {
+                    self.close_popups();
+                }
                 self.occluded = occluded;
                 #[cfg(not(target_os = "ios"))]
                 self.report_visible(!occluded);
@@ -1991,6 +2008,7 @@ struct PopupWindow {
 
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 impl Desktop {
+
     /// The popup windows follow what the app asked for in its last frame: new ones are made
     /// (hidden until drawn), the ones it closed go, one whose size changed is placed again.
     fn sync_popups(&mut self, event_loop: &ActiveEventLoop) {
