@@ -142,4 +142,10 @@ pub enum Cursor {
     Pointer,
     /// The I-beam: text can be selected or edited.
     Text,
+    /// Left-right arrows: something under the mouse is dragged sideways (a splitter between
+    /// columns; CSS `col-resize`).
+    ResizeLeftRight,
+    /// Up-down arrows: something under the mouse is dragged up or down (a splitter between rows;
+    /// CSS `row-resize`).
+    ResizeUpDown,
 }

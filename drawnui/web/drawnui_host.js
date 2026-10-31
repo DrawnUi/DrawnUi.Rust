@@ -777,7 +777,7 @@ window.DrawnUi = {
         const rest = message.slice(2);
         switch (message[0]) {
           case "c":
-            canvas.style.cursor = ["", "pointer", "text"][Number(rest)] ?? "";
+            canvas.style.cursor = ["", "pointer", "text", "col-resize", "row-resize"][Number(rest)] ?? "";
             break;
           case "t": {
             const area = message.length > 1 ? rest.split(" ").map(Number) : null;

@@ -380,6 +380,8 @@ pub extern "C" fn dui_poll_output(s: *mut WebState) -> *const c_char {
             Cursor::Default => 0,
             Cursor::Pointer => 1,
             Cursor::Text => 2,
+            Cursor::ResizeLeftRight => 3,
+            Cursor::ResizeUpDown => 4,
         };
         Some(format!("c {n}"))
     } else if let Some(area) = host.text_input.take() {

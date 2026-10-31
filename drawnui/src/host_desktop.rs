@@ -707,6 +707,8 @@ impl Desktop {
                 Cursor::Default => CursorIcon::Default,
                 Cursor::Pointer => CursorIcon::Pointer,
                 Cursor::Text => CursorIcon::Text,
+                Cursor::ResizeLeftRight => CursorIcon::ColResize,
+                Cursor::ResizeUpDown => CursorIcon::RowResize,
             };
             self.window.set_cursor(icon);
             #[cfg(not(any(target_os = "ios", target_os = "android")))]

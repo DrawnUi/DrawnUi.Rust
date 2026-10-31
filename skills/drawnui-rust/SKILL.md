@@ -620,6 +620,15 @@ SkiaButton::new("Fruit").assign(&mut app.fruit).on_tapped(|_me, app: &mut App, c
   `popup_tap(id, x, y)` and `popup_hover(id, at)` drive the popup's window. Without that call, popups
   are on the canvas, as in the browser.
 
+## Mouse cursor
+
+The engine shows the hand over anything with a tapped handler or `accessibility_can_interact`, and
+the I-beam over editable or selectable text. A control of your own picks its cursor by implementing
+`Control::cursor(local)` (`local`: the point in its own space, pixels): `Some(Cursor::Pointer)`,
+`Text`, `ResizeLeftRight` (a splitter between columns), `ResizeUpDown` (between rows) or `Default`;
+`None` leaves it to the engine. A control that is only dragged (a splitter grip) gets no hand from
+the engine: return its resize cursor from `cursor`.
+
 ## Window focus (the app in front or not)
 
 `Ui::on_window_focus(|app: &mut App, focused, cx| ...)` runs when the app's window gets the keyboard

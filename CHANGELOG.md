@@ -24,6 +24,7 @@ version before it. Commits in parentheses.
 - `PopupWindowOptions::cpu`: a popup window drawn on the CPU with per-pixel alpha (Windows), for
   round corners and shadows over the desktop.
 - `PopupWindowOptions::on_canvas`: a popup drawn on the app's canvas also on the desktop.
+- `Cursor::ResizeLeftRight` and `Cursor::ResizeUpDown`, for splitters (desktop and browser).
 
 ## 0.1.0-preview.26 (crates.io, 2026-10-31)
 
