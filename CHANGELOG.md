@@ -4,6 +4,19 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## 0.1.0-preview.28 (crates.io, 2026-10-31)
+
+### Changed
+
+- Faster layout of text: a label measures each word once and keeps it while its text and fonts stay
+  the same, so a new layout (a resize, a parent that changed, a column fitting its content) only
+  breaks the measured words into lines. A full layout of a page of cards takes about a third less
+  time than in preview.26.
+
+### Toolchain
+
+Skia crates unchanged (0.153.7).
+
 ## 0.1.0-preview.27 (crates.io, 2026-10-31)
 
 ### Added

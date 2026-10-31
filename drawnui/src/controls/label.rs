@@ -304,6 +304,13 @@ struct Run {
     ink: Option<(f32, f32)>,
 }
 
+impl Run {
+    /// The run as `segment` measures it: no glyphs or ink yet.
+    fn measured(&self) -> Run {
+        Run { text: self.text.clone(), style: self.style, font: self.font, width: self.width, blob: None, x: self.x, level: self.level, chars: self.chars.clone(), ink: None }
+    }
+}
+
 struct Line {
     runs: Range<usize>,
     /// Bytes in `Layout::text`.
@@ -380,6 +387,12 @@ struct Layout {
     /// The word being placed: its runs (text in `source`) and the advance of each character.
     word_runs: Vec<Run>,
     word_widths: Vec<f32>,
+    /// What `segment` measured for each token (its runs and character widths in `seg_runs` /
+    /// `seg_widths`), kept while the tokens are: breaking the text into lines again at another
+    /// width looks the words up instead of measuring them.
+    seg_index: Vec<Option<(Range<usize>, Range<usize>)>>,
+    seg_runs: Vec<Run>,
+    seg_widths: Vec<f32>,
     /// Pixels of the spaces that end the word being placed (they hang past the line's end).
     hang: f32,
     /// Every character's advance with its spacing, line by line.
@@ -466,7 +479,7 @@ pub struct SkiaLabel {
     reuse: Option<Reuse>,
     /// Scale and `Reuse::key` of the styles and shaped words in `layout`: a measure that only
     /// changes the room breaks those words into lines again without shaping them.
-    shaped: Option<(u32, (usize, usize, usize))>,
+    shaped: Option<u64>,
 }
 
 /// What a kept layout needs and returns (`SkiaLabel::reuse`).
@@ -992,6 +1005,9 @@ impl Layout {
     }
 
     fn clear(&mut self) {
+        self.seg_index.clear();
+        self.seg_runs.clear();
+        self.seg_widths.clear();
         self.lines.clear();
         self.runs.clear();
         self.text.clear();
@@ -1226,6 +1242,31 @@ impl Layout {
         self.hang = self.word_widths[self.word_widths.len() - spaces..].iter().sum();
     }
 
+    /// `segment` of token `i`, measured once while the tokens are kept (`seg_index`).
+    fn segment_at(&mut self, i: usize, spacing: f32) {
+        if self.seg_index.len() < self.tokens.len() {
+            self.seg_index.resize(self.tokens.len(), None);
+        }
+        let token = self.tokens[i];
+        match self.seg_index[i].clone() {
+            Some((runs, widths)) => {
+                self.word_runs.extend(self.seg_runs[runs].iter().map(Run::measured));
+                self.word_widths.extend_from_slice(&self.seg_widths[widths]);
+                let word = &self.source[token.start..token.end];
+                let spaces = word.len() - word.trim_end_matches(' ').len();
+                self.hang = self.word_widths[self.word_widths.len() - spaces..].iter().sum();
+            }
+            None => {
+                let (runs, widths) = (self.word_runs.len(), self.word_widths.len());
+                self.segment(token, spacing);
+                let (r0, w0) = (self.seg_runs.len(), self.seg_widths.len());
+                self.seg_runs.extend(self.word_runs[runs..].iter().map(Run::measured));
+                self.seg_widths.extend_from_slice(&self.word_widths[widths..]);
+                self.seg_index[i] = Some((r0..self.seg_runs.len(), w0..self.seg_widths.len()));
+            }
+        }
+    }
+
     /// Appends a run to the open line, merged into the last one when both share font and style.
     fn append(&mut self, open: &mut Open, style: usize, font: usize, text: Range<usize>, width: f32) {
         let start = self.text.len();
@@ -1350,11 +1391,11 @@ impl Layout {
             last_style = token.style;
             self.word_runs.clear();
             self.word_widths.clear();
-            self.segment(token, sp);
+            self.segment_at(i, sp);
             // Glued fragments (no space between spans) wrap as one word.
             while !keep && i + 1 < para.end && !self.tokens[i + 1].space_before && self.tokens[i + 1].carried.is_none() {
                 i += 1;
-                self.segment(self.tokens[i], sp);
+                self.segment_at(i, sp);
             }
             i += 1;
             loop {
@@ -1691,7 +1732,24 @@ impl Control for SkiaLabel {
             return r.size;
         }
         self.reuse = None;
-        let relayout = !cx.base().need_measure && self.shaped == Some((scale.to_bits(), key));
+        // Everything the shaped words depend on: a measure asked again with these unchanged (a
+        // parent invalidated, the room changed) breaks the kept words into lines without shaping
+        // or measuring them again.
+        let shape_key = {
+            use std::hash::{Hash, Hasher};
+            let p = &self.p;
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            (scale.to_bits(), cx.fonts.generation(), p.font_size.to_bits(), p.character_spacing.to_bits(), p.font_weight).hash(&mut h);
+            (&p.text, &p.font_family, &p.font_family_fallback, p.fallback_character, p.system_font_fallback, p.keep_spaces_on_line_breaks).hash(&mut h);
+            std::mem::discriminant(&p.font_attributes).hash(&mut h);
+            std::mem::discriminant(&p.text_transform).hash(&mut h);
+            (p.line_break_mode == LineBreakMode::NoWrap).hash(&mut h);
+            for s in &self.spans {
+                (&s.text, &s.font_family, s.font_size.map(f32::to_bits), s.font_weight, s.is_bold, s.is_italic, s.is_visible).hash(&mut h);
+            }
+            h.finish()
+        };
+        let relayout = self.shaped == Some(shape_key);
         let p = &self.p;
         let keep = p.keep_spaces_on_line_breaks;
         let layout = &mut self.layout;
@@ -1756,7 +1814,7 @@ impl Control for SkiaLabel {
                 layout.paragraphs.push(0..0);
             }
             layout.spread_trailing_spaces();
-            self.shaped = Some((scale.to_bits(), key));
+            self.shaped = Some(shape_key);
             main
         };
 

@@ -81,3 +81,30 @@ fn a_narrower_parent_wraps_the_kept_lines() {
     assert_eq!(size(&narrowed), size(&fresh));
     assert!(size(&narrowed).1 > wide.1, "the text wraps: {wide:?} -> {:?}", size(&narrowed));
 }
+
+/// A font that arrives after the first measure is used: the words are shaped again although the
+/// label itself did not change.
+#[test]
+fn a_font_that_arrives_later_shapes_the_text_again() {
+    const ORBITRON: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/hellorust/assets/Orbitron-Regular.ttf"));
+    let make = || {
+        Ui::new(App::default(), |app: &mut App| {
+            SkiaLayout::new().fill().children((SkiaLabel::new(TEXT).font_size(20).font_family("Wide").assign(&mut app.label),))
+        })
+        .font_bytes("Default", FONT)
+    };
+    let mut late = Headless::new(make(), 600, 400, 1.0);
+    late.settle();
+    let before = size(&late);
+    late.ui.fonts.add("Wide", ORBITRON);
+    let root = late.ui.tree.root().unwrap();
+    late.ui.tree.invalidate(root, Dirty::MEASURE);
+    let label = late.ui.state.label;
+    late.ui.tree.invalidate(label, Dirty::MEASURE);
+    late.settle();
+    let mut fresh = Headless::new(make(), 600, 400, 1.0);
+    fresh.ui.fonts.add("Wide", ORBITRON);
+    fresh.settle();
+    assert_ne!(size(&late), before, "the new font is wider");
+    assert_eq!(size(&late), size(&fresh));
+}

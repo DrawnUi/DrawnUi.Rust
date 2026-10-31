@@ -34,6 +34,8 @@ pub struct Fonts {
     named: HashMap<String, Vec<(i32, Typeface)>>,
     /// The system face found for a character, or none (`match_character`).
     by_character: RefCell<HashMap<char, Option<Typeface>>>,
+    /// Grows with every face added or default alias named: text shaped before then is shaped again.
+    generation: u32,
 }
 
 impl Default for Fonts {
@@ -43,6 +45,7 @@ impl Default for Fonts {
             default_alias: None,
             named: HashMap::new(),
             by_character: RefCell::default(),
+            generation: 0,
         }
     }
 }
@@ -52,6 +55,7 @@ impl Fonts {
     pub fn register(&mut self, alias: &str) {
         if self.default_alias.is_none() {
             self.default_alias = Some(alias.to_owned());
+            self.generation += 1;
         }
     }
 
@@ -74,12 +78,18 @@ impl Fonts {
         if may_be_default {
             self.register(alias);
         }
+        self.generation += 1;
         let faces = self.named.entry(alias.to_owned()).or_default();
         match faces.iter_mut().find(|(w, _)| *w == weight) {
             Some(face) => face.1 = typeface,
             None => faces.push((weight, typeface)),
         }
         true
+    }
+
+    /// Grows whenever the fonts change (`Fonts::generation`).
+    pub(crate) fn generation(&self) -> u32 {
+        self.generation
     }
 
     /// The alias an empty family stands for: the first one registered.
