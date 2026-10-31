@@ -323,6 +323,8 @@ pub struct Ui<S: 'static> {
     /// The host shows popup windows in windows of their own (`Host::popup_windows_on`); else
     /// they are drawn on the canvas.
     popup_windows_on: bool,
+    /// The newest popup that had its chance to take the keyboard (`focus_opened_popup`).
+    popups_focused: u32,
     /// The popup window the input being routed came from (`None`: the app's window).
     input_popup: Option<u32>,
     /// The popup window the press began in, and the one the mouse is over.
@@ -447,6 +449,7 @@ impl<S: 'static> Ui<S> {
             accessibility_roles: Vec::new(),
             by_z: Vec::new(),
             popup_windows_on: false,
+            popups_focused: 0,
             input_popup: None,
             press_popup: None,
             hover_popup: None,
@@ -967,8 +970,24 @@ impl<S: 'static> Ui<S> {
         }
         let Some(focused) = self.accessibility_focused() else { return false };
         self.fresh_accessibility();
-        let Some(group) = self.group_of(focused) else { return false };
+        let Some(role_holder) = self.group_of(focused) else { return false };
         let tree = &self.tree;
+        // The items are the children of the control that holds them: the group itself, or the
+        // layout a wrapper with the group role holds (a menu shape around a column of items),
+        // through every wrapper with one child that is not an item itself.
+        let mut chain = vec![focused];
+        while let Some(parent) = tree.parent(*chain.last().unwrap()).filter(|p| *p != role_holder) {
+            chain.push(parent);
+        }
+        let mut group = role_holder;
+        while let [only] = tree.children(group) {
+            let only = *only;
+            let interactive = self.tree.accessibility.iter().any(|n| n.control == only && n.can_interact);
+            if only == focused || interactive || !chain.contains(&only) {
+                break;
+            }
+            group = only;
+        }
         let mut item = focused;
         while let Some(parent) = tree.parent(item).filter(|p| *p != group) {
             item = parent;
@@ -1070,6 +1089,29 @@ impl<S: 'static> Ui<S> {
     /// The keyboard puts the focus on a control: the scrolls above it bring it into view, a group
     /// remembers it, an editor takes the caret (and gives it up when the keyboard leaves), the ring
     /// shows.
+    /// A popup that just opened with an arrow-key group in it (a menu, a list box, a radio group)
+    /// takes the keyboard on its checked item, else its first one, as native menus and dropdowns
+    /// do, however they were opened. The focus ring shows only if it showed already.
+    fn focus_opened_popup(&mut self, root: ControlId) {
+        self.accessibility_stale = true;
+        self.fresh_accessibility();
+        let in_popup = |tree: &Tree, control: ControlId| tree.popup_of(control).is_some_and(|p| p.root == root);
+        let items: Vec<(ControlId, Option<bool>)> = self
+            .tree
+            .accessibility
+            .iter()
+            .filter(|n| n.can_interact && in_popup(&self.tree, n.control))
+            .map(|n| (n.control, n.is_pressed))
+            .filter(|(control, _)| self.group_of(*control).is_some())
+            .collect();
+        let target = items.iter().find(|(_, checked)| *checked == Some(true)).or(items.first()).map(|(control, _)| *control);
+        if let Some(target) = target {
+            let ring = self.focus_ring;
+            self.keyboard_focus(target);
+            self.focus_ring = ring;
+        }
+    }
+
     fn keyboard_focus(&mut self, control: ControlId) {
         if let Some(previous) = self.tree.accessibility_focused.filter(|p| *p != control) {
             self.accessibility_focus(previous.index, false);
@@ -1801,6 +1843,10 @@ impl<S: 'static> Ui<S> {
             layout::measure(&mut self.tree, &self.fonts, &self.state, root, content.width(), content.height(), scale);
             layout::arrange(&mut self.tree, &self.fonts, &self.state, root, content, scale);
             self.layout_popups(content, scale);
+            if let Some(newest) = self.tree.popups.last().filter(|p| p.id > self.popups_focused).map(|p| (p.id, p.root)) {
+                self.popups_focused = newest.0;
+                self.focus_opened_popup(newest.1);
+            }
             // Image handlers run before the bitmap is first painted.
             if images::dispatch(&mut self.tree, &mut self.state) {
                 self.state_dirty = true;

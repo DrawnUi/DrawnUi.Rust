@@ -26,6 +26,12 @@ version before it. Commits in parentheses.
 - `PopupWindowOptions::on_canvas`: a popup drawn on the app's canvas also on the desktop.
 - `Cursor::ResizeLeftRight` and `Cursor::ResizeUpDown`, for splitters (desktop and browser).
 
+### Changed (keyboard)
+
+- A popup with an arrow-key group in it (a menu, a dropdown list) takes the keyboard as it opens,
+  on its checked item, else its first one.
+- The arrows move between the items of a group whose role sits on a wrapper around their layout.
+
 ## 0.1.0-preview.26 (crates.io, 2026-10-31)
 
 ### Changed

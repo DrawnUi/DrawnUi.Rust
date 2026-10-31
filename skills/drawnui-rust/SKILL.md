@@ -671,7 +671,10 @@ adjust a slider by its step. A custom range control implements `Control::accessi
 `accessibility_set_value` when it can be set). Every SkiaScroll pages for VoiceOver's three-finger
 swipe (iOS) and TalkBack's scroll actions; a screen reader moving onto a node off screen scrolls it
 into view. Give a container a role (`Aria::LIST`, `Aria::TOOLBAR`...) when its items form a group:
-arrow keys then move inside it and it is one Tab stop.
+arrow keys then move inside it and it is one Tab stop. The role can sit on a wrapper around the
+layout that holds the items (a menu panel shape around a column). A popup with a group in it (a menu,
+a dropdown list) takes the keyboard as it opens, on the item marked
+`accessibility_is_pressed(Some(true))` (the checked one), else its first item.
 
 ## Rendering mode (GPU or CPU)
 

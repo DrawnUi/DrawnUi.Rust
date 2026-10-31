@@ -68,7 +68,11 @@ screen reader follows the keyboard focus.
 reading order; an arrow-key group (list, listbox, grid, toolbar, radiogroup, tablist, menu,
 menubar) is one stop that remembers its item and moves by index; Home / End, PageUp / PageDown;
 Enter / Space activate; Escape leaves; a focus ring after keyboard use. The browser keeps its own
-Tab order and ring through the overlay (roving tabindex for groups).
+Tab order and ring through the overlay (roving tabindex for groups). The group role may sit on a
+wrapper: the items are the children of the layout it holds (a menu shape around a column of items),
+through any wrapper with one child. A popup with such a group in it (a menu, a dropdown list) takes
+the keyboard as it opens, on its checked item, else its first one, however it was opened; the ring
+shows only when the keyboard was in use.
 
 **Selectable text.** `accessibility_text_selectable` on a label: the browser overlay renders its
 lines as real selectable text; the desktop hosts draw the selection (drag, double click, Ctrl / Cmd+C,
