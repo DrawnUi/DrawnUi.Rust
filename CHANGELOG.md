@@ -4,35 +4,46 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.27 (crates.io, 2026-10-31)
 
 ### Added
 
-- Hot reload in the browser (feature `hot-reload`): an app built as a side module is swapped into
-  the running page with `hotSwap` and keeps its state (`hot_reload!`). (b96284a)
+- Tools can read a running app: `Tree::type_name`, `Tree::screen_rect` (where a control shows,
+  through scrolling and transforms) and `Ui::hit_test` (the control seen at a point). With the
+  feature `designer`, `Tree::props` and `Tree::set_prop` read and write every property of a control
+  by name, as text. (1f35892)
+- `PopupWindowOptions::cpu`: a popup window drawn on the CPU with per-pixel alpha (Windows), so
+  round corners and shadows show the desktop through them. `PopupWindowOptions::on_canvas`: a popup
+  drawn on the app's canvas also on the desktop. (beb18ae)
+- `Cursor::ResizeLeftRight` and `Cursor::ResizeUpDown`, for splitters (desktop and browser).
+  (f1007c4)
+- Feature `hot-reload` for the browser: an app built as a side module is swapped into the running
+  page with `hotSwap` and keeps its state (`hot_reload!`). (b96284a)
 
 ### Changed
 
 - A Column with no width set (a Row with no height set) that does not fill is as wide as its widest
   child; a child that fills it counts with its content size, up to the room there is, and is then
-  stretched to the column's width. (35c2508)
+  stretched to the column's width. Give the column a width, or make it fill, when it should take
+  all the room. (35c2508)
 - Labels lay their text out less often when only the room around them changes. (aaf89be)
 - Popup windows close when the app's window is moved, resized or minimized, as native menus do.
-
-### Added (popups)
-
-- `PopupWindowOptions::cpu`: a popup window drawn on the CPU with per-pixel alpha (Windows), for
-  round corners and shadows over the desktop.
-- `PopupWindowOptions::on_canvas`: a popup drawn on the app's canvas also on the desktop.
-- `Cursor::ResizeLeftRight` and `Cursor::ResizeUpDown`, for splitters (desktop and browser).
-
-### Changed (keyboard)
-
-- A popup with an arrow-key group in it (a menu, a dropdown list) takes the keyboard as it opens,
-  on its checked item, else its first one.
+  (3531743, 301cee2)
+- A popup with an arrow-key group in it (a menu, a dropdown list) takes the keyboard as it opens, on
+  its current choice (a checked radio, option or tab item), else its first item. While a popup is
+  open, Tab goes round its stops. (bc37c03, 44c29df)
 - The arrows move between the items of a group whose role sits on a wrapper around their layout,
-  and through a menu or list whose items sit in several columns, in reading order.
-- While a popup is open, Tab goes round its stops.
+  and through a menu or list whose items sit in several columns, in reading order. (bc37c03, 44c29df)
+
+### Breaks
+
+- `PopupWindowOptions` has two new fields: write it with `..Default::default()`.
+- `Cursor` has two new cases: a `match` over it needs them (or `_`).
+- `PopupWindowRequest` (custom hosts) has a new field, `cpu`.
+
+### Toolchain
+
+Skia crates unchanged (0.153.7).
 
 ## 0.1.0-preview.26 (crates.io, 2026-10-31)
 
