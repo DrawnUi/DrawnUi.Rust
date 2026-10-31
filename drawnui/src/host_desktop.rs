@@ -252,11 +252,14 @@ pub fn run(title: &str, size: (f64, f64), make: fn() -> Box<dyn App>) {
 }
 
 impl Desktop {
-    /// Closes the popup windows (desktop), when there are any.
+    /// Closes the popup windows (desktop), when there are any. Their windows go at once: a
+    /// title-bar drag on Windows runs a modal move loop that never reaches `about_to_wait`, where
+    /// `sync_popups` would drop them.
     fn close_popups(&mut self) {
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
         if !self.popups.is_empty() {
             self.app.close_popup_windows();
+            self.popups.clear();
             self.redraw();
         }
     }
