@@ -334,8 +334,9 @@ impl SkiaLayout {
     ///
     /// Column and Row as DrawnUi.React (SkiaLayout.MeasureAbsolute): every child is measured
     /// unbounded along the stack, so it keeps its content size there and is never cut, and in the
-    /// stack's own box across it, where a Fill child reports that whole box; an auto side across is
-    /// as large as the largest child, a Fill one included. Kept from C#: a child that fills the main
+    /// stack's own box across it; an auto side across is as large as the largest child, a Fill one
+    /// counting with its content up to the room (fit-content, drawnui-cross 6an) and then laid out
+    /// at that size. Kept from C#: a child that fills the main
     /// axis of a stack whose main axis is not auto-sized takes a share of what the others leave
     /// (React gives it its content size there too). Absolute stays C#: an auto side is as large as
     /// the children that do not fill it.
@@ -359,6 +360,45 @@ impl SkiaLayout {
             LayoutType::Row => size.width,
             LayoutType::Absolute | LayoutType::Wrap | LayoutType::Masonry | LayoutType::Grid => 0.0,
         };
+
+        // Fit-content (drawnui-cross 6an): a stack that takes the size of its content across is as
+        // large there as its largest child, a child that fills that side counting with its content
+        // (measured with that side unbounded) up to the room there is. Those children are then
+        // measured at that size, below. The other children are measured as the passes measure them,
+        // so the passes find their sizes kept.
+        let column = kind == LayoutType::Column;
+        let (cross_auto, cross_room) = if column { (auto_w, w) } else { (auto_h, h) };
+        let mut fit = None;
+        if stack && cross_auto && cross_room.is_finite() {
+            let (mut largest, mut any) = (0f32, false);
+            for i in 0..cx.child_count() {
+                let child = cx.child(i);
+                let cp = &cx.child_base(child).p;
+                if !cp.is_visible {
+                    continue;
+                }
+                let filling = if column { fills_width(cp) } else { fills_height(cp) };
+                any |= filling;
+                let s = match (filling, column) {
+                    (true, _) => measure_kid(kids, cx, child, f32::INFINITY, f32::INFINITY),
+                    (false, true) => measure_kid(kids, cx, child, w, f32::INFINITY),
+                    (false, false) => measure_kid(kids, cx, child, f32::INFINITY, h),
+                };
+                largest = largest.max(if column { s.width } else { s.height }.min(cross_room));
+            }
+            if any {
+                // A minimum of the stack's own is room the Fill children take too.
+                let bp = &cx.base().p;
+                let (least, padding) = match column {
+                    true => (bp.minimum_width_request, bp.padding.horizontal()),
+                    false => (bp.minimum_height_request, bp.padding.vertical()),
+                };
+                if least >= 0.0 {
+                    largest = largest.max(((least - padding) * scale).min(cross_room));
+                }
+                fit = Some(largest);
+            }
+        }
 
         // Pass 0: children sized by themselves. Pass 1: children filling an auto side, which has a
         // size by now. Pass 2: children filling the main axis of a stack, or both sides of an Absolute.
@@ -399,6 +439,13 @@ impl SkiaLayout {
                 // Absolute: a child that fills an auto side gets the size the other children gave it.
                 let mut child_w = if !stack && fill_x && auto_w && own.width > 0.0 { own.width } else { w };
                 let mut child_h = if !stack && fill_y && auto_h && own.height > 0.0 { own.height } else { h };
+                if let Some(fit) = fit {
+                    match column {
+                        true if fill_x => child_w = fit,
+                        false if fill_y => child_h = fit,
+                        _ => {}
+                    }
+                }
                 // Main axis of a stack: a child with a share gets it, every other child is unbounded.
                 match kind {
                     LayoutType::Column => child_h = if order == 2 { slot } else { f32::INFINITY },

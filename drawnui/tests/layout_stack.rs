@@ -243,9 +243,10 @@ fn column_auto_width_only_fill_x_children_does_not_collapse() {
                 .children((panel(80, 40).fill_x().assign(&mut ids.a), panel(60, 40).fill_x())),
         )
     });
+    // Fit-content (drawnui-cross 6an): as wide as the widest content, the Fill children take it.
     let ids = &host.ui.state;
-    assert_eq!(measured(&host, ids.stack).width, 300.0);
-    assert_eq!(measured(&host, ids.a).width, 300.0);
+    assert_eq!(measured(&host, ids.stack).width, 80.0);
+    assert_eq!(measured(&host, ids.a).width, 80.0);
 }
 
 #[test]
@@ -259,12 +260,11 @@ fn row_auto_height_only_fill_y_children_does_not_collapse() {
                 .children((panel(40, 80).fill_y(), panel(40, 60).fill_y())),
         )
     });
-    assert_eq!(measured(&host, host.ui.state.stack).height, 300.0);
+    assert_eq!(measured(&host, host.ui.state.stack).height, 80.0);
 }
 
-/// Changed, React rule: the Fill child reports the width the column is measured in, and an auto
-/// width is the largest child, Fill included (C# keeps the content width, 100, and squeezes the
-/// Fill child to it; React SkiaLayout.MeasureAbsolute + SkiaControl.Measure give 400 and 400).
+/// Fit-content (drawnui-cross 6an, every engine): an auto width is the largest child, a Fill child
+/// counting with its content (10), so 100; the Fill child is then as wide as the column.
 #[test]
 fn column_auto_width_fixed_plus_fill_x_takes_the_fill_child() {
     let host = run(|ids| {
@@ -277,8 +277,8 @@ fn column_auto_width_fixed_plus_fill_x_takes_the_fill_child() {
         )
     });
     let ids = &host.ui.state;
-    assert_eq!(measured(&host, ids.stack).width, 400.0);
-    assert_eq!(measured(&host, ids.b).width, 400.0);
+    assert_eq!(measured(&host, ids.stack).width, 100.0);
+    assert_eq!(measured(&host, ids.b).width, 100.0);
 }
 
 // ---------------------------------------------------------------- Absolute: measure never peeks at the previous arrange
@@ -468,8 +468,8 @@ fn csharp_cross_axis_center_in_a_stack_centers_the_margin_box() {
     assert_eq!(host.rect(host.ui.state.a), ltrb(34, 0, 54, 10));
 }
 
-/// Changed, React rule: a Fill child reports the height the row is measured in (500), and an auto
-/// height is the largest child (C# follows the tallest child that does not fill, 32).
+/// Fit-content (drawnui-cross 6an, every engine): an auto height is the largest child, a Fill child
+/// with no content of its own adding nothing, so 32; the Fill child is then as tall as the row.
 #[test]
 fn row_cross_axis_fill_child_reports_the_height_the_row_is_measured_in() {
     let host = run(|ids| {
@@ -484,9 +484,9 @@ fn row_cross_axis_fill_child_reports_the_height_the_row_is_measured_in() {
         )
     });
     let ids = &host.ui.state;
-    assert_eq!(measured(&host, ids.stack), Size::new(120.0, 500.0));
-    assert_eq!(host.rect(ids.a), ltrb(0, 480, 40, 500));
-    assert_eq!(host.rect(ids.c), ltrb(80, 0, 120, 500));
+    assert_eq!(measured(&host, ids.stack), Size::new(120.0, 32.0));
+    assert_eq!(host.rect(ids.a), ltrb(0, 12, 40, 32));
+    assert_eq!(host.rect(ids.c), ltrb(80, 0, 120, 32));
 }
 
 #[test]
