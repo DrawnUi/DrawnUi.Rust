@@ -64,6 +64,21 @@ impl<T> Default for Handle<T> {
         Handle(ControlId { index: u32::MAX, generation: 0 }, PhantomData)
     }
 }
+// Hot reload hands the app state to the new code as JSON: a handle is not data, it is written as
+// nothing and read back pointing at nothing, until the rebuilt tree assigns it again.
+#[cfg(feature = "hot-reload")]
+impl<T> serde::Serialize for Handle<T> {
+    fn serialize<Z: serde::Serializer>(&self, serializer: Z) -> Result<Z::Ok, Z::Error> {
+        serializer.serialize_unit()
+    }
+}
+#[cfg(feature = "hot-reload")]
+impl<'de, T> serde::Deserialize<'de> for Handle<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        serde::de::IgnoredAny::deserialize(deserializer)?;
+        Ok(Handle::default())
+    }
+}
 impl<T> From<Handle<T>> for ControlId {
     fn from(h: Handle<T>) -> Self {
         h.0

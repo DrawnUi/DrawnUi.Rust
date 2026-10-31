@@ -748,6 +748,7 @@ dependencies = [
  "objc2-quartz-core 0.3.2",
  "objc2-ui-kit 0.3.2",
  "raw-window-handle",
+ "serde",
  "serde_json",
  "unicode-bidi",
  "unicode-segmentation",

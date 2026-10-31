@@ -18,6 +18,9 @@ default = ["svg"]
 svg = ["skia-safe/svg"]
 # Payload measurement: ICU + HarfBuzz text layout on top.
 full = ["skia-safe/textlayout", "svg"]
+# Hot reload in the browser: the app built as an emscripten side module is swapped into the
+# running engine (`dui_hot_swap`) and gets the state of the app it replaces (`hot_reload!`).
+hot-reload = ["dep:serde"]
 
 [dependencies]
 skia-safe = { workspace = true }
@@ -33,6 +36,11 @@ unicode-bidi = "0.3.18"
 # Grapheme boundaries for the editor caret: a tap or an arrow never stops inside an emoji sequence or
 # between a letter and its marks (Unicode extended grapheme clusters). Already used by winit on the desktop.
 unicode-segmentation = "1.13"
+# Feature hot-reload: the app state is handed to the new code as JSON.
+serde = { version = "1", optional = true }
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
 
 [target.'cfg(not(target_os = "emscripten"))'.dependencies]
 winit = "0.30"

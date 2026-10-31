@@ -2870,6 +2870,10 @@ impl Cx<'_> {
 }
 
 impl<S: 'static> App for Ui<S> {
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
+    }
+
     fn rendering_mode(&self) -> RenderingModeType {
         self.rendering_mode
     }

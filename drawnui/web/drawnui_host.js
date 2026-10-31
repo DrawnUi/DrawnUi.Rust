@@ -116,14 +116,17 @@ window.DrawnUi = {
     const app = module._dui_create();
     // Fonts of the page: registered before anything is laid out (an engine without it skips them).
     const utf8 = new TextEncoder();
-    for (const { alias, url, weight = 400 } of module._dui_font ? fonts : []) {
-      const [a, u] = [utf8.encode(alias), utf8.encode(url)];
-      const ptr = module._dui_alloc(a.length + u.length);
-      module.HEAPU8.set(a, ptr);
-      module.HEAPU8.set(u, ptr + a.length);
-      module._dui_font(app, ptr, a.length, ptr + a.length, u.length, weight);
-      module._dui_free(ptr, a.length + u.length);
-    }
+    const sendFonts = () => {
+      for (const { alias, url, weight = 400 } of module._dui_font ? fonts : []) {
+        const [a, u] = [utf8.encode(alias), utf8.encode(url)];
+        const ptr = module._dui_alloc(a.length + u.length);
+        module.HEAPU8.set(a, ptr);
+        module.HEAPU8.set(u, ptr + a.length);
+        module._dui_font(app, ptr, a.length, ptr + a.length, u.length, weight);
+        module._dui_free(ptr, a.length + u.length);
+      }
+    };
+    sendFonts();
     // The app's RenderingMode: Accelerated draws with WebGL2; Default, or a browser that refuses
     // WebGL2, draws on the CPU and hands each frame to a 2D context.
     const accelerated = module._dui_accelerated(app);
@@ -852,8 +855,29 @@ window.DrawnUi = {
         }),
       );
 
+    // Hot reload (engine feature hot-reload, linked as an emscripten main module with FS exported):
+    // swaps in the app of a side module, given as its bytes; the new app keeps the old one's state.
+    // Resolves to dui_hot_swap's result (0 = swapped).
+    const hotSwap = async (bytes, name = "app") => {
+      const path = `/hot-${name}-${++hotSwaps}.wasm`;
+      module.FS.writeFile(path, bytes);
+      const p = utf8.encode(path + " ");
+      const ptr = module._dui_alloc(p.length);
+      module.HEAPU8.set(p, ptr);
+      const result = module._dui_hot_swap(app, ptr);
+      module._dui_free(ptr, p.length);
+      if (result === 0) {
+        sendFonts();
+        if (useHistory) sendLocation(-1);
+        pumpAssets();
+      }
+      requestFrame();
+      return result;
+    };
+    let hotSwaps = 0;
+
     pumpAssets();
     requestFrame();
-    return { module, app, requestFrame, snapshot };
+    return { module, app, requestFrame, snapshot, ...(module._dui_hot_swap ? { hotSwap } : {}) };
   },
 };

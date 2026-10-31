@@ -116,6 +116,9 @@ mod host_access;
 mod host_desktop;
 #[cfg(target_os = "emscripten")]
 mod host_web;
+#[cfg(feature = "hot-reload")]
+#[doc(hidden)]
+pub mod hot;
 
 /// Everything an app may touch while drawing one frame.
 pub struct Frame<'a> {
@@ -397,6 +400,11 @@ pub trait App {
     /// The app's windows lost the keyboard to another app: every popup window closes, as native
     /// menus do.
     fn close_popup_windows(&mut self) {}
+    /// The app as `Any`, so code that knows its type can reach it ([`Ui`] returns itself; hot
+    /// reload reads the state through it).
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        None
+    }
 }
 
 static MAX_FPS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);

@@ -57,6 +57,56 @@ pub extern "C" fn dui_create() -> *mut WebState {
     Box::into_raw(Box::new(WebState { app, gpu, surface, host, width: 1, height: 1, scale: 1.0, request, pixels, output, cpu }))
 }
 
+#[cfg(feature = "hot-reload")]
+thread_local! {
+    /// The side module the running app came from (`dui_hot_swap`); null for the app built in.
+    static HOT_MODULE: Cell<*mut std::ffi::c_void> = const { Cell::new(std::ptr::null_mut()) };
+}
+
+/// Hot reload (feature `hot-reload`): loads the side module at `path` (UTF-8, a file in the
+/// emscripten file system) and puts the app its `drawnui_hot_make` returns in place of the running
+/// one, with the state the running app's module saves (`drawnui_hot_save`; see `hot_reload!`).
+/// The old module stays loaded. 0 = swapped, 1 = the module did not load, 2 = it has no
+/// `drawnui_hot_make`. The page then asks for a frame and sends its location and fonts again.
+#[cfg(feature = "hot-reload")]
+#[unsafe(no_mangle)]
+pub extern "C" fn dui_hot_swap(state: *mut WebState, path: *const c_char) -> i32 {
+    use std::ffi::{CStr, c_void};
+    unsafe extern "C" {
+        fn dlopen(path: *const c_char, flags: i32) -> *mut c_void;
+        fn dlsym(module: *mut c_void, name: *const c_char) -> *mut c_void;
+        fn dlerror() -> *const c_char;
+    }
+    const RTLD_NOW: i32 = 2;
+    type Make = fn(Option<&str>) -> Box<dyn App>;
+    type Save = fn(&dyn App) -> Option<String>;
+    let state = unsafe { &mut *state };
+    let module = unsafe { dlopen(path, RTLD_NOW) };
+    if module.is_null() {
+        eprintln!("drawnui: hot reload: {}", unsafe { CStr::from_ptr(dlerror()) }.to_string_lossy());
+        return 1;
+    }
+    let make = unsafe { dlsym(module, c"drawnui_hot_make".as_ptr()) };
+    if make.is_null() {
+        eprintln!("drawnui: hot reload: the module has no drawnui_hot_make (hot_reload!)");
+        return 2;
+    }
+    let make: Make = unsafe { std::mem::transmute(make) };
+    let old = HOT_MODULE.get();
+    let save = if old.is_null() { std::ptr::null_mut() } else { unsafe { dlsym(old, c"drawnui_hot_save".as_ptr()) } };
+    let saved = if save.is_null() {
+        None
+    } else {
+        let save: Save = unsafe { std::mem::transmute(save) };
+        save(&*state.app)
+    };
+    let mut app = make(saved.as_deref());
+    app.init(&mut state.host);
+    state.app = app;
+    HOT_MODULE.set(module);
+    0
+}
+
 /// A font the page hands in (`DrawnUi.start({ fonts })`), right after `dui_create`: UTF-8 alias
 /// and url in `dui_alloc` buffers (freed by JS). The first frame waits for it; it never becomes the
 /// default font.
