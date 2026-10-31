@@ -22,7 +22,7 @@ use crate::props;
 use crate::tree::{Build, ControlId, Cx, Handle, Mut, Tree, wrong_state};
 use crate::types::{CacheType, Dirty, IntoProp};
 
-props!(LottieProps, LottieBuild, LottieSet {
+props!(@table LottieProps, LottieBuild, LottieSet {
     /// Path or URL of the Lottie JSON, loaded by the host. Empty keeps what is shown.
     source / set_source: String = String::new(), APPLY;
     /// Replaces every color of the animation, alpha kept; transparent = its own colors.

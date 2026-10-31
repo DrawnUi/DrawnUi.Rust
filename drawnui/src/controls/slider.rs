@@ -18,7 +18,7 @@ use crate::types::{CacheType, LayoutOptions, SkiaShadow, Thickness};
 use crate::ui::Aria;
 use crate::{paint, props};
 
-props!(SliderProps, SliderBuild, SliderSet {
+props!(@table SliderProps, SliderBuild, SliderSet {
     /// The look.
     control_style / set_control_style: PrebuiltControlStyle = PrebuiltControlStyle::Unset, MEASURE_APPLY;
     min / set_min: f32 = 0.0, DRAW_APPLY;

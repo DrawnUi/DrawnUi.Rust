@@ -12,7 +12,7 @@ use crate::props;
 use crate::tree::{Build, ControlId, Cx, Handle, Tree, wrong_state};
 use crate::types::Dirty;
 
-props!(FramesProps, FramesBuild, FramesSet {
+props!(@table FramesProps, FramesBuild, FramesSet {
     /// Plays as soon as the frames are there and the control is placed. Set to false, it stops.
     auto_play / set_auto_play: bool = true, APPLY;
     /// Runs after the first: > 0 that many more, < 0 forever, 0 none. Read when playing starts.

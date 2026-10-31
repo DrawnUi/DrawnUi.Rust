@@ -21,7 +21,7 @@ const LINK: Color = Color::from_argb(255, 0x64, 0x95, 0xED);
 const CODE_BACKGROUND: Color = Color::from_argb(255, 0x69, 0x69, 0x69);
 const CODE_BLOCK: Color = Color::from_argb(255, 0x22, 0x22, 0x22);
 
-props!(RichLabelProps, RichLabelBuild, RichLabelSet {
+props!(@table RichLabelProps, RichLabelBuild, RichLabelSet {
     /// false = the text is shown as it is, no parsing.
     markdown_enabled / set_markdown_enabled: bool = true, MEASURE;
     /// The color of `[text](url)` links.

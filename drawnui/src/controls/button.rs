@@ -62,7 +62,7 @@ impl ButtonLook {
     }
 }
 
-props!(ButtonProps, ButtonBuild, ButtonSet {
+props!(@table ButtonProps, ButtonBuild, ButtonSet {
     text / set_text: String = String::new(), APPLY;
     text_color / set_text_color: Color = Color::WHITE, APPLY;
     /// Points. 15 = the style's.

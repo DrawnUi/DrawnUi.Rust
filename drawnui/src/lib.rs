@@ -119,6 +119,8 @@ mod host_web;
 #[cfg(feature = "hot-reload")]
 #[doc(hidden)]
 pub mod hot;
+#[cfg(feature = "designer")]
+pub mod designer;
 
 /// Everything an app may touch while drawing one frame.
 pub struct Frame<'a> {

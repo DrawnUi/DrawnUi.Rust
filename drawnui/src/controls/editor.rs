@@ -68,7 +68,7 @@ pub enum KeyboardType {
     Email,
 }
 
-props!(EditorProps, EditorBuild, EditorSet {
+props!(@table EditorProps, EditorBuild, EditorSet {
     /// The text. Single line: line breaks become spaces.
     text / set_text: String = String::new(), MEASURE_APPLY;
     /// Shown while the text is empty.

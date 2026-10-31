@@ -12,7 +12,7 @@ use crate::props;
 use crate::tree::{Build, Container};
 use crate::types::LayoutOptions;
 
-props!(RescalingProps, RescalingBuild, RescalingSet {
+props!(@table RescalingProps, RescalingBuild, RescalingSet {
     /// Width of the logical viewport, points; 0 = no rescaling.
     logical_width / set_logical_width: f32 = 0.0, MEASURE;
     /// Height of the logical viewport, points; 0 = no rescaling.

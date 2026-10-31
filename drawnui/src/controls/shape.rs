@@ -92,7 +92,7 @@ impl IntoProp<Option<SkiaBevel>> for SkiaBevel {
     }
 }
 
-props!(ShapeProps, ShapeBuild, ShapeSet {
+props!(@table ShapeProps, ShapeBuild, ShapeSet {
     /// DrawnUI `Type`.
     shape_type / set_shape_type: ShapeType = ShapeType::Rectangle, DRAW_APPLY;
     /// Points, per corner; a number sets all four.

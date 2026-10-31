@@ -28,7 +28,7 @@ use crate::props;
 use crate::tree::{Build, ControlId, Cx, Handle, Tree, wrong_state};
 use crate::types::{CacheType, Dirty, IntoProp};
 
-props!(SvgProps, SvgBuild, SvgSet {
+props!(@table SvgProps, SvgBuild, SvgSet {
     /// Path or URL of an .svg file, loaded by the host. `svg_string` wins when both are set.
     source / set_source: String = String::new(), MEASURE_APPLY;
     /// Inline SVG markup.

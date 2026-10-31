@@ -1184,3 +1184,54 @@ pub(crate) fn create_shadow(shadow: &SkiaShadow, scale: f32) -> Option<ImageFilt
         image_filters::drop_shadow(offset, sigma, color, None, None, None)
     }
 }
+
+impl Tree {
+    /// The name of a control's type (`SkiaLabel`, `SkiaButton`, an app's own control), for tools.
+    pub fn type_name(&self, id: impl Into<ControlId>) -> Option<&'static str> {
+        let name = self.node(id.into())?.kind.as_deref()?.type_name();
+        let plain = name.split('<').next().unwrap_or(name);
+        Some(plain.rsplit("::").next().unwrap_or(plain))
+    }
+
+    /// Where a control shows, in pixels of what it is drawn on (the canvas; for a control in a
+    /// popup window, that window): its rect through its own transform and every ancestor's scroll
+    /// offset and transform, as the smallest rect around the result (DrawnUI
+    /// GetAccessibilityPixelRect). A control that is not there: empty.
+    pub fn screen_rect(&self, id: impl Into<ControlId>) -> Rect {
+        let Some(node) = self.node(id.into()) else { return Rect::default() };
+        let mut m = control_matrix(&node.base, node.base.scale).unwrap_or_default();
+        let mut at = node;
+        while let Some(parent) = at.parent.and_then(|p| self.node(p)) {
+            let mut outer = control_matrix(&parent.base, parent.base.scale).unwrap_or_default();
+            outer.pre_translate(parent.base.content_offset);
+            m = Matrix::concat(&outer, &m);
+            at = parent;
+        }
+        m.map_rect(node.base.rect).0
+    }
+
+    /// The control drawn on top at a point of a subtree (`Ui::hit_test`): what is seen there,
+    /// whether it takes input or not.
+    pub(crate) fn visual_pick(&self, id: ControlId, point: Point, outer: &Matrix) -> Option<ControlId> {
+        let node = self.node(id)?;
+        let (base, p) = (&node.base, &node.base.p);
+        if !p.is_visible || p.opacity <= 0.0 || base.offscreen {
+            return None;
+        }
+        let m = match control_matrix(base, base.scale) {
+            Some(own) => Matrix::concat(outer, &own),
+            None => *outer,
+        };
+        let local = m.invert().map(|inv| inv.map_point(point));
+        let inside = local.is_some_and(|l| skia_safe::Contains::contains(&base.rect, l));
+        if p.is_clipped_to_bounds && !inside {
+            return None;
+        }
+        let mut inner = m;
+        inner.pre_translate(base.content_offset);
+        // The top child first: the reverse of the drawing order (lowest z_index first).
+        let mut children = node.children.clone();
+        children.sort_by_key(|c| self.node(*c).map_or(0, |n| n.base.p.z_index));
+        children.iter().rev().find_map(|c| self.visual_pick(*c, point, &inner)).or(inside.then_some(id))
+    }
+}

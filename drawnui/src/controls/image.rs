@@ -95,7 +95,7 @@ pub enum SkiaImageEffect {
     Custom,
 }
 
-props!(ImageProps, ImageBuild, ImageSet {
+props!(@table ImageProps, ImageBuild, ImageSet {
     /// Path or URL, loaded by the host like a font. Empty = no image. Setting another one clears the picture at once.
     source / set_source: String = String::new(), MEASURE;
     aspect / set_aspect: TransformAspect = TransformAspect::AspectCover, MEASURE;
@@ -590,7 +590,7 @@ impl<T: Has<ImageProps>> Build<T> {
 
 // ---------------------------------------------------------------- tiles
 
-props!(TilesProps, TilesBuild, TilesSet {
+props!(@table TilesProps, TilesBuild, TilesSet {
     /// How the picture fits one tile.
     tile_aspect / set_tile_aspect: TransformAspect = TransformAspect::AspectCover, MEASURE;
     /// Points; nothing is drawn until both are set.

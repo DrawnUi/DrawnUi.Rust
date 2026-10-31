@@ -10,7 +10,7 @@ use crate::controls::scroll::Bounce;
 use crate::gestures::VelocityAccumulator;
 use crate::props;
 
-props!(SnappingProps, SnappingBuild, SnappingSet {
+props!(@table SnappingProps, SnappingBuild, SnappingSet {
     /// A snap moves there over time; off: it jumps.
     animated / set_animated: bool = true, NONE;
     /// Off: pans do not move the content, code still does.

@@ -24,7 +24,7 @@ pub enum ScrollBarDock {
     Start,
 }
 
-props!(ScrollBarProps, ScrollBarBuild, ScrollBarSet {
+props!(@table ScrollBarProps, ScrollBarBuild, ScrollBarSet {
     dock / set_dock: ScrollBarDock = ScrollBarDock::End, DRAW;
     thumb_color / set_thumb_color: Color = Color::from_argb(0x66, 0x88, 0x88, 0x88), DRAW;
     /// The track behind the thumb; transparent = none.

@@ -290,6 +290,8 @@ macro_rules! base_props {
         #[derive(Clone, Debug, PartialEq)]
         pub struct ControlProps { $($(#[$doc])* pub $name: $ty,)* }
 
+        crate::__prop_table!(ControlProps, ControlBuild, ControlSet { $($name / $setter : $ty = $default, $dirty;)* });
+
         impl Default for ControlProps {
             fn default() -> Self { Self { $($name: $default,)* } }
         }

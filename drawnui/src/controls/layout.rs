@@ -70,7 +70,7 @@ pub enum MeasureBudget {
     Items(u32),
 }
 
-props!(LayoutProps, LayoutBuild, LayoutSet {
+props!(@table LayoutProps, LayoutBuild, LayoutSet {
     /// DrawnUI `Type`.
     layout_type / set_layout_type: LayoutType = LayoutType::Absolute, MEASURE;
     /// Points between children of a Column or a Row, and between the children and the lines of a Wrap.

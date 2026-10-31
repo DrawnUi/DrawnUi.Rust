@@ -11,7 +11,7 @@ use crate::tree::Build;
 use crate::types::{CacheType, LayoutOptions};
 use crate::ui::Aria;
 
-props!(ProgressProps, ProgressBuild, ProgressSet {
+props!(@table ProgressProps, ProgressBuild, ProgressSet {
     /// The look.
     control_style / set_control_style: PrebuiltControlStyle = PrebuiltControlStyle::Unset, MEASURE;
     value / set_value: f32 = 0.0, DRAW;

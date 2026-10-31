@@ -204,7 +204,7 @@ type ChangedHandler = Box<dyn FnMut(Raw<'_>, &mut dyn Any, &mut Cx<'_>)>;
 
 // ---------------------------------------------------------------- the control
 
-props!(ShellProps, ShellBuild, ShellSet {
+props!(@table ShellProps, ShellBuild, ShellSet {
     /// Nav bar height over a pushed page, points; the top inset comes on top. Read when a page is
     /// built.
     nav_bar_height / set_nav_bar_height: f32 = 56.0, NONE;

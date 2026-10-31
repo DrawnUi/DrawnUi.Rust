@@ -24,7 +24,7 @@ const SVG_WINDOWS_CHECK: &str = r##"<svg width="800px" height="800px" viewBox="0
 const DEFAULT_ACCENT: Color = Color::from_rgb(0xDC, 0x14, 0x3C);
 const DEFAULT_OUTLINE: Color = Color::from_rgb(0x8E, 0x95, 0x9D);
 
-props!(CheckboxProps, CheckboxBuild, CheckboxSet {
+props!(@table CheckboxProps, CheckboxBuild, CheckboxSet {
     /// The check mark (the inner square of the default look). Unset = crimson for the default
     /// look, white for the others.
     color_check_on / set_color_check_on: Option<Color> = None, APPLY;

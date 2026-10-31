@@ -25,7 +25,7 @@ fn line(along_x: bool) -> SkiaGradient {
         .end_y_ratio(end_y)
 }
 
-props!(DecoratedGridProps, DecoratedGridBuild, DecoratedGridSet {
+props!(@table DecoratedGridProps, DecoratedGridBuild, DecoratedGridSet {
     /// Painted between rows over the whole `row_spacing`, over black; `None` paints nothing there.
     horizontal_line / set_horizontal_line: Option<Box<SkiaGradient>> = Some(Box::new(SkiaDecoratedGrid::horizontal_gradient())), DRAW;
     /// Painted between columns over the whole `column_spacing`; `None` paints nothing there.

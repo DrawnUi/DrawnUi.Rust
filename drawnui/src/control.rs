@@ -43,6 +43,10 @@ pub(crate) fn blocked_gesture(kind: crate::gestures::GestureKind) -> Handled {
 }
 
 pub trait Control: Any {
+    /// The Rust type of the control (`std::any::type_name`), for tools (`Tree::type_name`).
+    fn type_name(&self) -> &'static str {
+        std::any::type_name::<Self>()
+    }
     /// The embedded base part (the C# base class), if any.
     fn inner(&self) -> Option<&dyn Control> {
         None
@@ -290,6 +294,11 @@ pub(crate) fn part_mut<T: Control>(c: &mut dyn Control) -> Option<&mut T> {
 /// A control must not repeat a property name of a part it inherits.
 #[macro_export]
 macro_rules! props {
+    // The engine's own controls: also their properties by name (feature `designer`).
+    (@table $($rest:tt)*) => {
+        $crate::props!($($rest)*);
+        $crate::__prop_table!($($rest)*);
+    };
     ($(#[$props_doc:meta])* $props:ident, $(#[$build_doc:meta])* $build:ident, $(#[$set_doc:meta])* $set:ident {
         $($(#[$doc:meta])* $name:ident / $setter:ident : $ty:ty = $default:expr, $dirty:ident;)*
     }) => {
@@ -325,6 +334,50 @@ macro_rules! props {
             })*
         }
     };
+}
+
+/// Feature `designer`: a properties group lists and sets its properties by name
+/// (`designer::PropTable`).
+#[cfg(feature = "designer")]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __prop_table {
+    ($(#[$props_doc:meta])* $props:ident, $(#[$build_doc:meta])* $build:ident, $(#[$set_doc:meta])* $set:ident {
+        $($(#[$doc:meta])* $name:ident / $setter:ident : $ty:ty = $default:expr, $dirty:ident;)*
+    }) => {
+        impl $crate::designer::PropTable for $props {
+            fn props(&self) -> ::std::vec::Vec<$crate::designer::PropInfo> {
+                let default = <$props as ::core::default::Default>::default();
+                ::std::vec![$($crate::designer::PropInfo {
+                    name: stringify!($name),
+                    type_name: stringify!($ty),
+                    value: <$ty as $crate::designer::PropText>::to_text(&self.$name),
+                    settable: <$ty as $crate::designer::PropText>::settable(),
+                    is_set: self.$name != default.$name,
+                }),*]
+            }
+
+            fn set_prop(&mut self, name: &str, text: &str) -> ::core::option::Option<::core::result::Result<$crate::Dirty, ::std::string::String>> {
+                match name {
+                    $(stringify!($name) => ::core::option::Option::Some(match <$ty as $crate::designer::PropText>::from_text(text) {
+                        ::core::option::Option::Some(v) => {
+                            self.$name = v;
+                            ::core::result::Result::Ok($crate::Dirty::$dirty)
+                        }
+                        ::core::option::Option::None => ::core::result::Result::Err(format!("{text:?} is not a value of {} {}", stringify!($name), stringify!($ty))),
+                    }),)*
+                    _ => ::core::option::Option::None,
+                }
+            }
+        }
+    };
+}
+
+#[cfg(not(feature = "designer"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __prop_table {
+    ($($t:tt)*) => {};
 }
 
 // ---------------------------------------------------------------- layout context

@@ -23,7 +23,7 @@ use crate::tree::{Build, Container, ControlId, Cx, Mut, Raw, Tree, wrong_state};
 use crate::types::{Dirty, LayoutOptions, Thickness};
 use crate::{layout, props};
 
-props!(CarouselProps, CarouselBuild, CarouselSet {
+props!(@table CarouselProps, CarouselBuild, CarouselSet {
     /// Slides go down instead of across.
     is_vertical / set_is_vertical: bool = false, MEASURE;
     /// Points on both sides of a slide, along the axis, where the neighbors peek in.

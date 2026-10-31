@@ -21,7 +21,7 @@ use crate::props;
 use crate::tree::{Build, Container, ControlId, Cx, Handle, Mut, wrong_state};
 use crate::types::{CacheType, Dirty, LayoutOptions};
 
-props!(ShaderCarouselProps, ShaderCarouselBuild, ShaderCarouselSet {
+props!(@table ShaderCarouselProps, ShaderCarouselBuild, ShaderCarouselSet {
     /// Url or registered name of the transition file (React TransitionShader); it can change any time.
     transition_shader / set_transition_shader: String = String::new(), APPLY;
     /// Inline SkSL instead of a file (React TransitionShaderCode).

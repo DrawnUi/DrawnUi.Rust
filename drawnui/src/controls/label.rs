@@ -95,7 +95,7 @@ const NO_BREAK_BEFORE: &str = "、。，．・：；？！゛゜ヽヾゝゞ々�
 /// A line never ends with these (opening brackets and quotes).
 const NO_BREAK_AFTER: &str = "「『（〔［｛〈《【〖〘〝｟«‘“｢([{";
 
-props!(LabelProps, LabelBuild, LabelSet {
+props!(@table LabelProps, LabelBuild, LabelSet {
     /// The text; `\n` breaks the line. Spans, when given, replace it.
     text / set_text: String = String::new(), MEASURE;
     /// Points.

@@ -15,7 +15,7 @@ use crate::props;
 use crate::tree::{Build, ControlId, Cx, Handle, Tree, wrong_state};
 use crate::types::{CacheType, Dirty, IntoProp};
 
-props!(GifProps, GifBuild, GifSet {
+props!(@table GifProps, GifBuild, GifSet {
     /// Path or URL of the GIF, loaded by the host like an image. Empty = nothing.
     source / set_source: String = String::new(), MEASURE;
     aspect / set_aspect: TransformAspect = TransformAspect::AspectFitFill, MEASURE;

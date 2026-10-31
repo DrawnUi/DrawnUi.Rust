@@ -1415,6 +1415,21 @@ impl<S: 'static> Ui<S> {
         popup.and_then(|id| self.tree.popups.iter().find(|p| p.id == id)).map_or(self.scale, |p| p.scale)
     }
 
+    /// The control drawn on top at a point of the canvas, pixels: the same geometry taps use
+    /// (z_index order, transforms, scroll offsets, clipping), but what is seen there, whether it
+    /// takes input or not (a tool picks what you see). Popups drawn on the canvas come first.
+    pub fn hit_test(&self, point: Point) -> Option<ControlId> {
+        let identity = skia_safe::Matrix::default();
+        if !self.popup_windows_on {
+            for popup in self.tree.popups.iter().rev() {
+                if let Some(hit) = self.tree.visual_pick(popup.root, point, &identity) {
+                    return Some(hit);
+                }
+            }
+        }
+        self.tree.visual_pick(self.tree.root?, point, &identity)
+    }
+
     /// The root of the popup drawn on the canvas under the pixel, the top one first.
     fn popup_on_canvas_at(&self, point: Point) -> Option<ControlId> {
         if self.popup_windows_on {

@@ -23,7 +23,7 @@ use crate::props;
 use crate::tree::{Build, Container, ControlId, ControlProps, Cx, Handle, Mut, Tree, wrong_state};
 use crate::types::{CacheType, Dirty, IntoProp, LayoutOptions};
 
-props!(SpriteProps, SpriteBuild, SpriteSet {
+props!(@table SpriteProps, SpriteBuild, SpriteSet {
     /// The sheet: a path or URL, loaded whole by the host through the image manager.
     source / set_source: String = String::new(), MEASURE_APPLY;
     /// Frames across the sheet.
@@ -498,7 +498,7 @@ impl Build<SkiaSprite> {
 
 // ---------------------------------------------------------------- SkiaSpriteSet
 
-props!(SpriteSetProps, SpriteSetBuild, SpriteSetSet {
+props!(@table SpriteSetProps, SpriteSetBuild, SpriteSetSet {
     /// Which of the defined sprites shows and plays. A state without a sprite keeps the one shown.
     state / set_state: i32 = 0, DRAW_APPLY;
 });

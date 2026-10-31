@@ -21,7 +21,7 @@ use crate::props;
 use crate::tree::{Build, Container};
 use crate::{effects, paint};
 
-props!(BackdropProps, BackdropBuild, BackdropSet {
+props!(@table BackdropProps, BackdropBuild, BackdropSet {
     /// Points of blur; 0 = none (DrawnUI default 5).
     blur / set_blur: f32 = 5.0, DRAW;
     /// Gamma of what is under the box: 1 = unchanged (DrawnUI SkiaImageEffects.Gamma: a value is

@@ -21,7 +21,7 @@ use crate::ui::Aria;
 const DEFAULT_ACCENT: Color = Color::from_rgb(0xDC, 0x14, 0x3C);
 const DEFAULT_OUTLINE: Color = Color::from_rgb(0x8E, 0x95, 0x9D);
 
-props!(RadioProps, RadioBuild, RadioSet {
+props!(@table RadioProps, RadioBuild, RadioSet {
     /// The caption right of the circle.
     text / set_text: String = String::new(), APPLY;
     /// Buttons with the same name are exclusive anywhere in the tree; empty = the siblings under

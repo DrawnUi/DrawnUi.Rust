@@ -85,7 +85,7 @@ impl ScrollOrientation {
     }
 }
 
-props!(ScrollProps, ScrollBuild, ScrollSet {
+props!(@table ScrollProps, ScrollBuild, ScrollSet {
     orientation / set_orientation: ScrollOrientation = ScrollOrientation::Vertical, MEASURE;
     /// The content can be pulled past its edges and springs back.
     bounces / set_bounces: bool = true, NONE;

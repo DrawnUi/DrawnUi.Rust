@@ -29,7 +29,7 @@ pub enum DrawerDirection {
     FromRight,
 }
 
-props!(DrawerProps, DrawerBuild, DrawerSet {
+props!(@table DrawerProps, DrawerBuild, DrawerSet {
     direction / set_direction: DrawerDirection = DrawerDirection::FromBottom, MEASURE;
     /// Points that stay visible when closed.
     header_size / set_header_size: f32 = 0.0, MEASURE;

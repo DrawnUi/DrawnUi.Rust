@@ -16,7 +16,7 @@ use crate::props;
 use crate::tree::{Build, ControlId, Cx, Detached, Handle, Mut, Raw, wrong_state};
 use crate::types::Dirty;
 
-props!(ToggleProps, ToggleBuild, ToggleSet {
+props!(@table ToggleProps, ToggleBuild, ToggleSet {
     /// The state. Set from code it changes the look and runs `on_toggled` like a tap does.
     is_toggled / set_is_toggled: bool = false, APPLY;
     /// A change sets `is_toggled` to it without running `on_toggled` (DrawnUI DefaultValue).
