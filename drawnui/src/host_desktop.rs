@@ -97,6 +97,9 @@ struct Desktop {
     /// The popup windows open (`Cx::open_popup_window`), drawn in the frames of the app's window.
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     popups: Vec<PopupWindow>,
+    /// Draws the popup windows that asked for the CPU (`PopupWindowOptions::cpu`, Windows).
+    #[cfg(windows)]
+    popup_raster: Option<Gpu>,
     /// The window of ours that has the keyboard (`None`: another app's), and whether it went to
     /// another app since the last events: the popup windows close then.
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
@@ -301,6 +304,8 @@ impl Desktop {
             bakes: bake_workers(proxy.clone()),
             #[cfg(not(any(target_os = "ios", target_os = "android")))]
             popups: Vec::new(),
+            #[cfg(windows)]
+            popup_raster: None,
             #[cfg(not(any(target_os = "ios", target_os = "android")))]
             focus: None,
             #[cfg(not(any(target_os = "ios", target_os = "android")))]
@@ -1998,7 +2003,8 @@ impl ApplicationHandler<Arrived> for Desktop {
 struct PopupWindow {
     id: u32,
     surface: Option<skia::Surface>,
-    target: PopupTarget,
+    /// `None`: drawn on the CPU into a layered window (`PopupWindowOptions::cpu`, Windows).
+    target: Option<PopupTarget>,
     window: Window,
     /// What the app asked for when it was placed: another size places it again.
     request: crate::PopupWindowRequest,
@@ -2037,7 +2043,12 @@ impl Desktop {
                 None => {
                     let (position, size, _) = self.place_popup(event_loop, &request);
                     let attributes = popup_attributes(&self.window).with_position(position).with_inner_size(size);
-                    let Some((window, target)) = self.presenter.popup_window(event_loop, attributes) else {
+                    // Windows: a popup drawn on the CPU is a plain window made layered, for per-pixel alpha.
+                    let made = match cfg!(windows) && request.cpu {
+                        true => event_loop.create_window(attributes).ok().map(|window| (window, None)),
+                        false => self.presenter.popup_window(event_loop, attributes).map(|(window, target)| (window, Some(target))),
+                    };
+                    let Some((window, target)) = made else {
                         eprintln!("drawnui: no popup window could be made");
                         continue;
                     };
@@ -2122,9 +2133,33 @@ impl Desktop {
             }
             let size = popup.window.inner_size();
             let (width, height) = (size.width.max(1), size.height.max(1));
+            let Some(target) = popup.target.as_mut() else {
+                // Drawn on the CPU, then handed to Windows as the layered window's pixels.
+                #[cfg(windows)]
+                {
+                    if popup.surface.as_ref().is_none_or(|s| (s.width() as u32, s.height() as u32) != (width, height)) {
+                        popup.surface = skia::surfaces::raster_n32_premul((width as i32, height as i32));
+                    }
+                    let Some(surface) = popup.surface.as_mut() else { continue };
+                    surface.canvas().clear(skia::Color::TRANSPARENT);
+                    popup.stale = false;
+                    let gpu = self.popup_raster.get_or_insert_with(Gpu::raster);
+                    let scale = popup.window.scale_factor() as f32;
+                    let mut frame = Frame { surface, gpu, width: width as f32, height: height as f32, scale, time_ms, host: &mut self.host };
+                    self.app.popup_frame(popup.id, &mut frame);
+                    if !popup.shown {
+                        popup.shown = true;
+                        popup.window.set_visible(true);
+                        win::no_activate(&popup.window);
+                    }
+                    // After showing too: winit writes the extended style again when it shows the window.
+                    win::show_layered(&popup.window, surface);
+                }
+                continue;
+            };
             // No drawable yet (macOS gives none to a window before it is on screen): drawn again
             // at the next frame, not dropped.
-            let Some(surface) = self.presenter.begin_popup(&mut popup.target, &mut self.gpu, &mut popup.surface, width, height) else {
+            let Some(surface) = self.presenter.begin_popup(target, &mut self.gpu, &mut popup.surface, width, height) else {
                 (popup.stale, retry) = (true, true);
                 continue;
             };
@@ -2137,7 +2172,7 @@ impl Desktop {
             let mut frame = Frame { surface, gpu, width: width as f32, height: height as f32, scale, time_ms, host: &mut self.host };
             self.app.popup_frame(popup.id, &mut frame);
             self.presenter.end_frame(&mut self.gpu, &mut popup.surface);
-            self.presenter.present_popup(&mut popup.target, &mut popup.surface);
+            self.presenter.present_popup(target, &mut popup.surface);
             if !popup.shown {
                 popup.shown = true;
                 popup.window.set_visible(true);
@@ -2199,7 +2234,9 @@ impl Desktop {
             WindowEvent::Resized(size) => {
                 let popup = &mut self.popups[index];
                 (popup.surface, popup.stale) = (None, true);
-                self.presenter.resize_popup(&popup.target, &popup.window, size.width, size.height);
+                if let Some(target) = &popup.target {
+                    self.presenter.resize_popup(target, &popup.window, size.width, size.height);
+                }
                 self.popup_placed(index);
                 self.redraw();
             }
@@ -2303,6 +2340,90 @@ mod win {
         pub(super) fn GetMonitorInfoW(monitor: isize, info: *mut MonitorInfo) -> i32;
         fn GetWindowLongPtrW(window: isize, index: i32) -> isize;
         fn SetWindowLongPtrW(window: isize, index: i32, value: isize) -> isize;
+    }
+
+    #[repr(C)]
+    struct BitmapInfoHeader {
+        size: u32,
+        width: i32,
+        height: i32,
+        planes: u16,
+        bit_count: u16,
+        compression: u32,
+        size_image: u32,
+        x_per_meter: i32,
+        y_per_meter: i32,
+        colors_used: u32,
+        colors_important: u32,
+    }
+    #[repr(C)]
+    struct Blend {
+        op: u8,
+        flags: u8,
+        alpha: u8,
+        format: u8,
+    }
+    const WS_EX_LAYERED: isize = 0x0008_0000;
+    const AC_SRC_ALPHA: u8 = 1;
+    const ULW_ALPHA: u32 = 2;
+
+    #[link(name = "gdi32")]
+    unsafe extern "system" {
+        fn CreateCompatibleDC(dc: isize) -> isize;
+        fn CreateDIBSection(dc: isize, info: *const BitmapInfoHeader, usage: u32, bits: *mut *mut u8, section: isize, offset: u32) -> isize;
+        fn SelectObject(dc: isize, object: isize) -> isize;
+        fn DeleteObject(object: isize) -> i32;
+        fn DeleteDC(dc: isize) -> i32;
+    }
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn UpdateLayeredWindow(window: isize, dst: isize, at: *const [i32; 2], size: *const [i32; 2], src: isize, from: *const [i32; 2], key: u32, blend: *const Blend, flags: u32) -> i32;
+    }
+
+    /// Makes the window layered and shows `surface` in it with per-pixel alpha (premultiplied
+    /// BGRA, top-down): where it is transparent the desktop shows through.
+    // ponytail: a bitmap per frame; keep one per window if big popups redraw every frame.
+    pub(super) fn show_layered(window: &winit::window::Window, surface: &mut crate::skia::Surface) {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        let Ok(RawWindowHandle::Win32(handle)) = window.window_handle().map(|h| h.as_raw()) else { return };
+        let hwnd = handle.hwnd.get();
+        let (w, h) = (surface.width(), surface.height());
+        let header = BitmapInfoHeader {
+            size: std::mem::size_of::<BitmapInfoHeader>() as u32,
+            width: w,
+            height: -h,
+            planes: 1,
+            bit_count: 32,
+            compression: 0,
+            size_image: 0,
+            x_per_meter: 0,
+            y_per_meter: 0,
+            colors_used: 0,
+            colors_important: 0,
+        };
+        // SAFETY: a live window of this thread; the DC and the bitmap are freed before returning,
+        // and the pixels are written inside the bitmap's w x h x 4 bytes.
+        unsafe {
+            let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            if style & WS_EX_LAYERED == 0 {
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED);
+            }
+            let dc = CreateCompatibleDC(0);
+            let mut bits = std::ptr::null_mut();
+            let bitmap = CreateDIBSection(dc, &header, 0, &mut bits, 0, 0);
+            if bitmap != 0 && !bits.is_null() {
+                let old = SelectObject(dc, bitmap);
+                let pixels = std::slice::from_raw_parts_mut(bits, (w * h * 4) as usize);
+                let info = crate::skia::ImageInfo::new((w, h), crate::skia::ColorType::BGRA8888, crate::skia::AlphaType::Premul, None);
+                if surface.read_pixels(&info, pixels, (w * 4) as usize, (0, 0)) {
+                    let blend = Blend { op: 0, flags: 0, alpha: 255, format: AC_SRC_ALPHA };
+                    UpdateLayeredWindow(hwnd, 0, std::ptr::null(), &[w, h], dc, &[0, 0], 0, &blend, ULW_ALPHA);
+                }
+                SelectObject(dc, old);
+                DeleteObject(bitmap);
+            }
+            DeleteDC(dc);
+        }
     }
 
     /// A click on the window never activates it (native menus): the app's window keeps the

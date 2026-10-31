@@ -68,6 +68,13 @@ pub struct PopupWindowOptions {
     pub size: Option<Size>,
     /// It also closes once the mouse has left both it and the app's window (for 300 ms).
     pub close_on_pointer_leave: bool,
+    /// Drawn on the app's canvas, inside it, also where the platform gives popups windows of their
+    /// own (the desktop). The browser, phones and Wayland always draw popups on the canvas.
+    pub on_canvas: bool,
+    /// Its own window is drawn on the CPU instead of the GPU (Windows: a layered window with
+    /// per-pixel alpha, so round corners and shadows show the desktop through them on any GPU).
+    /// For small popups; a big one costs a CPU upload per frame. Ignored on the canvas.
+    pub cpu: bool,
 }
 
 /// How long the mouse may be outside every window before `close_on_pointer_leave` closes.
@@ -84,6 +91,15 @@ pub struct PopupWindowRequest {
     pub point: bool,
     /// The size it wants, in points.
     pub size: Size,
+    /// Drawn on the CPU (`PopupWindowOptions::cpu`).
+    pub cpu: bool,
+}
+
+impl Popup {
+    /// In a window of its own: the host makes popup windows and the app did not ask for the canvas.
+    pub(crate) fn in_window(&self, windows_on: bool) -> bool {
+        windows_on && !self.options.on_canvas
+    }
 }
 
 pub(crate) struct Popup {

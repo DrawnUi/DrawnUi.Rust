@@ -19,6 +19,12 @@ version before it. Commits in parentheses.
 - Labels lay their text out less often when only the room around them changes. (aaf89be)
 - Popup windows close when the app's window is moved, resized or minimized, as native menus do.
 
+### Added (popups)
+
+- `PopupWindowOptions::cpu`: a popup window drawn on the CPU with per-pixel alpha (Windows), for
+  round corners and shadows over the desktop.
+- `PopupWindowOptions::on_canvas`: a popup drawn on the app's canvas also on the desktop.
+
 ## 0.1.0-preview.26 (crates.io, 2026-10-31)
 
 ### Changed

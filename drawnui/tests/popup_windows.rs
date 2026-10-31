@@ -227,3 +227,28 @@ fn a_dropdown_opens_below_its_control_and_its_items_take_hover_in_their_window()
     assert_eq!(host.ui.state.hovered, [true, false]);
     assert!(host.ui.tree.cx().is_popup_window_open(id));
 }
+
+#[test]
+fn on_canvas_draws_it_on_the_canvas_where_the_host_has_windows() {
+    let mut host = page();
+    host.popup_windows(true);
+    host.ui.state.options = PopupWindowOptions { on_canvas: true, ..Default::default() };
+    assert!(host.right_click(210.0, 60.0));
+    // No window asked for: drawn and tapped on the canvas, as without popup windows.
+    assert!(host.popup_window_requests().is_empty());
+    assert_eq!(host.pixel(220, 70), RED);
+    host.tap(220.0, 70.0);
+    assert_eq!(host.ui.state.log, ["red"]);
+    assert_eq!(host.pixel(220, 70), Color::WHITE);
+}
+
+#[test]
+fn cpu_reaches_the_host_with_the_window_request() {
+    let mut host = page();
+    host.popup_windows(true);
+    host.ui.state.options = PopupWindowOptions { cpu: true, ..Default::default() };
+    host.right_click(300.0, 60.0);
+    let requests = host.popup_window_requests();
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].cpu);
+}

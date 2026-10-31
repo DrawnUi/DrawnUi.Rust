@@ -595,9 +595,14 @@ SkiaButton::new("Fruit").assign(&mut app.fruit).on_tapped(|_me, app: &mut App, c
   below, left edges together. Where the screen ends, it opens on the other side.
 - Size: what the content measures to, or `options.size` in points. A popup taller than the screen is
   cut to the screen, and its content is measured again inside it, so a scroll in it scrolls.
-- The window is transparent where nothing is drawn: give the panel its own background and round corners
-  if you like. Exception: Linux X11, where the window is opaque and the corners outside a round panel
-  show dark.
+- Round corners and shadows: a popup window drawn on the GPU (the default) is opaque on Windows with
+  some GPUs and on Linux X11, so the corners outside a round panel show dark. On Windows set
+  `PopupWindowOptions { cpu: true, .. }`: the popup is drawn on the CPU into a window with per-pixel
+  alpha, and the desktop shows through where nothing is drawn. It suits menus and dropdowns; a large
+  popup that animates costs a CPU upload per frame. On macOS the window is transparent either way
+  (`cpu` changes nothing there); on X11 it stays opaque.
+- `PopupWindowOptions { on_canvas: true, .. }` draws it on the app's canvas, inside the window, also
+  on the desktop. The browser, phones and Wayland always draw popups on the canvas.
 - It closes on a press outside it (that press reaches nothing, as with a native menu; a right click
   outside still asks for a context menu, so the next menu opens there), on Escape, when the app loses
   the keyboard to another app, when the app's window is moved, resized or minimized, and on `cx.close_popup_window(id)` / `cx.close_popup_windows()`.

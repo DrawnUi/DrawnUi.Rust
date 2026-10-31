@@ -1091,7 +1091,7 @@ impl<S: 'static> Ui<S> {
     fn draw_focus_ring(&self, canvas: &Canvas, scale: f32, popup: Option<ControlId>) {
         // The browser draws its own ring around the overlay element.
         let Some(focused) = self.accessibility_focused().filter(|_| self.focus_ring && self.keyboard_navigation) else { return };
-        let window = self.tree.popup_of(focused).filter(|_| self.popup_windows_on).map(|p| p.root);
+        let window = self.tree.popup_of(focused).filter(|p| p.in_window(self.popup_windows_on)).map(|p| p.root);
         if window != popup {
             return;
         }
@@ -1261,7 +1261,7 @@ impl<S: 'static> Ui<S> {
         let Some(control) = self.tree.nodes.get(id as usize).and_then(|n| n.as_ref()).map(|n| n.id) else { return };
         let Some(rect) = self.tree.base(control).map(|b| b.rect) else { return };
         let scale = self.scale.max(0.1);
-        let in_window = self.popup_windows_on && self.tree.popup_of(control).is_some();
+        let in_window = self.tree.popup_of(control).is_some_and(|p| p.in_window(self.popup_windows_on));
         let location = match self.tree.accessibility.iter().find(|n| n.control == control).filter(|_| !in_window) {
             Some(n) => Point::new(n.rect.center_x() * scale, n.rect.center_y() * scale),
             None => drawn_rect(&self.tree, control).map_or(Point::new(rect.center_x(), rect.center_y()), |r| Point::new(r.center_x(), r.center_y())),
@@ -1420,8 +1420,8 @@ impl<S: 'static> Ui<S> {
     /// takes input or not (a tool picks what you see). Popups drawn on the canvas come first.
     pub fn hit_test(&self, point: Point) -> Option<ControlId> {
         let identity = skia_safe::Matrix::default();
-        if !self.popup_windows_on {
-            for popup in self.tree.popups.iter().rev() {
+        for popup in self.tree.popups.iter().rev().filter(|p| !p.in_window(self.popup_windows_on)) {
+            {
                 if let Some(hit) = self.tree.visual_pick(popup.root, point, &identity) {
                     return Some(hit);
                 }
@@ -1432,10 +1432,8 @@ impl<S: 'static> Ui<S> {
 
     /// The root of the popup drawn on the canvas under the pixel, the top one first.
     fn popup_on_canvas_at(&self, point: Point) -> Option<ControlId> {
-        if self.popup_windows_on {
-            return None;
-        }
-        self.tree.popups.iter().rev().find(|p| skia_safe::Contains::contains(&p.rect, point)).map(|p| p.root)
+        let on = self.popup_windows_on;
+        self.tree.popups.iter().rev().find(|p| !p.in_window(on) && skia_safe::Contains::contains(&p.rect, point)).map(|p| p.root)
     }
 
     /// Lays out the popup windows after the app's root: each measured at its scale (its window's,
@@ -1444,8 +1442,9 @@ impl<S: 'static> Ui<S> {
     fn layout_popups(&mut self, content: Rect, scale: f32) {
         let mut popups = std::mem::take(&mut self.tree.popups);
         for p in popups.iter_mut() {
+            let windowed = p.in_window(self.popup_windows_on);
             let s = match p.window {
-                Some((_, s, _)) if self.popup_windows_on => s,
+                Some((_, s, _)) if windowed => s,
                 _ => scale,
             };
             let (w, h) = p.options.size.map_or((f32::INFINITY, f32::INFINITY), |size| (size.width * s, size.height * s));
@@ -1453,8 +1452,8 @@ impl<S: 'static> Ui<S> {
             p.wanted = Size::new(measured.width / s, measured.height / s);
             p.scale = s;
             p.rect = match p.window {
-                Some((size, ..)) if self.popup_windows_on => Rect::from_size(size),
-                _ if self.popup_windows_on => Rect::from_size(measured),
+                Some((size, ..)) if windowed => Rect::from_size(size),
+                _ if windowed => Rect::from_size(measured),
                 _ => {
                     let (anchor, point) = p.anchor.pixels(&self.tree, scale);
                     crate::popups::place_popup(anchor, point, measured, content)
@@ -1477,9 +1476,10 @@ impl<S: 'static> Ui<S> {
 
     /// What a host with popup windows shows, for the canvas at `scale`.
     pub(crate) fn popup_window_requests(&self, scale: f32) -> impl Iterator<Item = crate::PopupWindowRequest> + '_ {
-        self.tree.popups.iter().map(move |p| {
+        let on = self.popup_windows_on;
+        self.tree.popups.iter().filter(move |p| p.in_window(on)).map(move |p| {
             let (anchor, point) = p.anchor.pixels(&self.tree, scale);
-            crate::PopupWindowRequest { id: p.id, anchor, point, size: p.wanted }
+            crate::PopupWindowRequest { id: p.id, anchor, point, size: p.wanted, cpu: p.options.cpu }
         })
     }
 
@@ -1849,8 +1849,8 @@ impl<S: 'static> Ui<S> {
         };
         paint::render(&mut cx, root);
         // Popup windows drawn on the canvas, over everything.
-        if !self.popup_windows_on {
-            for p in popups.iter() {
+        {
+            for p in popups.iter().filter(|p| !p.in_window(self.popup_windows_on)) {
                 (cx.id, cx.rect) = (p.root, p.rect);
                 paint::render(&mut cx, p.root);
             }
@@ -1901,7 +1901,7 @@ impl<S: 'static> Ui<S> {
         for seed in 0..=self.tree.popups.len() {
             let (seed_root, seed_matrix, popup) = match seed.checked_sub(1).map(|i| &self.tree.popups[i]) {
                 None => (root, Matrix::new_identity(), false),
-                Some(p) if !self.popup_windows_on => (p.root, Matrix::new_identity(), true),
+                Some(p) if !p.in_window(self.popup_windows_on) => (p.root, Matrix::new_identity(), true),
                 Some(p) => match p.window {
                     Some((_, own, offset)) => {
                         let mut m = Matrix::translate(offset);
