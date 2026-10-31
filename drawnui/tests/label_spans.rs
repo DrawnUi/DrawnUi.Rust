@@ -388,7 +388,9 @@ fn slanted_glyphs_lean_into_the_effects_margin() {
     // A synthetic italic leans right by a quarter of the glyph height: caches keep it.
     let upright = host(SkiaLabel::new("If").font_size(40), 200.0, 1.0);
     let italic = host(SkiaLabel::new("If").font_size(40).font_attributes(FontAttributes::Italic), 200.0, 1.0);
-    assert_eq!(label(&upright).effects_margin(1.0).right, 0.0);
+    // Upright, only the hook of "f" reaches past its advance (its ink, a few pixels).
+    let upright_right = label(&upright).effects_margin(1.0).right;
+    assert!((1.0..=4.0).contains(&upright_right), "{upright_right}");
     let right = label(&italic).effects_margin(1.0).right;
     assert!((9.0..=13.0).contains(&right), "{right}");
 }

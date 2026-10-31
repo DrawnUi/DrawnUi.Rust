@@ -299,6 +299,9 @@ struct Run {
     level: u8,
     /// Its characters in `Layout::advances` (set when the blobs are built).
     chars: Range<usize>,
+    /// Where the ink of its first and last glyph starts and ends, pixels from the run's start
+    /// (empty run: none). A side bearing or an italic slant puts it outside the run's advances.
+    ink: Option<(f32, f32)>,
 }
 
 struct Line {
@@ -385,6 +388,8 @@ struct Layout {
     /// parallel to `advances`.
     lefts: Vec<f32>,
     rtl: Vec<bool>,
+    /// Pixels of ink past the line boxes, left and right, of the widest line (`build_blobs`).
+    overhang: (f32, f32),
     glyphs: Vec<GlyphId>,
     widths: Vec<f32>,
     /// The last shaped run (`shaping`).
@@ -1152,7 +1157,7 @@ impl Layout {
                 && shaping::shape(&fonts[font], part, part.chars().any(shaping::is_rtl), spacing, shaped).is_some()
             {
                 word_widths.extend_from_slice(&shaped.advances);
-                word_runs.push(Run { text, style: token.style, font, width: shaped.width, blob: None, x: 0.0, level: 0, chars: 0..0 });
+                word_runs.push(Run { text, style: token.style, font, width: shaped.width, blob: None, x: 0.0, level: 0, chars: 0..0, ink: None });
                 return;
             }
             let ids = &glyphs[face * count + from.0..face * count + to.0];
@@ -1168,7 +1173,7 @@ impl Layout {
                 word_widths.push(w + spacing);
                 width += w + spacing;
             }
-            word_runs.push(Run { text, style: token.style, font, width, blob: None, x: 0.0, level: 0, chars: 0..0 });
+            word_runs.push(Run { text, style: token.style, font, width, blob: None, x: 0.0, level: 0, chars: 0..0, ink: None });
         };
         for (i, (at, c)) in word.char_indices().enumerate() {
             // A joiner, a variation selector or a skin tone stays with the glyph before it: an
@@ -1204,7 +1209,7 @@ impl Layout {
                 last.text.end = self.text.len();
                 last.width += width;
             }
-            _ => self.runs.push(Run { text: start..self.text.len(), style, font, width, blob: None, x: 0.0, level: 0, chars: 0..0 }),
+            _ => self.runs.push(Run { text: start..self.text.len(), style, font, width, blob: None, x: 0.0, level: 0, chars: 0..0, ink: None }),
         }
         open.width += width;
         let st = &self.styles[style];
@@ -1462,11 +1467,11 @@ impl Layout {
                     let at = run.text.start + b;
                     let next = level_at(at);
                     if next != level {
-                        self.runs.push(Run { text: from..at, style: run.style, font: run.font, width: 0.0, blob: None, x: 0.0, level, chars: 0..0 });
+                        self.runs.push(Run { text: from..at, style: run.style, font: run.font, width: 0.0, blob: None, x: 0.0, level, chars: 0..0, ink: None });
                         (from, level) = (at, next);
                     }
                 }
-                self.runs.push(Run { text: from..run.text.end, style: run.style, font: run.font, width: 0.0, blob: None, x: 0.0, level, chars: 0..0 });
+                self.runs.push(Run { text: from..run.text.end, style: run.style, font: run.font, width: 0.0, blob: None, x: 0.0, level, chars: 0..0, ink: None });
             }
             self.lines[li].runs = start..self.runs.len();
         }
@@ -1476,7 +1481,8 @@ impl Layout {
     /// it (`shaping`), and where each run goes on its line.
     fn build_blobs(&mut self, spacing: f32) {
         self.split_bidi();
-        let Layout { lines, runs, text, fonts, glyphs, widths, advances, lefts, rtl: rtl_chars, shaped, .. } = self;
+        let Layout { lines, runs, text, fonts, glyphs, widths, advances, lefts, rtl: rtl_chars, shaped, overhang, .. } = self;
+        *overhang = (0.0, 0.0);
         for line in lines.iter_mut() {
             let first = advances.len();
             let mut bidi = false;
@@ -1491,6 +1497,7 @@ impl Layout {
                     run.chars.end = advances.len();
                     run.width = shaped.width;
                     if !shaped.glyphs.is_empty() {
+                        run.ink = glyph_ink(font, &shaped.glyphs, shaped.positions.first().map_or(0.0, |p| p.x), shaped.positions.last().map_or(0.0, |p| p.x));
                         let mut builder = TextBlobBuilder::new();
                         let (blob_glyphs, positions) = builder.alloc_run_pos(font, shaped.glyphs.len(), None);
                         blob_glyphs.copy_from_slice(&shaped.glyphs);
@@ -1521,6 +1528,8 @@ impl Layout {
                     *position = x;
                     x += width + spacing;
                 }
+                let last_x = positions.last().copied().unwrap_or(0.0);
+                run.ink = glyph_ink(font, glyphs, 0.0, last_x);
                 run.blob = builder.make();
             }
             line.advances = first..advances.len();
@@ -1547,8 +1556,26 @@ impl Layout {
                     }
                 }
             }
+            // Ink past the line's box: a negative side bearing ("j"), an italic slant.
+            for run in line_runs.iter() {
+                if let Some((left, right)) = run.ink {
+                    overhang.0 = overhang.0.max(-(run.x + left));
+                    overhang.1 = overhang.1.max(run.x + right - line.width);
+                }
+            }
         }
     }
+}
+
+/// Where the ink of a run's first glyph starts and its last glyph's ends, pixels from the run's
+/// start: the glyphs' bounds (side bearings and the font's skew included) at their positions.
+fn glyph_ink(font: &Font, glyphs: &[GlyphId], first_x: f32, last_x: f32) -> Option<(f32, f32)> {
+    let (first, last) = (*glyphs.first()?, *glyphs.last()?);
+    let mut bounds = [Rect::default(); 2];
+    font.get_bounds(&[first, last], &mut bounds, None);
+    let left = if bounds[0].is_empty() { first_x } else { first_x + bounds[0].left };
+    let right = if bounds[1].is_empty() { last_x } else { last_x + bounds[1].right };
+    Some((left, right))
 }
 
 /// Where each run of a line is drawn: one after the other, or in a line with right-to-left text
@@ -1791,7 +1818,11 @@ impl Control for SkiaLabel {
     /// Glyph ink past the line box and the shadow beyond the measured band, whole pixels (C#
     /// ComputeEffectsMargin): a cache keeps them.
     fn effects_margin(&self, scale: f32) -> Thickness {
-        let (mut left, mut top, mut right, mut bottom) = (0f32, self.overshoot.0.ceil(), self.overshoot.2.ceil(), self.overshoot.1.ceil());
+        // Ink past the glyph boxes: above and below the font's metrics, a slant, the side bearings of
+        // the first and last glyph of a line (the hook of "j").
+        let (ink_left, ink_right) = self.layout.overhang;
+        let (mut left, mut top, mut right, mut bottom) =
+            (ink_left.max(0.0).ceil(), self.overshoot.0.ceil(), self.overshoot.2.max(ink_right).ceil(), self.overshoot.1.ceil());
         if self.has_shadow() {
             let p = &self.p;
             let (size, x, y) = (p.drop_shadow_size * scale, p.drop_shadow_offset_x * scale, p.drop_shadow_offset_y * scale);

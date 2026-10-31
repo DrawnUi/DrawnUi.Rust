@@ -4,6 +4,17 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## 0.1.0-preview.26 (crates.io, 2026-10-31)
+
+### Changed
+
+- A cached label keeps the ink that reaches past its letters' boxes, such as the hook of "j" or an
+  italic slant, so it looks the same with every cache type.
+
+### Toolchain
+
+Skia crates unchanged (0.153.7).
+
 ## 0.1.0-preview.25 (crates.io, 2026-10-31)
 
 ### Changed

@@ -491,7 +491,8 @@ fn a_cached_label_keeps_the_ink_outside_its_line_box() {
     };
     for scale in [1.25f32, 1.5] {
         let (live, rect, margin) = render(scale, CacheType::None);
-        assert!(margin.top >= 1.0 && margin.bottom >= 1.0 && margin.left == 0.0 && margin.right == 0.0, "{margin:?}");
+        // Above and below for the accents; left and right only the ink of the first and last glyphs.
+        assert!(margin.top >= 1.0 && margin.bottom >= 1.0 && margin.left <= 2.0 && margin.right <= 2.0, "{margin:?}");
         let rows = inked(&live);
         let (top, bottom) = (rect.top.floor() as usize, rect.bottom.ceil() as usize);
         let outside = rows.iter().filter(|y| **y < top || **y >= bottom).count();
