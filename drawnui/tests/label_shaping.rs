@@ -187,3 +187,23 @@ fn each_paragraph_aligns_by_its_own_direction() {
     assert!((lines[0].right - 590.0).abs() < 1.0, "the Arabic line ends at {}, not the right edge 590", lines[0].right);
     assert!((lines[1].left - 10.0).abs() < 1.0, "the Latin line starts at {}, not the left edge 10", lines[1].left);
 }
+
+/// A bracket at the end of a right-to-left paragraph has level 1 with no right-to-left letter in
+/// its run: it is shaped right to left so it mirrors, and "مرحبا بكم (End)" shows "(End)" on the
+/// left exactly as left-to-right "(End)" looks (C# drew ")End)" until 656753d7).
+#[test]
+fn a_bracket_in_a_right_to_left_paragraph_mirrors() {
+    let ink_columns = |text: &'static str| {
+        let mut host = host(SkiaLabel::new(text).font_family_fallback("FontArabic"));
+        (0..600).map(|x| (0..60).filter(|y| host.pixel(x, *y).r() > 128).count()).collect::<Vec<_>>()
+    };
+    let rtl = ink_columns("\u{0645}\u{0631}\u{062D}\u{0628}\u{0627} \u{0628}\u{0643}\u{0645} (End)");
+    let ltr = ink_columns("(End)");
+    let width = ltr.iter().rposition(|c| *c > 0).expect("\"(End)\" drawn") + 1;
+    // The best match within 2 px (the right-to-left line can sit a fraction of a pixel apart).
+    let differing = (0..=4)
+        .map(|shift| (0..width).filter(|x| rtl.get(x + shift).copied().unwrap_or(0).abs_diff(ltr.get(x + 2).copied().unwrap_or(0)) > 3).count())
+        .min()
+        .unwrap();
+    assert!(differing <= 3, "{differing} of {width} columns of \"(End)\" differ: the brackets do not mirror");
+}

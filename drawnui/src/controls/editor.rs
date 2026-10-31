@@ -1103,7 +1103,15 @@ impl Control for SkiaEditor {
             TextAlignment::Center => (free / 2.0).max(0.0),
             TextAlignment::End => free.max(0.0),
         };
-        let x = if multiline { 0.0 } else { offset(self.p.horizontal_text_alignment, inner.width() - size.width) };
+        // A single-line label is as wide as its text: it sits by the editor's alignment, Start and End
+        // following the paragraph's direction (drawnui-cross 6am): Arabic with Start sits at the right.
+        let rtl = cx.tree.find::<SkiaLabel>(self.label).and_then(|l| l.text_lines().next()).is_some_and(|line| line.base_rtl);
+        let alignment = match (self.p.horizontal_text_alignment, rtl) {
+            (TextAlignment::Start, true) => TextAlignment::End,
+            (TextAlignment::End, true) => TextAlignment::Start,
+            (alignment, _) => alignment,
+        };
+        let x = if multiline { 0.0 } else { offset(alignment, inner.width() - size.width) };
         let y = offset(self.p.vertical_text_alignment, inner.height() - size.height);
         let width = if multiline { inner.width() } else { size.width };
         cx.arrange_child(self.label.id(), Rect::from_xywh(inner.left + x, inner.top + y, width, size.height));

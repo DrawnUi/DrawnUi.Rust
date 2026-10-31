@@ -267,3 +267,25 @@ fn an_arabic_editor_line_sits_at_the_right() {
     assert_eq!(boxes.len(), 1);
     assert!((boxes[0].1 - line.right).abs() < 0.5 && (boxes[0].0 - line.left).abs() < 0.5, "{boxes:?} vs {line:?}");
 }
+
+/// A single-line editor (its label as wide as its text) puts an Arabic paragraph with Start at its
+/// right edge, as it does for End with left to right text (drawnui-cross 6am, C# 8e4b18ef).
+#[test]
+fn a_single_line_editor_puts_arabic_at_the_right() {
+    let build = |app: &mut App| {
+        SkiaLayout::new().fill().children(
+            SkiaEditor::new().width_request(400).font_size(20).max_lines(1).text(ARABIC_LINE).font_family_fallback("FontArabic").assign(&mut app.editor),
+        )
+    };
+    let ui = Ui::new(App::default(), build).font_bytes("FontText", FONT).font_bytes("FontArabic", ARABIC).background(Color::BLACK);
+    let mut host = Headless::new(ui, 500, 200, 1.0);
+    host.settle();
+    let editor_box = host.rect(host.ui.state.editor);
+    let line = line_rect(&host);
+    // Padding 12 on the right.
+    assert!((line.right - (editor_box.right - 12.0)).abs() < 1.0, "the Arabic line ends at {}, the field's right inside the padding is {}", line.right, editor_box.right - 12.0);
+    focus(&mut host);
+    let x3 = carets(&host)[3];
+    tap_at(&mut host, x3);
+    assert_eq!(editor(&host).cursor_position(), 3);
+}
