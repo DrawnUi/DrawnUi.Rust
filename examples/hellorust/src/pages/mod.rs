@@ -89,9 +89,11 @@ pub fn key(app: &mut App, event: &KeyEvent, cx: &mut Cx) -> bool {
 
 /// A page that scrolls, built as the C# pages are: a layer, one vertical SkiaScroll filling it,
 /// the page's stack as its content. Cache the content or its cards, never the scroll or this layer.
+/// The layer takes a tap on the page's empty space and can be focused, so the tap takes the focus
+/// away from a focused editor (no tap handler: no hand cursor over the page).
 pub fn scrolling(content: Build<SkiaLayout>) -> Build<SkiaLayout> {
     // Horizontal drags go to the carousels and horizontal scrolls inside the page.
-    SkiaLayer::new().fill().children(SkiaScroll::new().fill().ignore_wrong_direction(true).content(content))
+    SkiaLayer::new().fill().block_gestures_below(true).can_be_focused(true).children(SkiaScroll::new().fill().ignore_wrong_direction(true).content(content))
 }
 
 /// The content column of the React pages: centered, at most 720 points wide, as wide as its
@@ -103,7 +105,9 @@ pub fn column() -> Build<SkiaLayout> {
 /// A titled card of the React pages (their `Card` component): the title label is given, so a
 /// page can keep it changing.
 pub fn card(title: Build<SkiaLabel>, content: impl IntoChildren) -> Build<SkiaShape> {
+    // A tap on the card's empty area takes the focus away from an editor, as one on the page does.
     SkiaShape::new()
+        .can_be_focused(true)
         .corner_radius(8)
         .background_color(hex(0x2B3035))
         .fill_x()
@@ -327,6 +331,41 @@ mod tests {
     }
 
     /// Opens a page from the catalog and delivers what it loads; the page may animate forever.
+    /// A tap on a page's empty space or on a card's empty area takes the focus away from a focused
+    /// editor; a tap on a button keeps it (Nick, 2026-11-01).
+    #[test]
+    fn a_tap_away_from_the_editor_takes_its_focus() {
+        let mut host = host(700);
+        open_page(&mut host, "Editor");
+        let editor = all(&host).into_iter().find(|id| host.ui.tree.find::<SkiaEditor>(*id).is_some()).unwrap();
+        let field = on_screen(&host, editor);
+        let tap = |host: &mut Headless<App>, x: f32, y: f32| {
+            let t = host.time_ms();
+            host.ui.pointer(drawnui::PointerKind::Down, x, y, t);
+            host.ui.pointer(drawnui::PointerKind::Up, x, y, t + 50.0);
+            for _ in 0..3 {
+                host.frame_after(16.0);
+            }
+        };
+        let focus = |host: &mut Headless<App>| {
+            host.ui.focus(Some(editor));
+            for _ in 0..3 {
+                host.frame_after(16.0);
+            }
+            assert_eq!(host.ui.focused(), Some(editor));
+        };
+        let button = on_screen(&host, showing(&host, "Set Text"));
+        for (what, x, y, keeps) in [
+            ("a button", button.center_x(), button.center_y(), true),
+            ("the card beside the field", field.right + 2.0, field.bottom + 60.0, false),
+            ("the page's edge", 2.0, 400.0, false),
+        ] {
+            focus(&mut host);
+            tap(&mut host, x, y);
+            assert_eq!(host.ui.focused() == Some(editor), keeps, "a tap on {what}");
+        }
+    }
+
     fn open_page(host: &mut Headless<App>, title: &str) {
         scroll_into_view(host, title);
         tap_no_settle(host, title);
