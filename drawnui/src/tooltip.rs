@@ -17,6 +17,11 @@ use crate::types::Thickness;
 #[derive(Clone)]
 pub struct TooltipStyle {
     pub background_color: Color,
+    /// A 1 point border; transparent: none.
+    pub border_color: Color,
+    /// A soft shadow under the bubble (blur 6, 2 points down) in a margin of 8 points around it;
+    /// transparent: none.
+    pub shadow_color: Color,
     pub text_color: Color,
     /// Empty: the default font.
     pub font_family: String,
@@ -36,12 +41,15 @@ pub struct TooltipStyle {
 impl Default for TooltipStyle {
     fn default() -> Self {
         Self {
-            background_color: Color::from_argb(0xF2, 0x20, 0x21, 0x24),
-            text_color: Color::WHITE,
+            // DrawnUI's default look (Nick, 2026-11-01): reads on light and dark apps.
+            background_color: Color::from_rgb(0x2B, 0x2D, 0x31),
+            border_color: Color::from_argb(0x24, 0xFF, 0xFF, 0xFF),
+            shadow_color: Color::from_argb(0x59, 0, 0, 0),
+            text_color: Color::from_rgb(0xF2, 0xF3, 0xF5),
             font_family: String::new(),
             font_size: 13.0,
             corner_radius: 6.0,
-            padding: Thickness::new(8.0, 5.0, 8.0, 5.0),
+            padding: Thickness::new(12.0, 8.0, 12.0, 8.0),
             max_width: 320.0,
             show_delay_ms: 600.0,
             follow_window_ms: 500.0,
@@ -49,6 +57,9 @@ impl Default for TooltipStyle {
         }
     }
 }
+
+/// Points of room around the default bubble for its shadow.
+const SHADOW_ROOM: f32 = 8.0;
 
 /// Where the tooltip logic stands (`Ui::tip`).
 #[derive(Default)]
@@ -169,12 +180,25 @@ impl<S: 'static> Ui<S> {
                 if !style.font_family.is_empty() {
                     label = label.font_family(style.font_family.clone());
                 }
-                SkiaShape::new().corner_radius(style.corner_radius).background_color(style.background_color).padding(style.padding).children((label,)).into()
+                let mut bubble = SkiaShape::new().corner_radius(style.corner_radius).background_color(style.background_color).padding(style.padding);
+                if style.border_color.a() > 0 {
+                    bubble = bubble.stroke_color(style.border_color).stroke_width(1.0);
+                }
+                if style.shadow_color.a() > 0 {
+                    let shadow = crate::types::SkiaShadow { x: 0.0, y: 2.0, blur: 6.0, opacity: 1.0, color: style.shadow_color, shadow_only: false };
+                    bubble = bubble.margin(SHADOW_ROOM).shadows(vec![shadow]);
+                }
+                bubble.children((label,)).into()
             }
         };
+        // The default bubble's shadow room is around its visible box: the anchor carries it, so the
+        // visible box, not the room, sits at the pointer (`place_tooltip`).
+        let inset = if style.content.is_none() && style.shadow_color.a() > 0 { SHADOW_ROOM } else { 0.0 };
         let scale = self.scale.max(0.1);
-        // At the pointer: a passive popup is placed as a tooltip (`place_tooltip`).
-        let anchor = Point::new(point.x / scale, point.y / scale);
+        // At the pointer: a passive popup is placed as a tooltip (`place_tooltip`), the anchor's
+        // half width = the room around its visible box.
+        let at = Point::new(point.x / scale, point.y / scale);
+        let anchor = skia_safe::Rect::new(at.x - inset, at.y - inset, at.x + inset, at.y + inset);
         let options = PopupWindowOptions { passive: true, cpu: true, ..Default::default() };
         let popup = Cx { tree: &mut self.tree }.open_popup_window(content, anchor, options);
         self.tip.shown = Some((target, popup));

@@ -156,12 +156,16 @@ fn from_accessibility_uses_the_hint_else_the_label_of_a_control_without_text() {
 fn it_opens_above_and_right_of_the_pointer_or_below_without_room() {
     let bounds = Rect::from_xywh(0.0, 0.0, 600.0, 300.0);
     let size = Size::new(80.0, 24.0);
+    let at = |x: f32, y: f32, room: f32| Rect::new(x - room, y - room, x + room, y + room);
     // Bottom-left 12 right and 6 above the pointer (scale 2: 24 and 12 pixels).
-    assert_eq!(drawnui::place_tooltip(Point::new(100.0, 200.0), 2.0, size, bounds), Rect::from_xywh(124.0, 164.0, 80.0, 24.0));
+    assert_eq!(drawnui::place_tooltip(at(100.0, 200.0, 0.0), 2.0, size, bounds), Rect::from_xywh(124.0, 164.0, 80.0, 24.0));
     // No room above: 20 points below.
-    assert_eq!(drawnui::place_tooltip(Point::new(100.0, 10.0), 2.0, size, bounds), Rect::from_xywh(124.0, 50.0, 80.0, 24.0));
+    assert_eq!(drawnui::place_tooltip(at(100.0, 10.0, 0.0), 2.0, size, bounds), Rect::from_xywh(124.0, 50.0, 80.0, 24.0));
     // Kept inside at the right edge.
-    assert_eq!(drawnui::place_tooltip(Point::new(590.0, 200.0), 1.0, size, bounds).right, 600.0);
+    assert_eq!(drawnui::place_tooltip(at(590.0, 200.0, 0.0), 1.0, size, bounds).right, 600.0);
+    // A shadow room of 16 px around the visible box: the visible box keeps the same place.
+    let with_room = drawnui::place_tooltip(at(100.0, 200.0, 16.0), 2.0, Size::new(112.0, 56.0), bounds);
+    assert_eq!(Rect::new(with_room.left + 16.0, with_room.top + 16.0, with_room.right - 16.0, with_room.bottom - 16.0), Rect::from_xywh(124.0, 164.0, 80.0, 24.0));
 }
 
 #[test]
@@ -173,4 +177,32 @@ fn on_the_canvas_it_is_drawn_above_and_right_of_the_pointer() {
     // must be above the pointer's line and right of it.
     let ink = (0..600).flat_map(|x| (0..40).map(move |y| (x, y))).filter(|(x, y)| *x > 72 && host.pixel(*x, *y).r() > 0).count();
     assert!(ink > 0, "drawn above-right of the pointer");
+}
+
+#[test]
+fn the_default_bubble_wraps_long_text_at_the_max_width() {
+    let ui = Ui::new(App::default(), |_| {
+        SkiaLayout::new().fill().children((SkiaShape::new()
+            .width_request(100)
+            .height_request(40)
+            .margin((20, 20, 0, 0))
+            .tooltip("A long tooltip text that is much wider than the bubble may be, so it has to wrap over several lines"),))
+    })
+    .font_bytes("Default", FONT);
+    let mut host = Headless::new(ui, 900, 400, 1.0);
+    host.settle();
+    host.popup_windows(true);
+    hover(&mut host, 60.0, 40.0);
+    wait(&mut host, 700.0);
+    let request = host.popup_window_requests()[0];
+    // 320 max width + 12 + 12 padding + 1 + 1 border + 8 + 8 shadow room.
+    assert!(request.size.width <= 320.0 + 24.0 + 2.0 + 16.0 + 0.5, "{request:?}");
+    assert!(request.size.height > 2.0 * 13.0 + 16.0 + 16.0, "wraps over more than one line: {request:?}");
+    let style = TooltipStyle::default();
+    assert_eq!((style.background_color, style.text_color, style.border_color, style.shadow_color), (
+        Color::from_rgb(0x2B, 0x2D, 0x31),
+        Color::from_rgb(0xF2, 0xF3, 0xF5),
+        Color::from_argb(0x24, 0xFF, 0xFF, 0xFF),
+        Color::from_argb(0x59, 0, 0, 0)
+    ));
 }

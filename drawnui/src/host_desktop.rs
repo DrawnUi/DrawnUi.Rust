@@ -2103,7 +2103,7 @@ impl Desktop {
         let size = skia::Size::new(size.width.ceil().max(1.0), size.height.ceil().max(1.0));
         let rect = match request.passive {
             // A tooltip: above and right of the pointer (`place_tooltip`), in the monitor's pixels.
-            true => crate::place_tooltip(skia::Point::new(anchor.left, anchor.top), if cfg!(target_os = "macos") { 1.0 } else { scale as f32 }, size, bounds),
+            true => crate::place_tooltip(anchor, if cfg!(target_os = "macos") { 1.0 } else { scale as f32 }, size, bounds),
             false => crate::place_popup(anchor, request.point, size, bounds),
         };
         if cfg!(target_os = "macos") {

@@ -1572,7 +1572,7 @@ impl<S: 'static> Ui<S> {
                 _ => {
                     let (anchor, point) = p.anchor.pixels(&self.tree, scale);
                     match p.options.passive {
-                        true => crate::popups::place_tooltip(Point::new(anchor.left, anchor.top), scale, measured, content),
+                        true => crate::popups::place_tooltip(anchor, scale, measured, content),
                         false => crate::popups::place_popup(anchor, point, measured, content),
                     }
                 }
