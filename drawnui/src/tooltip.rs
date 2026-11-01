@@ -34,6 +34,16 @@ pub struct TooltipStyle {
     pub show_delay_ms: f64,
     /// Moving to the next control within this time after a tooltip closed shows its tooltip at once.
     pub follow_window_ms: f64,
+    /// False: centered 6 points above its control (below it where there is no room). True: at the
+    /// mouse, 4 points right of and 20 points below where it rested (above it where there is no
+    /// room), as the Windows and macOS tooltips do. Either way it stays put while the mouse moves
+    /// over the control.
+    pub at_cursor: bool,
+    /// Moves it right (negative: left) from where it would go, points.
+    pub offset_x: f32,
+    /// Moves it down (negative: up) from where it would go, points; on the flipped side it moves
+    /// the other way, so it keeps its distance from the control or the pointer.
+    pub offset_y: f32,
     /// Builds the tooltip's content from its text instead of the default bubble.
     pub content: Option<Rc<dyn Fn(&str) -> Detached>>,
 }
@@ -53,6 +63,9 @@ impl Default for TooltipStyle {
             max_width: 320.0,
             show_delay_ms: 600.0,
             follow_window_ms: 500.0,
+            at_cursor: false,
+            offset_x: 0.0,
+            offset_y: 0.0,
             content: None,
         }
     }
@@ -213,11 +226,18 @@ impl<S: 'static> Ui<S> {
         // visible box, not the room, keeps the gap to the control (`place_tooltip`).
         let inset = if style.content.is_none() && style.shadow_color.a() > 0 { SHADOW_ROOM } else { 0.0 };
         let scale = self.scale.max(0.1);
-        // Over the control where it is drawn now, fixed while it shows: the pointer moving over
-        // the control does not move it.
-        let Some(drawn) = super::drawn_rect(&self.tree, target) else { return };
-        let anchor = skia_safe::Rect::new(drawn.left / scale, drawn.top / scale + inset, drawn.right / scale, drawn.bottom / scale - inset);
-        let options = PopupWindowOptions { passive: true, cpu: true, ..Default::default() };
+        // At the control where it is drawn now, or at the pointer, fixed while it shows: the pointer
+        // moving over the control does not move it.
+        let anchor = if style.at_cursor {
+            let Some(at) = self.tip.pointer else { return };
+            let at = Point::new(at.x / scale, at.y / scale);
+            skia_safe::Rect::new(at.x - inset, at.y - inset, at.x + inset, at.y + inset)
+        } else {
+            let Some(drawn) = super::drawn_rect(&self.tree, target) else { return };
+            skia_safe::Rect::new(drawn.left / scale, drawn.top / scale + inset, drawn.right / scale, drawn.bottom / scale - inset)
+        };
+        let tooltip = crate::TooltipPlacement { at_cursor: style.at_cursor, offset_x: style.offset_x, offset_y: style.offset_y };
+        let options = PopupWindowOptions { passive: true, cpu: true, tooltip, ..Default::default() };
         let popup = Cx { tree: &mut self.tree }.open_popup_window(content, anchor, options);
         self.tip.shown = Some((target, popup));
     }

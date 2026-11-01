@@ -3,6 +3,7 @@
 //! is drawn on the canvas. Both are played here: the canvas, and the host's windows.
 
 use drawnui::prelude::*;
+use drawnui::App as _;
 use drawnui::testing::Headless;
 
 #[derive(Default)]
@@ -10,6 +11,7 @@ struct App {
     log: Vec<String>,
     menu: Option<PopupId>,
     options: PopupWindowOptions,
+    closed: Vec<PopupId>,
 }
 
 const RED: Color = Color::from_rgb(220, 30, 30);
@@ -45,7 +47,8 @@ fn page() -> Headless<App> {
     .on_context_menu(|app: &mut App, at, cx| {
         app.menu = Some(cx.open_popup_window(menu(), at.location, app.options));
         true
-    });
+    })
+    .on_popup_window_closed(|app: &mut App, id, _cx| app.closed.push(id));
     let mut host = Headless::new(ui, 600, 400, 2.0);
     host.settle();
     host
@@ -251,4 +254,74 @@ fn cpu_reaches_the_host_with_the_window_request() {
     let requests = host.popup_window_requests();
     assert_eq!(requests.len(), 1);
     assert!(requests[0].cpu);
+}
+
+#[test]
+fn every_close_is_reported_once_whatever_closed_it() {
+    let mut host = page();
+    let mut expected = Vec::new();
+    let open = |host: &mut Headless<App>| {
+        host.right_click(300.0, 200.0);
+        host.ui.state.menu.unwrap()
+    };
+    // An item picked.
+    expected.push(open(&mut host));
+    host.tap(310.0, 210.0);
+    // A press outside.
+    expected.push(open(&mut host));
+    host.tap(50.0, 50.0);
+    // Escape.
+    expected.push(open(&mut host));
+    host.press_key("Escape");
+    // The wheel outside.
+    expected.push(open(&mut host));
+    host.wheel(50.0, 50.0, 1.0);
+    // The window losing the keyboard.
+    expected.push(open(&mut host));
+    host.ui.window_focus(false);
+    host.ui.window_focus(true);
+    // The app.
+    expected.push(open(&mut host));
+    host.ui.tree.cx().close_popup_window(*expected.last().unwrap());
+    host.settle();
+    assert_eq!(host.ui.state.closed, expected);
+}
+
+#[test]
+fn the_wheel_outside_closes_it_and_still_scrolls_what_is_under_it() {
+    #[derive(Default)]
+    struct Page {
+        menu: Option<PopupId>,
+        first: Handle<SkiaShape>,
+    }
+    let ui = Ui::new(Page::default(), |page: &mut Page| {
+        SkiaScroll::new().fill().content(
+            SkiaLayout::column().spacing(0.0).children(
+                (0..20)
+                    .map(|i| {
+                        let row = SkiaShape::new().height_request(60).fill_x().background_color(if i % 2 == 0 { RED } else { BLUE });
+                        if i == 0 { row.assign(&mut page.first) } else { row }
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+        )
+    })
+    .on_context_menu(|page: &mut Page, at, cx| {
+        page.menu = Some(cx.open_popup_window(menu_for::<Page>(), at.location, PopupWindowOptions::default()));
+        true
+    });
+    let mut host = Headless::new(ui, 600, 400, 2.0);
+    host.settle();
+    host.right_click(300.0, 200.0);
+    let menu = host.ui.state.menu.unwrap();
+    let top = host.ui.tree.screen_rect(host.ui.state.first).top;
+    assert!(host.wheel(100.0, 300.0, -1.0), "the scroll took the wheel");
+    host.settle();
+    assert!(!host.ui.tree.cx().is_popup_window_open(menu));
+    assert!(host.ui.tree.screen_rect(host.ui.state.first).top < top, "scrolled");
+}
+
+/// A plain popup for any app state.
+fn menu_for<S: 'static>() -> Build<SkiaShape> {
+    SkiaShape::new().width_request(120).height_request(60).background_color(RED)
 }

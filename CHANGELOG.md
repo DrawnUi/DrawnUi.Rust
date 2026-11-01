@@ -15,8 +15,12 @@ version before it. Commits in parentheses.
   look and the delays (or builds custom content); `Ui::tooltips_from_accessibility(true)` shows a
   control's accessibility hint, or the label of an icon control, when it has no tooltip. On the
   desktop the tooltip is a window of its own, so it can reach past the app window's edge.
+  `TooltipStyle::at_cursor` opens it at the mouse instead; `offset_x` / `offset_y` move it.
+  `Cx::set_tooltip_style` and `Cx::set_tooltips_from_accessibility` change them at run time.
+- `Ui::on_popup_window_closed`: runs for every popup window that closed, whatever closed it (a menu
+  bar unselects its title). The wheel outside a popup window closes it and still scrolls.
 - `PopupWindowOptions::passive`: a popup that only shows (no input, no accessibility node), as a
-  tooltip; `place_tooltip`.
+  tooltip; `PopupWindowOptions::tooltip` and `place_tooltip` place it.
 
 ### Changed
 

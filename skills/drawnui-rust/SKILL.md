@@ -604,8 +604,11 @@ SkiaButton::new("Fruit").assign(&mut app.fruit).on_tapped(|_me, app: &mut App, c
 - `PopupWindowOptions { on_canvas: true, .. }` draws it on the app's canvas, inside the window, also
   on the desktop. The browser, phones and Wayland always draw popups on the canvas.
 - It closes on a press outside it (that press reaches nothing, as with a native menu; a right click
-  outside still asks for a context menu, so the next menu opens there), on Escape, when the app loses
-  the keyboard to another app, when the app's window is moved, resized or minimized, and on `cx.close_popup_window(id)` / `cx.close_popup_windows()`.
+  outside still asks for a context menu, so the next menu opens there), on the wheel outside it (which
+  still scrolls what is under the mouse), on Escape, when the app loses the keyboard to another app,
+  when the app's window is moved, resized or minimized, and on `cx.close_popup_window(id)` / `cx.close_popup_windows()`.
+  `Ui::on_popup_window_closed(|app, id, cx| ..)` runs for every popup that closed, whatever closed it:
+  a menu bar unselects its title there.
   With `PopupWindowOptions { close_on_pointer_leave: true, .. }` it also closes once the mouse has been
   outside both the popup and the app's window for 300 ms. `cx.is_popup_window_open(id)` says if it is
   still open.
@@ -639,7 +642,11 @@ clicks and is not read by screen readers. On the desktop it is a window of its o
 past the app window. `Ui::tooltip_style(TooltipStyle { .. })` sets colors, font, corner radius,
 padding, max width, the show delay and the follow window, or `content` to build your own.
 `Ui::tooltips_from_accessibility(true)` gives controls without a tooltip their accessibility hint, or
-the accessibility label of a control that shows no text (an icon button).
+the accessibility label of a control that shows no text (an icon button). `TooltipStyle { at_cursor:
+true, .. }` opens it at the mouse instead, below and to the right of where it rested (above it where
+there is no room), as the Windows and macOS tooltips do; `offset_x` / `offset_y` move it from where it
+would go. `cx.set_tooltip_style(style)` and `cx.set_tooltips_from_accessibility(on)` change them at
+run time (a theme switch), from the next tooltip shown.
 
 ## Mouse cursor
 

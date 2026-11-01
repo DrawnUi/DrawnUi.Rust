@@ -13,6 +13,7 @@ use crate::fonts::Fonts;
 use crate::gestures::{ContextMenuSource, Gesture, GestureKind, MouseButton, Multitouch, Recognizer};
 use crate::gpu::Gpu;
 use crate::keyboard::{Cursor, InputKey, KeyEvent, KeyKind, Keyboard, Modifiers};
+use crate::popups::PopupId;
 use crate::tree::{Build, ControlId, Cx, Detached, Raw, Tree};
 
 #[path = "tooltip.rs"]
@@ -342,6 +343,8 @@ pub struct Ui<S: 'static> {
     left_all_at: Option<f64>,
     /// Runs when the app's window gets or loses the keyboard (`on_window_focus`).
     window_focus: Option<Box<dyn FnMut(&mut S, bool, &mut Cx<'_>)>>,
+    /// Runs for each popup window that closed (`on_popup_window_closed`).
+    popup_closed: Option<Box<dyn FnMut(&mut S, PopupId, &mut Cx<'_>)>>,
 }
 
 /// The FPS overlay: frames per second over the last half second of frames drawn one after the
@@ -463,6 +466,7 @@ impl<S: 'static> Ui<S> {
             eating_press: false,
             left_all_at: None,
             window_focus: None,
+            popup_closed: None,
         }
     }
 
@@ -615,6 +619,15 @@ impl<S: 'static> Ui<S> {
     /// `Super.TooltipsFromAccessibility`). Off by default.
     pub fn tooltips_from_accessibility(mut self, on: bool) -> Self {
         self.tree.tooltips_from_accessibility = on;
+        self
+    }
+
+    /// Runs for each popup window that closed, for any reason (an item picked, a press outside,
+    /// Escape, the wheel, the window losing the keyboard, `Cx::close_popup_window`), before the
+    /// next frame's observers: a menu bar unselects its title (DrawnUI `PopupWindowClosed`).
+    /// Tooltips are not reported.
+    pub fn on_popup_window_closed(mut self, f: impl FnMut(&mut S, PopupId, &mut Cx<'_>) + 'static) -> Self {
+        self.popup_closed = Some(Box::new(f));
         self
     }
 
@@ -1567,7 +1580,7 @@ impl<S: 'static> Ui<S> {
                 _ => {
                     let (anchor, point) = p.anchor.pixels(&self.tree, scale);
                     match p.options.passive {
-                        true => crate::popups::place_tooltip(anchor, scale, measured, content),
+                        true => crate::popups::place_tooltip(anchor, p.options.tooltip, scale, measured, content),
                         false => crate::popups::place_popup(anchor, point, measured, content),
                     }
                 }
@@ -1592,7 +1605,7 @@ impl<S: 'static> Ui<S> {
         let on = self.popup_windows_on;
         self.tree.popups.iter().filter(move |p| p.in_window(on)).map(move |p| {
             let (anchor, point) = p.anchor.pixels(&self.tree, scale);
-            crate::PopupWindowRequest { id: p.id, anchor, point, size: p.wanted, cpu: p.options.cpu, passive: p.options.passive }
+            crate::PopupWindowRequest { id: p.id, anchor, point, size: p.wanted, cpu: p.options.cpu, passive: p.options.passive, tooltip: p.options.tooltip }
         })
     }
 
@@ -1887,6 +1900,7 @@ impl<S: 'static> Ui<S> {
         if animators::tick(&mut self.tree, &mut self.state, time_ms) {
             self.state_dirty = true;
         }
+        self.report_popups_closed();
         if self.state_dirty {
             self.state_dirty = false;
             self.tree.run_observers(&self.state);
@@ -2188,6 +2202,10 @@ impl<S: 'static> Ui<S> {
                 None => {
                     // A press outside the popup windows closes them and goes nowhere, as a click
                     // beside a native menu does; a right click still asks for a new menu there.
+                    // The wheel outside closes them too, and still scrolls.
+                    if gesture.kind == GestureKind::Wheel {
+                        Cx { tree: &mut self.tree }.close_popup_windows();
+                    }
                     if gesture.kind == GestureKind::Down {
                         self.eating_press = self.tree.popups.iter().any(|p| !p.options.passive);
                         Cx { tree: &mut self.tree }.close_popup_windows();
@@ -3129,7 +3147,9 @@ impl<S: 'static> App for Ui<S> {
         }
         self.tree.window_focused = Some(focused);
         if !focused {
+            // As native menus: the app losing the keyboard closes its popups.
             self.close_tooltip(false);
+            Cx { tree: &mut self.tree }.close_popup_windows();
         }
         if let Some(handler) = self.window_focus.as_mut() {
             handler(&mut self.state, focused, &mut Cx { tree: &mut self.tree });
@@ -3295,6 +3315,23 @@ impl<S: 'static> App for Ui<S> {
 
     fn close_popup_windows(&mut self) {
         Cx { tree: &mut self.tree }.close_popup_windows();
+    }
+}
+
+impl<S: 'static> Ui<S> {
+    /// Tells the app which popup windows closed (`on_popup_window_closed`).
+    fn report_popups_closed(&mut self) {
+        if self.tree.popups_closed.is_empty() {
+            return;
+        }
+        let closed = std::mem::take(&mut self.tree.popups_closed);
+        if let Some(handler) = self.popup_closed.as_mut() {
+            for id in closed {
+                handler(&mut self.state, id, &mut Cx { tree: &mut self.tree });
+            }
+            self.state_dirty = true;
+            self.apply_focus_request();
+        }
     }
 }
 

@@ -79,6 +79,21 @@ pub struct PopupWindowOptions {
     /// accessibility node, takes no keyboard focus and is not the popup Tab or Escape works on;
     /// a press outside it is not kept from the controls below.
     pub passive: bool,
+    /// Where a passive popup goes ([`place_tooltip`]).
+    pub tooltip: TooltipPlacement,
+}
+
+/// Where a passive popup (a tooltip) goes from its anchor ([`place_tooltip`]). Offsets in points.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TooltipPlacement {
+    /// False: centered above the anchor, a control (below it where there is no room). True: below
+    /// and to the right of the anchor, the pointer (above it where there is no room).
+    pub at_cursor: bool,
+    /// Moves it right (negative: left).
+    pub offset_x: f32,
+    /// Moves it down (negative: up); on the flipped side it moves the other way, so it keeps its
+    /// distance from the anchor.
+    pub offset_y: f32,
 }
 
 /// How long the mouse may be outside every window before `close_on_pointer_leave` closes.
@@ -99,6 +114,8 @@ pub struct PopupWindowRequest {
     pub cpu: bool,
     /// Takes no input: its window lets the mouse through (`PopupWindowOptions::passive`).
     pub passive: bool,
+    /// Where it goes when passive (`PopupWindowOptions::tooltip`).
+    pub tooltip: TooltipPlacement,
 }
 
 impl Popup {
@@ -149,18 +166,27 @@ pub fn place_popup(anchor: Rect, point: bool, size: Size, bounds: Rect) -> Rect 
     Rect::from_xywh(left, top, w.round(), h.round())
 }
 
-/// Where a tooltip goes (drawnui-cross 6ar), in pixels: its visible box centered over the control,
-/// 6 points above it, 6 points below it where there is no room above, inside `bounds`. `anchor` =
-/// the control's drawn rect with its top moved down and its bottom moved up by the room the popup
-/// keeps around its visible box (a shadow), so that room stays outside the gap (a control lower
-/// than twice the room gives top below bottom). `scale` = pixels per point.
-pub fn place_tooltip(anchor: Rect, scale: f32, size: Size, bounds: Rect) -> Rect {
+/// Where a tooltip goes (drawnui-cross 6ar), in pixels, inside `bounds`. `scale` = pixels per point.
+/// The popup may keep room around its visible box (a shadow); the anchor carries it, so the gaps
+/// are measured from the visible box:
+/// - attached to a control: the visible box centered over it, 6 points above it, 6 points below it
+///   where there is no room above. `anchor` = the control's drawn rect with its top moved down and
+///   its bottom moved up by the room (a control lower than twice the room gives top below bottom).
+/// - `at_cursor`: the visible box's top-left corner 4 points right of and 20 points below the
+///   pointer, its bottom 6 points above the pointer where there is no room below. `anchor` = the
+///   pointer grown by the room on every side.
+///
+/// The offsets are added; the vertical one is mirrored on the flipped side.
+pub fn place_tooltip(anchor: Rect, placement: TooltipPlacement, scale: f32, size: Size, bounds: Rect) -> Rect {
     let (w, h) = (size.width.min(bounds.width()).max(0.0), size.height.min(bounds.height()).max(0.0));
-    let left = anchor.center_x() - w / 2.0;
-    let mut top = anchor.top - 6.0 * scale - h;
-    if top < bounds.top {
-        top = anchor.bottom + 6.0 * scale;
-    }
+    let (gap, dx, dy) = (6.0 * scale, placement.offset_x * scale, placement.offset_y * scale);
+    let (left, top) = if placement.at_cursor {
+        let below = anchor.top + 20.0 * scale + dy;
+        (anchor.left + 4.0 * scale + dx, if below + h > bounds.bottom { anchor.bottom - gap - h - dy } else { below })
+    } else {
+        let above = anchor.top - gap - h + dy;
+        (anchor.center_x() - w / 2.0 + dx, if above < bounds.top { anchor.bottom + gap - dy } else { above })
+    };
     let left = left.clamp(bounds.left, bounds.right - w).round();
     let top = top.clamp(bounds.top, bounds.bottom - h).round();
     Rect::from_xywh(left, top, w.round(), h.round())
@@ -217,6 +243,9 @@ impl crate::tree::Tree {
     pub(crate) fn close_popup(&mut self, id: u32) {
         let Some(index) = self.popups.iter().position(|p| p.id == id) else { return };
         let popup = self.popups.remove(index);
+        if !popup.options.passive {
+            self.popups_closed.push(PopupId(popup.id));
+        }
         self.removals.push(popup.root);
         self.needs_frame = true;
     }

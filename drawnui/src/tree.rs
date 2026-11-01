@@ -677,6 +677,8 @@ pub struct Tree {
     /// roots of this tree besides `root`.
     pub(crate) popups: Vec<crate::popups::Popup>,
     pub(crate) popup_next_id: u32,
+    /// Popups closed since `Ui::on_popup_window_closed` last heard (passive ones not counted).
+    pub(crate) popups_closed: Vec<crate::popups::PopupId>,
     /// How tooltips look (`Ui::tooltip_style`, `Cx::set_tooltip_style`).
     pub(crate) tooltip_style: crate::TooltipStyle,
     /// `Ui::tooltips_from_accessibility`, `Cx::set_tooltips_from_accessibility`.
