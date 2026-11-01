@@ -9,7 +9,8 @@ version before it. Commits in parentheses.
 ### Added
 
 - Tooltips: `.tooltip("Save")` on any control shows its text when the mouse rests on it (600 ms),
-  above and right of the pointer, at once when moving to the next control; it closes when the mouse
+  centered above it (below it where there is no room above) and staying put while the mouse moves
+  over it, at once when moving to the next control; it closes when the mouse
   leaves, on a press, the wheel or a key, and never shows for touch. `Ui::tooltip_style` sets the
   look and the delays (or builds custom content); `Ui::tooltips_from_accessibility(true)` shows a
   control's accessibility hint, or the label of an icon control, when it has no tooltip. On the

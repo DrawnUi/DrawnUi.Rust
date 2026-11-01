@@ -75,8 +75,13 @@ fn it_shows_after_the_mouse_rests_and_follows_at_once() {
     assert_eq!(*shown.borrow(), ["Save"]);
     let request = host.popup_window_requests()[0];
     assert!(request.passive && request.cpu, "{request:?}");
-    // At the pointer: the host places it above and right of it (`place_tooltip`).
-    assert_eq!((request.anchor.left, request.anchor.top), (60.0, 40.0), "{request:?}");
+    // At the control: the host places it centered above it (`place_tooltip`).
+    assert_eq!(request.anchor, Rect::new(20.0, 20.0, 120.0, 60.0), "{request:?}");
+    // The pointer moving over the same control leaves it where it is.
+    hover(&mut host, 110.0, 55.0);
+    wait(&mut host, 700.0);
+    assert_eq!(*shown.borrow(), ["Save"]);
+    assert_eq!(host.popup_window_requests()[0].anchor, request.anchor);
     // The next control at once.
     hover(&mut host, 160.0, 40.0);
     assert_eq!(*shown.borrow(), ["Save", "Open"]);
@@ -167,30 +172,40 @@ fn from_accessibility_turned_on_at_run_time_applies_from_the_next_tooltip() {
 }
 
 #[test]
-fn it_opens_above_and_right_of_the_pointer_or_below_without_room() {
+fn it_opens_centered_above_the_control_or_below_without_room() {
     let bounds = Rect::from_xywh(0.0, 0.0, 600.0, 300.0);
     let size = Size::new(80.0, 24.0);
-    let at = |x: f32, y: f32, room: f32| Rect::new(x - room, y - room, x + room, y + room);
-    // Bottom-left 12 right and 6 above the pointer (scale 2: 24 and 12 pixels).
-    assert_eq!(drawnui::place_tooltip(at(100.0, 200.0, 0.0), 2.0, size, bounds), Rect::from_xywh(124.0, 164.0, 80.0, 24.0));
-    // No room above: 20 points below.
-    assert_eq!(drawnui::place_tooltip(at(100.0, 10.0, 0.0), 2.0, size, bounds), Rect::from_xywh(124.0, 50.0, 80.0, 24.0));
+    // The control's rect, top and bottom moved in by the room around the visible box.
+    let control = |l: f32, t: f32, r: f32, b: f32, room: f32| Rect::new(l, t + room, r, b - room);
+    // Centered, 6 points above (scale 2: 12 pixels).
+    assert_eq!(drawnui::place_tooltip(control(100.0, 200.0, 200.0, 240.0, 0.0), 2.0, size, bounds), Rect::from_xywh(110.0, 164.0, 80.0, 24.0));
+    // No room above: 6 points below.
+    assert_eq!(drawnui::place_tooltip(control(100.0, 10.0, 200.0, 50.0, 0.0), 2.0, size, bounds), Rect::from_xywh(110.0, 62.0, 80.0, 24.0));
     // Kept inside at the right edge.
-    assert_eq!(drawnui::place_tooltip(at(590.0, 200.0, 0.0), 1.0, size, bounds).right, 600.0);
-    // A shadow room of 16 px around the visible box: the visible box keeps the same place.
-    let with_room = drawnui::place_tooltip(at(100.0, 200.0, 16.0), 2.0, Size::new(112.0, 56.0), bounds);
-    assert_eq!(Rect::new(with_room.left + 16.0, with_room.top + 16.0, with_room.right - 16.0, with_room.bottom - 16.0), Rect::from_xywh(124.0, 164.0, 80.0, 24.0));
+    assert_eq!(drawnui::place_tooltip(control(560.0, 200.0, 600.0, 240.0, 0.0), 1.0, size, bounds).right, 600.0);
+    // A shadow room of 16 px around the visible box: the visible box keeps the same place, also
+    // over a control lower than twice the room.
+    let visible = |r: Rect| Rect::new(r.left + 16.0, r.top + 16.0, r.right - 16.0, r.bottom - 16.0);
+    let with_room = drawnui::place_tooltip(control(100.0, 200.0, 200.0, 240.0, 16.0), 2.0, Size::new(112.0, 56.0), bounds);
+    assert_eq!(visible(with_room), Rect::from_xywh(110.0, 164.0, 80.0, 24.0));
+    let low = drawnui::place_tooltip(control(100.0, 200.0, 200.0, 210.0, 16.0), 2.0, Size::new(112.0, 56.0), bounds);
+    assert_eq!(visible(low), Rect::from_xywh(110.0, 164.0, 80.0, 24.0));
+    let below = drawnui::place_tooltip(control(100.0, 10.0, 200.0, 20.0, 16.0), 2.0, Size::new(112.0, 56.0), bounds);
+    assert_eq!(visible(below), Rect::from_xywh(110.0, 32.0, 80.0, 24.0));
 }
 
 #[test]
-fn on_the_canvas_it_is_drawn_above_and_right_of_the_pointer() {
+fn on_the_canvas_it_is_drawn_centered_on_the_control() {
     let (mut host, _) = host(false);
-    hover(&mut host, 60.0, 40.0);
+    hover(&mut host, 30.0, 40.0);
     wait(&mut host, 700.0);
-    // The default bubble is not used here (the test style builds a plain label): the label's ink
-    // must be above the pointer's line and right of it.
-    let ink = (0..600).flat_map(|x| (0..40).map(move |y| (x, y))).filter(|(x, y)| *x > 72 && host.pixel(*x, *y).r() > 0).count();
-    assert!(ink > 0, "drawn above-right of the pointer");
+    // The test style builds a plain label; "Save" (box 20..120 at y 20..60) has no room above, so
+    // it shows 6 points below, centered on the box, not at the pointer near its left edge.
+    let ink: Vec<(i32, i32)> = (0..600).flat_map(|x| (60..98).map(move |y| (x, y))).filter(|(x, y)| host.pixel(*x, *y).r() > 0).collect();
+    assert!(!ink.is_empty(), "drawn below the box");
+    let (min, max) = (ink.iter().map(|p| p.0).min().unwrap(), ink.iter().map(|p| p.0).max().unwrap());
+    assert!(((min + max) as f32 / 2.0 - 70.0).abs() <= 2.0, "centered on the box: ink {min}..{max}");
+    assert!(ink.iter().all(|p| p.1 >= 66), "6 points below the box");
 }
 
 #[test]

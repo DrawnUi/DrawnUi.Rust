@@ -149,17 +149,17 @@ pub fn place_popup(anchor: Rect, point: bool, size: Size, bounds: Rect) -> Rect 
     Rect::from_xywh(left, top, w.round(), h.round())
 }
 
-/// Where a tooltip goes (drawnui-cross 6ar), in pixels: its visible box's bottom-left corner 12
-/// points right of and 6 points above the pointer, 20 points below it where there is no room above,
-/// inside `bounds`. `anchor` = the pointer, grown by the room the popup keeps around its visible box
-/// (a shadow): that room is outside the offsets. `scale` = pixels per point.
+/// Where a tooltip goes (drawnui-cross 6ar), in pixels: its visible box centered over the control,
+/// 6 points above it, 6 points below it where there is no room above, inside `bounds`. `anchor` =
+/// the control's drawn rect with its top moved down and its bottom moved up by the room the popup
+/// keeps around its visible box (a shadow), so that room stays outside the gap (a control lower
+/// than twice the room gives top below bottom). `scale` = pixels per point.
 pub fn place_tooltip(anchor: Rect, scale: f32, size: Size, bounds: Rect) -> Rect {
     let (w, h) = (size.width.min(bounds.width()).max(0.0), size.height.min(bounds.height()).max(0.0));
-    let (pointer, room) = (Point::new(anchor.center_x(), anchor.center_y()), anchor.width() / 2.0);
-    let left = pointer.x + 12.0 * scale - room;
-    let mut top = pointer.y - 6.0 * scale - h + room;
-    if top + room < bounds.top {
-        top = pointer.y + 20.0 * scale - room;
+    let left = anchor.center_x() - w / 2.0;
+    let mut top = anchor.top - 6.0 * scale - h;
+    if top < bounds.top {
+        top = anchor.bottom + 6.0 * scale;
     }
     let left = left.clamp(bounds.left, bounds.right - w).round();
     let top = top.clamp(bounds.top, bounds.bottom - h).round();

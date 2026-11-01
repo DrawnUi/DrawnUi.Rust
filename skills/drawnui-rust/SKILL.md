@@ -631,8 +631,8 @@ no caret set gets it at the end too. To put the caret where the user tapped, ask
 ## Tooltips
 
 `.tooltip("Save")` on any control: its text shows in a small bubble when the mouse rests on the
-control for 600 ms, above and to the right of the pointer (below it where there is no room above);
-moving to the next control with a tooltip shows that one at once. The innermost control with a
+control for 600 ms, centered 6 points above the control (6 points below it where there is no room
+above), and it stays put while the mouse moves over that control; moving to the next control with a tooltip shows that one at once. The innermost control with a
 tooltip wins. It closes when the mouse leaves, on a press (and stays closed over that control), the
 wheel, a key, or when the content moves under the mouse; a finger never shows one. It takes no
 clicks and is not read by screen readers. On the desktop it is a window of its own, so it can reach

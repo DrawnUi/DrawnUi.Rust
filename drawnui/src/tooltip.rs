@@ -178,16 +178,16 @@ impl<S: 'static> Ui<S> {
             }
             let following = moved && (was_shown || self.tip.closed_at.is_some_and(|at| time_ms - at <= self.tree.tooltip_style.follow_window_ms));
             if following && target.is_some() && self.tip.suppressed.is_none() {
-                self.show_tooltip(point);
+                self.show_tooltip();
             }
             return;
         }
         if self.tip.shown.is_none() && target.is_some() && self.tip.suppressed != target && time_ms - self.tip.rest_since >= self.tree.tooltip_style.show_delay_ms {
-            self.show_tooltip(point);
+            self.show_tooltip();
         }
     }
 
-    fn show_tooltip(&mut self, point: Point) {
+    fn show_tooltip(&mut self) {
         let Some(target) = self.tip.target else { return };
         let Some(text) = self.tooltip_text(target).map(str::to_owned) else { return };
         let style = &self.tree.tooltip_style;
@@ -210,13 +210,13 @@ impl<S: 'static> Ui<S> {
             }
         };
         // The default bubble's shadow room is around its visible box: the anchor carries it, so the
-        // visible box, not the room, sits at the pointer (`place_tooltip`).
+        // visible box, not the room, keeps the gap to the control (`place_tooltip`).
         let inset = if style.content.is_none() && style.shadow_color.a() > 0 { SHADOW_ROOM } else { 0.0 };
         let scale = self.scale.max(0.1);
-        // At the pointer: a passive popup is placed as a tooltip (`place_tooltip`), the anchor's
-        // half width = the room around its visible box.
-        let at = Point::new(point.x / scale, point.y / scale);
-        let anchor = skia_safe::Rect::new(at.x - inset, at.y - inset, at.x + inset, at.y + inset);
+        // Over the control where it is drawn now, fixed while it shows: the pointer moving over
+        // the control does not move it.
+        let Some(drawn) = super::drawn_rect(&self.tree, target) else { return };
+        let anchor = skia_safe::Rect::new(drawn.left / scale, drawn.top / scale + inset, drawn.right / scale, drawn.bottom / scale - inset);
         let options = PopupWindowOptions { passive: true, cpu: true, ..Default::default() };
         let popup = Cx { tree: &mut self.tree }.open_popup_window(content, anchor, options);
         self.tip.shown = Some((target, popup));
