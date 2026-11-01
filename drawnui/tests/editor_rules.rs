@@ -407,10 +407,10 @@ fn pixels_of(host: &mut Host, color: Color) -> usize {
 
 #[test]
 fn the_caret_blinks_asleep_between_blinks_without_allocating() {
-    let crimson = Color::from_rgb(0xDC, 0x14, 0x3C);
+    let accent = Color::from_rgb(0x3B, 0x82, 0xF6);
     let mut host = host(SkiaEditor::new().text("blink"));
     focus(&mut host);
-    assert!(pixels_of(&mut host, crimson) > 10, "the caret shows on focus");
+    assert!(pixels_of(&mut host, accent) > 10, "the caret shows on focus");
     frame(&mut host);
     // No frames until the blink.
     assert!(!host.ui.needs_frame());
@@ -426,7 +426,7 @@ fn the_caret_blinks_asleep_between_blinks_without_allocating() {
         let before = ALLOCATIONS.with(Cell::get);
         host.frame_after(wake - host.time_ms());
         allocated += ALLOCATIONS.with(Cell::get) - before;
-        shown.push(pixels_of(&mut host, crimson) > 10);
+        shown.push(pixels_of(&mut host, accent) > 10);
         assert!(!host.ui.needs_frame());
     }
     assert_eq!(allocated, 0, "allocations in 4 blink frames");
@@ -434,11 +434,11 @@ fn the_caret_blinks_asleep_between_blinks_without_allocating() {
     // Typing shows it at once.
     host.frame_after(host.ui.wake_at().unwrap() - host.time_ms());
     typed(&mut host, "!");
-    assert!(pixels_of(&mut host, crimson) > 10);
+    assert!(pixels_of(&mut host, accent) > 10);
     // Unfocused: no caret, no blink.
     key(&mut host, "Escape", NONE);
     frame(&mut host);
-    assert_eq!(pixels_of(&mut host, crimson), 0);
+    assert_eq!(pixels_of(&mut host, accent), 0);
     assert_eq!(host.ui.wake_at(), None);
 }
 

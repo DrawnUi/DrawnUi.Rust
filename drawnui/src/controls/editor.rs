@@ -160,7 +160,7 @@ impl EditorLook {
             Material => look(0xEFEBF4, 4.0, 0, 0.0, 0x2196F3),
             Material3 => look(0xE6E0E9, 4.0, 0, 0.0, 0x6750A4),
             Windows => look(0xFFFFFF, 2.0, 0xFF8A8A8A, 1.0, 0x0078D4),
-            _ => look(0xF2F3F5, 8.0, 0, 0.0, 0xDC143C),
+            _ => look(0xF2F3F5, 8.0, 0, 0.0, super::control_style::DEFAULT_ACCENT),
         }
     }
 }

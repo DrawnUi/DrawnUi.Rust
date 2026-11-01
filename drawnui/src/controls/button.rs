@@ -57,7 +57,7 @@ impl ButtonLook {
             Material => look(0x2196F3, 4.0, 14.0, 0, 40.0, shadow(2.0, 4.0, 0.3)),
             Material3 => look(0x6750A4, 20.0, 14.0, 0, 40.0, None),
             Windows => look(0x0078D7, 4.0, 15.0, 500, 32.0, shadow(1.0, 1.0, 0.2)),
-            _ => look(0xDC143C, 8.0, 15.0, 0, 41.0, None),
+            _ => look(super::control_style::DEFAULT_ACCENT, 8.0, 15.0, 0, 41.0, None),
         }
     }
 }

@@ -17,8 +17,8 @@ use crate::tree::{Build, ControlId, Cx, Handle};
 use crate::types::{CacheType, Dirty, LayoutOptions, Thickness};
 use crate::ui::Aria;
 
-/// The flat DrawnUI look: crimson accent, gray outline.
-const DEFAULT_ACCENT: Color = Color::from_rgb(0xDC, 0x14, 0x3C);
+/// The flat DrawnUI look: blue accent, gray outline.
+const DEFAULT_ACCENT: Color = Color::new(0xFF00_0000 | super::control_style::DEFAULT_ACCENT);
 const DEFAULT_OUTLINE: Color = Color::from_rgb(0x8E, 0x95, 0x9D);
 
 props!(@table RadioProps, RadioBuild, RadioSet {

@@ -20,8 +20,10 @@ version before it. Commits in parentheses.
 
 ### Changed
 
-- The default `SkiaSwitch` (no ControlStyle) is 46 x 20 points, a low track that fits a settings
-  row; its thumb is 16 points. The other styles keep their sizes.
+- The default `SkiaSwitch` (no ControlStyle) is 46 x 22 points, a low track that fits a settings
+  row; its thumb is 18 points. The other styles keep their sizes.
+- The default look (no ControlStyle) uses the blue accent #3B82F6 on buttons, switches, checkboxes,
+  radio buttons, sliders, progress bars and the editor caret.
 
 ## 0.1.0-preview.29 (crates.io, 2026-11-01)
 

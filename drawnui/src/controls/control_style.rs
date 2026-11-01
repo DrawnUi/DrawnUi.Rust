@@ -2,11 +2,15 @@
 //! UsingControlStyle). `Platform` resolves at compile time from the target OS; the React engine
 //! resolves it from the browser's user agent.
 
+/// The accent of the flat DrawnUI look (`PrebuiltControlStyle::Unset`): blue #3B82F6, the DrawnUI
+/// Designer's and Agent Signals' accent (C# `DefaultStyle.Accent`).
+pub(crate) const DEFAULT_ACCENT: u32 = 0x3B82F6;
+
 /// DrawnUI PrebuiltControlStyle: which platform look a `SkiaButton`, `SkiaSwitch`, `SkiaCheckbox`,
 /// `SkiaRadioButton`, `SkiaProgress` or `SkiaSlider` is drawn in.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum PrebuiltControlStyle {
-    /// The flat DrawnUI look: crimson accent, neutral grays.
+    /// The flat DrawnUI look: blue accent, neutral grays.
     #[default]
     Unset,
     /// The look of the platform the app runs on: iOS / macOS = Cupertino, Android = Material,

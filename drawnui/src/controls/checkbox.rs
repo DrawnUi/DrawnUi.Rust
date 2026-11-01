@@ -20,12 +20,12 @@ const SVG_CUPERTINO_CHECK: &str = r##"<svg width="800px" height="800px" viewBox=
 const SVG_MATERIAL_CHECK: &str = r##"<svg width="800px" height="800px" viewBox="0 0 24 24" fill="none"><path d="M5 13L9 17L19 7" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
 const SVG_WINDOWS_CHECK: &str = r##"<svg width="800px" height="800px" viewBox="0 0 24 24" fill="none"><path d="M4 11.6L10 17.6L20 7.6" stroke="#000000" stroke-width="2.5" stroke-linecap="square" stroke-linejoin="round"/></svg>"##;
 
-/// The flat DrawnUI look: crimson accent, gray outline.
-const DEFAULT_ACCENT: Color = Color::from_rgb(0xDC, 0x14, 0x3C);
+/// The flat DrawnUI look: blue accent, gray outline.
+const DEFAULT_ACCENT: Color = Color::new(0xFF00_0000 | super::control_style::DEFAULT_ACCENT);
 const DEFAULT_OUTLINE: Color = Color::from_rgb(0x8E, 0x95, 0x9D);
 
 props!(@table CheckboxProps, CheckboxBuild, CheckboxSet {
-    /// The check mark (the inner square of the default look). Unset = crimson for the default
+    /// The check mark (the inner square of the default look). Unset = the accent for the default
     /// look, white for the others.
     color_check_on / set_color_check_on: Option<Color> = None, APPLY;
 });

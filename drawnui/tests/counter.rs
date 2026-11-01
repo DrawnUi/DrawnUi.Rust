@@ -4,7 +4,7 @@ use drawnui::prelude::*;
 use drawnui::testing::Headless;
 
 const FONT: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/bench/assets/OpenSans-Regular.ttf"));
-const CRIMSON: Color = Color::from_argb(255, 0xDC, 0x14, 0x3C);
+const ACCENT: Color = Color::from_argb(255, 0x3B, 0x82, 0xF6);
 
 #[derive(Default)]
 struct App {
@@ -61,7 +61,7 @@ fn layout_follows_the_drawnui_contract() {
     assert_eq!(badge.top, button.bottom + 16.0);
 
     // Pixels: the button frame, the circle (center filled, corner of its box empty).
-    assert_eq!(host.pixel(button.left as i32 + 50, button.top as i32 + 3), CRIMSON);
+    assert_eq!(host.pixel(button.left as i32 + 50, button.top as i32 + 3), ACCENT);
     assert_eq!(host.pixel(badge.center_x() as i32, badge.center_y() as i32), Color::GREEN);
     assert_eq!(host.pixel(badge.left as i32 + 1, badge.top as i32 + 1), Color::BLACK);
 }
@@ -156,7 +156,7 @@ fn nothing_is_laid_out_until_registered_fonts_arrive() {
 
 #[test]
 fn a_transparent_button_paints_no_frame() {
-    // Only a button without a background takes the style's crimson; transparent is a background.
+    // Only a button without a background takes the style's accent; transparent is a background.
     let build = |_: &mut ()| SkiaLayout::column().children(SkiaButton::new("Back").background_color(Color::TRANSPARENT));
     let mut host = Headless::new(Ui::new((), build).font_bytes("Default", FONT).background(Color::BLACK), 200, 100, 1.0);
     host.settle();

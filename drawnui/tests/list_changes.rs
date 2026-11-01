@@ -409,7 +409,7 @@ struct Buttons {
 
 #[test]
 fn a_ripple_does_not_travel_with_a_recycled_cell() {
-    const CRIMSON: Color = Color::from_argb(255, 0xDC, 0x14, 0x3C);
+    const ACCENT: Color = Color::from_argb(255, 0x3B, 0x82, 0xF6);
     // 1,000 rows of 50: each cell is a button that plays a ripple when pressed.
     let build = |app: &mut Buttons| {
         let list = SkiaLayout::column()
@@ -427,20 +427,20 @@ fn a_ripple_does_not_travel_with_a_recycled_cell() {
     let mut host = Headless::new(Ui::new(Buttons::default(), build).background(Color::BLACK), 300, 500, 1.0);
     host.settle();
     let (list, viewport) = (host.ui.state.list, host.ui.state.viewport);
-    assert_eq!(host.pixel(100, 25), CRIMSON);
+    assert_eq!(host.pixel(100, 25), ACCENT);
 
     // A press on row 0: 200 of the ripple's 500 ms later it covers the press point.
     host.ui.pointer(drawnui::PointerKind::Down, 100.0, 25.0, 0.0);
     host.frame();
     host.frame_after(200.0);
-    assert_ne!(host.pixel(100, 25), CRIMSON);
+    assert_ne!(host.pixel(100, 25), ACCENT);
 
     // Rows 0 and 1 leave, rows 8 and 9 enter in their cells: no ripple came along.
     scroll_to(&mut host, viewport, 100.0);
     host.frame_after(16.0);
     assert_eq!(rows(&host, viewport, list).iter().map(|row| row.0).collect::<Vec<_>>(), [2, 3, 4, 5, 6, 7, 8, 9]);
     for y in [25, 75, 325, 375] {
-        assert_eq!(host.pixel(100, y), CRIMSON, "row at {y}");
+        assert_eq!(host.pixel(100, y), ACCENT, "row at {y}");
     }
 }
 

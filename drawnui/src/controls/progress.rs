@@ -47,7 +47,7 @@ impl ProgressLook {
             Material => look(0xE8EAED, 0x2196F3, 4.0, 2.0),
             Material3 => look(0xE6E0E9, 0x6750A4, 4.0, 2.0),
             Windows => look(0xF3F2F1, 0x0078D4, 6.0, 3.0),
-            _ => look(0xD7DBE0, 0xDC143C, 8.0, 4.0),
+            _ => look(0xD7DBE0, super::control_style::DEFAULT_ACCENT, 8.0, 4.0),
         }
     }
 }

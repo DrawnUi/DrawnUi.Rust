@@ -57,8 +57,8 @@ impl SkiaSwitch {
             (Windows, FrameOff | ThumbOff) => rgb(0x76, 0x76, 0x76),
             (Windows, FrameOn) => rgb(0x00, 0x78, 0xD7),
             (Windows, ThumbOn) => Some(Color::WHITE),
-            // The flat DrawnUI look: crimson on, neutral off; thumbs keep the SkiaToggle white.
-            (_, FrameOn) => rgb(0xDC, 0x14, 0x3C),
+            // The flat DrawnUI look: the accent on, neutral off; thumbs keep the SkiaToggle white.
+            (_, FrameOn) => Some(Color::new(0xFF00_0000 | super::control_style::DEFAULT_ACCENT)),
             (_, FrameOff) => rgb(0xD7, 0xDB, 0xE0),
             _ => None,
         }
@@ -109,9 +109,9 @@ impl SkiaSwitch {
                     thumb = thumb.margin(5.5);
                 }
                 _ => {
-                    // 46 x 20, the DrawnUI Designer's switch: a low track that fits a settings row
+                    // 46 x 22, the Agent Signals switch: a low track that fits a settings row
                     // (C# CreateDefaultStyleContent).
-                    size = (46.0, 20.0);
+                    size = (46.0, 22.0);
                     frame = frame.corner_radius(20.0);
                     thumb = thumb.margin(2.0);
                 }

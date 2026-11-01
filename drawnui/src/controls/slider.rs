@@ -80,7 +80,10 @@ impl SliderLook {
             Material => look(20.0, 4.0, 0xE8EAED, 0x2196F3, rgb(0x2196F3), shadow(1.0, 2.0, 0.3, Color::BLACK)),
             Material3 => look(20.0, 4.0, 0xE6E0E9, 0x6750A4, rgb(0x6750A4), shadow(1.0, 2.0, 0.3, Color::BLACK)),
             Windows => look(20.0, 4.0, 0xC6C6C6, 0x0078D4, rgb(0x0078D4), shadow(1.0, 2.0, 0.25, Color::BLACK)),
-            _ => look(35.0, 6.0, 0xD7DBE0, 0xDC143C, rgb(0xDC143C), shadow(1.0, 3.0, 0.25, Color::BLACK)),
+            _ => {
+                let accent = super::control_style::DEFAULT_ACCENT;
+                look(35.0, 6.0, 0xD7DBE0, accent, rgb(accent), shadow(1.0, 3.0, 0.25, Color::BLACK))
+            }
         }
     }
 }

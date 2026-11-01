@@ -50,7 +50,7 @@ fn slider(host: &Headless<App>, i: usize) -> &SkiaSlider {
 fn progress_tracks_and_colors_follow_the_style() {
     // Track height (points), track and progress colors (C# ResolvedTrackColor / ProgressColor).
     let expected = [
-        (8.0, rgb(0xD7DBE0), rgb(0xDC143C)),
+        (8.0, rgb(0xD7DBE0), rgb(0x3B82F6)),
         (6.0, rgb(0xF3F2F1), rgb(0x0078D4)),
         (4.0, rgb(0xE5E5EA), rgb(0x007AFF)),
         (4.0, rgb(0xE8EAED), rgb(0x2196F3)),
@@ -97,7 +97,7 @@ fn progress_value_changes_repaint_and_clamp() {
     host.ui.state_changed();
     host.settle();
     // 150 of 100: full.
-    assert!(near(host.pixel(r.right as i32 - 5, r.center_y() as i32), rgb(0xDC143C), 1));
+    assert!(near(host.pixel(r.right as i32 - 5, r.center_y() as i32), rgb(0x3B82F6), 1));
 }
 
 /// One slider per style at width 200, single then range.
@@ -147,7 +147,7 @@ fn slider_heights_and_thumbs_follow_the_style() {
 fn slider_track_trail_and_thumb_colors_follow_the_style() {
     // Track, selected trail, thumb (C# style builders).
     let expected = [
-        (rgb(0xD7DBE0), rgb(0xDC143C), rgb(0xDC143C)),
+        (rgb(0xD7DBE0), rgb(0x3B82F6), rgb(0x3B82F6)),
         (rgb(0xC6C6C6), rgb(0x0078D4), rgb(0x0078D4)),
         (rgb(0xCCCCCC), rgb(0x007AFF), Color::WHITE),
         (rgb(0xE8EAED), rgb(0x2196F3), rgb(0x2196F3)),
