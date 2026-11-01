@@ -4,17 +4,22 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.29 (crates.io, 2026-11-01)
 
 ### Added
 
 - `Cx::editor_cursor_at(editor, point)`: the caret index a tap at a point would place, for an app
-  that focuses a field itself and puts the caret where the user tapped.
+  that focuses a field itself and puts the caret where the user tapped. (1140c8a)
 
 ### Changed
 
 - A caret placed right after `set_text` (`set_cursor_position`, `select_all`...) lands in the new
   text: `set_cursor_position(usize::MAX)` puts it after the new text.
+  (1140c8a)
+
+### Toolchain
+
+Skia crates unchanged (0.153.7).
 
 ## 0.1.0-preview.28 (crates.io, 2026-10-31)
 
