@@ -1229,9 +1229,16 @@ impl Tree {
         }
         let mut inner = m;
         inner.pre_translate(base.content_offset);
-        // The top child first: the reverse of the drawing order (lowest z_index first).
-        let mut children = node.children.clone();
-        children.sort_by_key(|c| self.node(*c).map_or(0, |n| n.base.p.z_index));
-        children.iter().rev().find_map(|c| self.visual_pick(*c, point, &inner)).or(inside.then_some(id))
+        // The top child first: the reverse of the drawing order (lowest z_index first). Sorted only
+        // when a child sets a z_index (no allocation for a hover over plain children).
+        let pick = |c: &ControlId| self.visual_pick(*c, point, &inner);
+        let hit = if node.children.iter().all(|c| self.node(*c).is_none_or(|n| n.base.p.z_index == 0)) {
+            node.children.iter().rev().find_map(pick)
+        } else {
+            let mut children = node.children.clone();
+            children.sort_by_key(|c| self.node(*c).map_or(0, |n| n.base.p.z_index));
+            children.iter().rev().find_map(pick)
+        };
+        hit.or(inside.then_some(id))
     }
 }

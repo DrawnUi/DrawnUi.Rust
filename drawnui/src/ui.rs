@@ -14,6 +14,10 @@ use crate::gestures::{ContextMenuSource, Gesture, GestureKind, MouseButton, Mult
 use crate::gpu::Gpu;
 use crate::keyboard::{Cursor, InputKey, KeyEvent, KeyKind, Keyboard, Modifiers};
 use crate::tree::{Build, ControlId, Cx, Detached, Raw, Tree};
+
+#[path = "tooltip.rs"]
+mod tooltip;
+pub use tooltip::TooltipStyle;
 use crate::types::{Dirty, GesturesMode, GpuBackend, LockTouch, RenderingModeType};
 use crate::controls::label::LabelSet;
 use crate::controls::label_fps::SkiaLabelFps;
@@ -325,6 +329,11 @@ pub struct Ui<S: 'static> {
     popup_windows_on: bool,
     /// The newest popup that had its chance to take the keyboard (`focus_opened_popup`).
     popups_focused: u32,
+    /// The tooltip under the mouse (`tooltip.rs`).
+    tip: tooltip::Tip,
+    tooltip_style: TooltipStyle,
+    /// Controls without a tooltip of their own show their accessibility hint, else their label.
+    tooltips_from_accessibility: bool,
     /// The popup window the input being routed came from (`None`: the app's window).
     input_popup: Option<u32>,
     /// The popup window the press began in, and the one the mouse is over.
@@ -450,6 +459,9 @@ impl<S: 'static> Ui<S> {
             by_z: Vec::new(),
             popup_windows_on: false,
             popups_focused: 0,
+            tip: Default::default(),
+            tooltip_style: TooltipStyle::default(),
+            tooltips_from_accessibility: false,
             input_popup: None,
             press_popup: None,
             hover_popup: None,
@@ -597,6 +609,20 @@ impl<S: 'static> Ui<S> {
     /// this runs before that click's Down reaches any control (Windows and macOS give the focus
     /// before the click; an X11 window manager may give it after). Browser: window focus / blur.
     /// Phones: `true` when the app is shown, `false` when hidden. `Cx::window_focused` reads it.
+    /// How tooltips look and when they show (DrawnUI `TooltipStyle`).
+    pub fn tooltip_style(mut self, style: TooltipStyle) -> Self {
+        self.tooltip_style = style;
+        self
+    }
+
+    /// A control without a tooltip of its own shows its accessibility hint as its tooltip, else
+    /// its accessibility label when it shows no text of its own (an icon button) (DrawnUI
+    /// `Super.TooltipsFromAccessibility`). Off by default.
+    pub fn tooltips_from_accessibility(mut self, on: bool) -> Self {
+        self.tooltips_from_accessibility = on;
+        self
+    }
+
     pub fn on_window_focus(mut self, f: impl FnMut(&mut S, bool, &mut Cx<'_>) + 'static) -> Self {
         self.window_focus = Some(Box::new(f));
         self
@@ -653,7 +679,7 @@ impl<S: 'static> Ui<S> {
         // React OnFrameEnd: a frame inside the interval brings one more frame when it has passed.
         let accessibility = (self.accessibility_on && self.accessibility_stale).then(|| self.accessibility_built_ms + ACCESSIBILITY_INTERVAL_MS);
         let leave = self.left_all_at.filter(|_| self.tree.popups.iter().any(|p| p.options.close_on_pointer_leave));
-        [animators::next_wake(&self.tree), self.recognizer.long_press_due(), accessibility, leave.map(|at| at + crate::popups::LEAVE_GRACE_MS)]
+        [animators::next_wake(&self.tree), self.recognizer.long_press_due(), accessibility, leave.map(|at| at + crate::popups::LEAVE_GRACE_MS), self.tooltip_due()]
             .into_iter()
             .flatten()
             .filter(|t| *t > self.tree.time_ms)
@@ -716,6 +742,20 @@ impl<S: 'static> Ui<S> {
         if kind == PointerKind::Down && std::mem::take(&mut self.focus_ring) {
             self.tree.needs_frame = true;
         }
+        // Tooltips follow the mouse over the canvas only: a finger never shows one, and any other
+        // input closes the one shown.
+        if popup.is_none() {
+            match kind {
+                PointerKind::Hover if !touch => (self.tip.pointer, self.tip.moved) = (Some(Point::new(x, y)), true),
+                PointerKind::Leave => self.tip.pointer = None,
+                _ => {
+                    if touch {
+                        self.tip.pointer = None;
+                    }
+                    self.close_tooltip(kind == PointerKind::Down);
+                }
+            }
+        }
         let event = (kind, button, touch, Point::new(x, y), time_ms, None, popup);
         if kind == PointerKind::Hover
             && let Some(last) = self.input.back_mut().filter(|last| last.0 == PointerKind::Hover && last.6 == popup)
@@ -757,6 +797,7 @@ impl<S: 'static> Ui<S> {
         }
         self.flush_input();
         self.input_popup = popup;
+        self.close_tooltip(true);
         // Timers started by a wheel handler count from now, not from the last frame.
         self.tree.time_ms = self.tree.time_ms.max(time_ms);
         let mut gesture = plain_gesture(GestureKind::Wheel, Point::new(x, y), time_ms);
@@ -807,6 +848,9 @@ impl<S: 'static> Ui<S> {
             return false;
         }
         self.flush_input();
+        if kind == KeyKind::Down {
+            self.close_tooltip(true);
+        }
         self.keyboard.apply(kind, key, modifiers);
         let Ui { tree, state, keyboard, key_down, key_up, key_char, state_dirty, .. } = self;
         let event = KeyEvent { kind, key, text, repeat, keyboard };
@@ -841,7 +885,7 @@ impl<S: 'static> Ui<S> {
         if !handled
             && kind == KeyKind::Down
             && key == "Escape"
-            && let Some(top) = self.tree.popups.last().map(|p| p.id)
+            && let Some(top) = self.tree.popups.iter().rev().find(|p| !p.options.passive).map(|p| p.id)
         {
             self.tree.close_popup(top);
             return true;
@@ -912,7 +956,7 @@ impl<S: 'static> Ui<S> {
         let mut stops = Vec::new();
         let mut groups = Vec::new();
         // While popup windows are open, Tab stays in the top one.
-        let top = self.tree.popups.last().map(|p| p.root);
+        let top = self.tree.popups.iter().rev().find(|p| !p.options.passive).map(|p| p.root);
         let in_scope = |control: ControlId| top.is_none_or(|top| self.tree.popup_of(control).is_some_and(|p| p.root == top));
         for n in self.tree.accessibility.iter().filter(|n| n.can_interact && in_scope(n.control)) {
             match self.group_of(n.control) {
@@ -937,7 +981,7 @@ impl<S: 'static> Ui<S> {
         let group = focused.and_then(|f| self.group_of(f));
         let current = focused.and_then(|f| stops.iter().position(|s| *s == f || (group.is_some() && self.group_of(*s) == group)));
         // In an open popup Tab goes round its stops, as in a native menu or dialog.
-        let round = !self.tree.popups.is_empty() && !stops.is_empty();
+        let round = self.tree.popups.iter().any(|p| !p.options.passive) && !stops.is_empty();
         let next = match (current, back) {
             (None, false) => (!stops.is_empty()).then_some(0),
             (None, true) => stops.len().checked_sub(1),
@@ -1491,7 +1535,7 @@ impl<S: 'static> Ui<S> {
     /// takes input or not (a tool picks what you see). Popups drawn on the canvas come first.
     pub fn hit_test(&self, point: Point) -> Option<ControlId> {
         let identity = skia_safe::Matrix::default();
-        for popup in self.tree.popups.iter().rev().filter(|p| !p.in_window(self.popup_windows_on)) {
+        for popup in self.tree.popups.iter().rev().filter(|p| !p.options.passive && !p.in_window(self.popup_windows_on)) {
             {
                 if let Some(hit) = self.tree.visual_pick(popup.root, point, &identity) {
                     return Some(hit);
@@ -1504,7 +1548,7 @@ impl<S: 'static> Ui<S> {
     /// The root of the popup drawn on the canvas under the pixel, the top one first.
     fn popup_on_canvas_at(&self, point: Point) -> Option<ControlId> {
         let on = self.popup_windows_on;
-        self.tree.popups.iter().rev().find(|p| !p.in_window(on) && skia_safe::Contains::contains(&p.rect, point)).map(|p| p.root)
+        self.tree.popups.iter().rev().find(|p| !p.options.passive && !p.in_window(on) && skia_safe::Contains::contains(&p.rect, point)).map(|p| p.root)
     }
 
     /// Lays out the popup windows after the app's root: each measured at its scale (its window's,
@@ -1527,7 +1571,10 @@ impl<S: 'static> Ui<S> {
                 _ if windowed => Rect::from_size(measured),
                 _ => {
                     let (anchor, point) = p.anchor.pixels(&self.tree, scale);
-                    crate::popups::place_popup(anchor, point, measured, content)
+                    match p.options.passive {
+                        true => crate::popups::place_tooltip(Point::new(anchor.left, anchor.top), scale, measured, content),
+                        false => crate::popups::place_popup(anchor, point, measured, content),
+                    }
                 }
             };
             // Cut to the screen (the canvas): measured again inside what is left, so a scroll in
@@ -1550,7 +1597,7 @@ impl<S: 'static> Ui<S> {
         let on = self.popup_windows_on;
         self.tree.popups.iter().filter(move |p| p.in_window(on)).map(move |p| {
             let (anchor, point) = p.anchor.pixels(&self.tree, scale);
-            crate::PopupWindowRequest { id: p.id, anchor, point, size: p.wanted, cpu: p.options.cpu }
+            crate::PopupWindowRequest { id: p.id, anchor, point, size: p.wanted, cpu: p.options.cpu, passive: p.options.passive }
         })
     }
 
@@ -1872,10 +1919,11 @@ impl<S: 'static> Ui<S> {
             layout::measure(&mut self.tree, &self.fonts, &self.state, root, content.width(), content.height(), scale);
             layout::arrange(&mut self.tree, &self.fonts, &self.state, root, content, scale);
             self.layout_popups(content, scale);
-            if let Some(newest) = self.tree.popups.last().filter(|p| p.id > self.popups_focused).map(|p| (p.id, p.root)) {
+            if let Some(newest) = self.tree.popups.iter().rev().find(|p| !p.options.passive).filter(|p| p.id > self.popups_focused).map(|p| (p.id, p.root)) {
                 self.popups_focused = newest.0;
                 self.focus_opened_popup(newest.1);
             }
+            self.update_tooltip(time_ms);
             // Image handlers run before the bitmap is first painted.
             if images::dispatch(&mut self.tree, &mut self.state) {
                 self.state_dirty = true;
@@ -1976,6 +2024,7 @@ impl<S: 'static> Ui<S> {
         for seed in 0..=self.tree.popups.len() {
             let (seed_root, seed_matrix, popup) = match seed.checked_sub(1).map(|i| &self.tree.popups[i]) {
                 None => (root, Matrix::new_identity(), false),
+                Some(p) if p.options.passive => continue,
                 Some(p) if !p.in_window(self.popup_windows_on) => (p.root, Matrix::new_identity(), true),
                 Some(p) => match p.window {
                     Some((_, own, offset)) => {
@@ -2145,7 +2194,7 @@ impl<S: 'static> Ui<S> {
                     // A press outside the popup windows closes them and goes nowhere, as a click
                     // beside a native menu does; a right click still asks for a new menu there.
                     if gesture.kind == GestureKind::Down {
-                        self.eating_press = !self.tree.popups.is_empty();
+                        self.eating_press = self.tree.popups.iter().any(|p| !p.options.passive);
                         Cx { tree: &mut self.tree }.close_popup_windows();
                     }
                     if self.eating_press && pressing {
@@ -3084,6 +3133,9 @@ impl<S: 'static> App for Ui<S> {
             return;
         }
         self.tree.window_focused = Some(focused);
+        if !focused {
+            self.close_tooltip(false);
+        }
         if let Some(handler) = self.window_focus.as_mut() {
             handler(&mut self.state, focused, &mut Cx { tree: &mut self.tree });
             self.state_dirty = true;

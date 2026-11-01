@@ -402,6 +402,8 @@ base_props! {
     /// Spoken label; empty = the control's own text (`Control::accessibility_label`).
     accessibility_label / set_accessibility_label: String = String::new(), NONE;
     accessibility_hint / set_accessibility_hint: String = String::new(), NONE;
+    /// Shown in a small bubble when the mouse rests on the control (DrawnUI `Tooltip`); empty: none.
+    tooltip / set_tooltip: String = String::new(), NONE;
     /// Tab stop and activation in the overlay; unset = true when the control has a tapped handler.
     accessibility_can_interact / set_accessibility_can_interact: Option<bool> = None, NONE;
     /// aria-pressed / aria-checked for toggles; `None` = not a toggle.

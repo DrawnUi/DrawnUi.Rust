@@ -75,6 +75,10 @@ pub struct PopupWindowOptions {
     /// per-pixel alpha, so round corners and shadows show the desktop through them on any GPU).
     /// For small popups; a big one costs a CPU upload per frame. Ignored on the canvas.
     pub cpu: bool,
+    /// Shows only, as a tooltip: takes no input (clicks go through its window), has no
+    /// accessibility node, takes no keyboard focus and is not the popup Tab or Escape works on;
+    /// a press outside it is not kept from the controls below.
+    pub passive: bool,
 }
 
 /// How long the mouse may be outside every window before `close_on_pointer_leave` closes.
@@ -93,6 +97,8 @@ pub struct PopupWindowRequest {
     pub size: Size,
     /// Drawn on the CPU (`PopupWindowOptions::cpu`).
     pub cpu: bool,
+    /// Takes no input: its window lets the mouse through (`PopupWindowOptions::passive`).
+    pub passive: bool,
 }
 
 impl Popup {
@@ -137,6 +143,21 @@ pub fn place_popup(anchor: Rect, point: bool, size: Size, bounds: Rect) -> Rect 
     let mut top = anchor.bottom;
     if top + h > bounds.bottom {
         top = anchor.top - h;
+    }
+    let left = left.clamp(bounds.left, bounds.right - w).round();
+    let top = top.clamp(bounds.top, bounds.bottom - h).round();
+    Rect::from_xywh(left, top, w.round(), h.round())
+}
+
+/// Where a tooltip goes (drawnui-cross 6ar), in pixels: its bottom-left corner 12 points right of
+/// and 6 points above the pointer, 20 points below it where there is no room above, inside `bounds`.
+/// `scale` = pixels per point.
+pub fn place_tooltip(pointer: Point, scale: f32, size: Size, bounds: Rect) -> Rect {
+    let (w, h) = (size.width.min(bounds.width()).max(0.0), size.height.min(bounds.height()).max(0.0));
+    let left = pointer.x + 12.0 * scale;
+    let mut top = pointer.y - 6.0 * scale - h;
+    if top < bounds.top {
+        top = pointer.y + 20.0 * scale;
     }
     let left = left.clamp(bounds.left, bounds.right - w).round();
     let top = top.clamp(bounds.top, bounds.bottom - h).round();

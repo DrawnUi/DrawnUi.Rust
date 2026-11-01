@@ -38,14 +38,14 @@ pub use gestures::{ContextMenuSource, Gesture, GestureKind, LONG_PRESS_MS, Manip
 pub use gpu::{GlTarget, Gpu, GpuApi, VulkanHandles};
 pub use images::{Frames, ImageRequest, Images};
 pub use keyboard::{Cursor, InputKey, KEY_CODES, KeyEvent, KeyKind, Keyboard, Modifiers, key_name};
-pub use popups::{PopupAnchor, PopupId, PopupWindowOptions, PopupWindowRequest, place_popup};
+pub use popups::{PopupAnchor, PopupId, PopupWindowOptions, PopupWindowRequest, place_popup, place_tooltip};
 pub use tree::{Base, Build, Container, ControlId, ControlProps, Cx, Detached, Handle, IntoChildren, Mut, Tree};
 pub use ui::{ACCESSIBILITY_INTERVAL_MS, AccessibilityNode, AccessibilityTextLine, AccessibilityValue, Aria, ContextMenu, FrameStats, HistoryOp};
 pub use types::{
     CacheType, CornerRadius, Dirty, GesturesMode, GpuBackend, GradientType, IntoProp, LayoutOptions, LockTouch, RenderingModeType, SkiaGradient, SkiaShadow,
     Thickness,
 };
-pub use ui::Ui;
+pub use ui::{TooltipStyle, Ui};
 pub use waker::Waker;
 
 /// Everything an app needs: `use drawnui::prelude::*;`

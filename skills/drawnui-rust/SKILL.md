@@ -628,6 +628,19 @@ no caret set gets it at the end too. To put the caret where the user tapped, ask
 `cx.editor_cursor_at(editor, point)` (canvas points, as a gesture's location) and pass the result to
 `set_cursor_position`.
 
+## Tooltips
+
+`.tooltip("Save")` on any control: its text shows in a small bubble when the mouse rests on the
+control for 600 ms, above and to the right of the pointer (below it where there is no room above);
+moving to the next control with a tooltip shows that one at once. The innermost control with a
+tooltip wins. It closes when the mouse leaves, on a press (and stays closed over that control), the
+wheel, a key, or when the content moves under the mouse; a finger never shows one. It takes no
+clicks and is not read by screen readers. On the desktop it is a window of its own, so it can reach
+past the app window. `Ui::tooltip_style(TooltipStyle { .. })` sets colors, font, corner radius,
+padding, max width, the show delay and the follow window, or `content` to build your own.
+`Ui::tooltips_from_accessibility(true)` gives controls without a tooltip their accessibility hint, or
+the accessibility label of a control that shows no text (an icon button).
+
 ## Mouse cursor
 
 The engine shows the hand over anything with a tapped handler or `accessibility_can_interact`, and

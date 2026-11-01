@@ -4,6 +4,19 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## Unreleased
+
+### Added
+
+- Tooltips: `.tooltip("Save")` on any control shows its text when the mouse rests on it (600 ms),
+  above and right of the pointer, at once when moving to the next control; it closes when the mouse
+  leaves, on a press, the wheel or a key, and never shows for touch. `Ui::tooltip_style` sets the
+  look and the delays (or builds custom content); `Ui::tooltips_from_accessibility(true)` shows a
+  control's accessibility hint, or the label of an icon control, when it has no tooltip. On the
+  desktop the tooltip is a window of its own, so it can reach past the app window's edge.
+- `PopupWindowOptions::passive`: a popup that only shows (no input, no accessibility node), as a
+  tooltip; `place_tooltip`.
+
 ## 0.1.0-preview.29 (crates.io, 2026-11-01)
 
 ### Added

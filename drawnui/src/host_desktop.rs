@@ -2054,6 +2054,10 @@ impl Desktop {
                         eprintln!("drawnui: no popup window could be made");
                         continue;
                     };
+                    // A tooltip: the mouse goes through it to the app's window.
+                    if request.passive {
+                        let _ = window.set_cursor_hittest(false);
+                    }
                     // macOS: made on screen already (see `popup_attributes`).
                     let shown = cfg!(target_os = "macos");
                     self.popups.push(PopupWindow { id: request.id, surface: None, target, window, request, shown, stale: true, cursor: (0.0, 0.0) });
@@ -2097,7 +2101,11 @@ impl Desktop {
         };
         let size = if cfg!(target_os = "macos") { request.size } else { skia::Size::new(request.size.width * scale as f32, request.size.height * scale as f32) };
         let size = skia::Size::new(size.width.ceil().max(1.0), size.height.ceil().max(1.0));
-        let rect = crate::place_popup(anchor, request.point, size, bounds);
+        let rect = match request.passive {
+            // A tooltip: above and right of the pointer (`place_tooltip`), in the monitor's pixels.
+            true => crate::place_tooltip(skia::Point::new(anchor.left, anchor.top), if cfg!(target_os = "macos") { 1.0 } else { scale as f32 }, size, bounds),
+            false => crate::place_popup(anchor, request.point, size, bounds),
+        };
         if cfg!(target_os = "macos") {
             let position = winit::dpi::LogicalPosition::new(rect.left as f64, rect.top as f64);
             (position.into(), winit::dpi::LogicalSize::new(rect.width() as f64, rect.height() as f64).into(), scale)
