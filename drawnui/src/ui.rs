@@ -331,7 +331,6 @@ pub struct Ui<S: 'static> {
     popups_focused: u32,
     /// The tooltip under the mouse (`tooltip.rs`).
     tip: tooltip::Tip,
-    tooltip_style: TooltipStyle,
     /// Controls without a tooltip of their own show their accessibility hint, else their label.
     tooltips_from_accessibility: bool,
     /// The popup window the input being routed came from (`None`: the app's window).
@@ -460,7 +459,6 @@ impl<S: 'static> Ui<S> {
             popup_windows_on: false,
             popups_focused: 0,
             tip: Default::default(),
-            tooltip_style: TooltipStyle::default(),
             tooltips_from_accessibility: false,
             input_popup: None,
             press_popup: None,
@@ -611,7 +609,7 @@ impl<S: 'static> Ui<S> {
     /// Phones: `true` when the app is shown, `false` when hidden. `Cx::window_focused` reads it.
     /// How tooltips look and when they show (DrawnUI `TooltipStyle`).
     pub fn tooltip_style(mut self, style: TooltipStyle) -> Self {
-        self.tooltip_style = style;
+        self.tree.tooltip_style = style;
         self
     }
 

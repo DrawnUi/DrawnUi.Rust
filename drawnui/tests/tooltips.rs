@@ -206,3 +206,23 @@ fn the_default_bubble_wraps_long_text_at_the_max_width() {
         Color::from_argb(0x59, 0, 0, 0)
     ));
 }
+
+#[test]
+fn a_style_set_at_run_time_applies_from_the_next_tooltip() {
+    let (mut host, shown) = host(false);
+    hover(&mut host, 60.0, 40.0);
+    wait(&mut host, 700.0);
+    assert_eq!(*shown.borrow(), ["Save"]);
+    let log = shown.clone();
+    let mut cx = host.ui.tree.cx();
+    let mut style = cx.tooltip_style().clone();
+    style.content = Some(Rc::new(move |text: &str| {
+        log.borrow_mut().push(format!("themed {text}"));
+        SkiaLabel::new(text.to_owned()).into()
+    }));
+    cx.set_tooltip_style(style);
+    host.frame_after(16.0);
+    assert_eq!(shown.borrow().len(), 1, "the open one keeps its look");
+    hover(&mut host, 160.0, 40.0);
+    assert_eq!(*shown.borrow(), ["Save", "themed Open"]);
+}

@@ -58,6 +58,19 @@ impl Default for TooltipStyle {
     }
 }
 
+impl Cx<'_> {
+    /// Changes how tooltips look (a theme switched at run time): from the next tooltip shown; one
+    /// already open keeps its look until it closes.
+    pub fn set_tooltip_style(&mut self, style: TooltipStyle) {
+        self.tree.tooltip_style = style;
+    }
+
+    /// How tooltips look now, to change one field and set it again.
+    pub fn tooltip_style(&self) -> &TooltipStyle {
+        &self.tree.tooltip_style
+    }
+}
+
 /// Points of room around the default bubble for its shadow.
 const SHADOW_ROOM: f32 = 8.0;
 
@@ -130,7 +143,7 @@ impl<S: 'static> Ui<S> {
     /// When the tooltip waiting for the mouse to rest is due (`Ui::wake_at`).
     pub(crate) fn tooltip_due(&self) -> Option<f64> {
         let waiting = self.tip.shown.is_none() && self.tip.target.is_some() && self.tip.suppressed != self.tip.target;
-        waiting.then(|| self.tip.rest_since + self.tooltip_style.show_delay_ms)
+        waiting.then(|| self.tip.rest_since + self.tree.tooltip_style.show_delay_ms)
     }
 
     /// Once per frame, after the layout: follows the mouse and the content under it.
@@ -158,13 +171,13 @@ impl<S: 'static> Ui<S> {
             if self.tip.suppressed != target {
                 self.tip.suppressed = None;
             }
-            let following = moved && (was_shown || self.tip.closed_at.is_some_and(|at| time_ms - at <= self.tooltip_style.follow_window_ms));
+            let following = moved && (was_shown || self.tip.closed_at.is_some_and(|at| time_ms - at <= self.tree.tooltip_style.follow_window_ms));
             if following && target.is_some() && self.tip.suppressed.is_none() {
                 self.show_tooltip(point);
             }
             return;
         }
-        if self.tip.shown.is_none() && target.is_some() && self.tip.suppressed != target && time_ms - self.tip.rest_since >= self.tooltip_style.show_delay_ms {
+        if self.tip.shown.is_none() && target.is_some() && self.tip.suppressed != target && time_ms - self.tip.rest_since >= self.tree.tooltip_style.show_delay_ms {
             self.show_tooltip(point);
         }
     }
@@ -172,7 +185,7 @@ impl<S: 'static> Ui<S> {
     fn show_tooltip(&mut self, point: Point) {
         let Some(target) = self.tip.target else { return };
         let Some(text) = self.tooltip_text(target).map(str::to_owned) else { return };
-        let style = &self.tooltip_style;
+        let style = &self.tree.tooltip_style;
         let content: Detached = match &style.content {
             Some(make) => make(&text),
             None => {

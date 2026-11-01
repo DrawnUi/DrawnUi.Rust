@@ -677,6 +677,8 @@ pub struct Tree {
     /// roots of this tree besides `root`.
     pub(crate) popups: Vec<crate::popups::Popup>,
     pub(crate) popup_next_id: u32,
+    /// How tooltips look (`Ui::tooltip_style`, `Cx::set_tooltip_style`).
+    pub(crate) tooltip_style: crate::TooltipStyle,
     /// The app's window has the keyboard (`Cx::window_focused`); `None` until a host says.
     pub(crate) window_focused: Option<bool>,
 }
