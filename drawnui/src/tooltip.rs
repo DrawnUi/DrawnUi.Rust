@@ -65,6 +65,11 @@ impl Cx<'_> {
         self.tree.tooltip_style = style;
     }
 
+    /// Turns the accessibility-text fallback on or off at run time (`Ui::tooltips_from_accessibility`).
+    pub fn set_tooltips_from_accessibility(&mut self, on: bool) {
+        self.tree.tooltips_from_accessibility = on;
+    }
+
     /// How tooltips look now, to change one field and set it again.
     pub fn tooltip_style(&self) -> &TooltipStyle {
         &self.tree.tooltip_style
@@ -101,7 +106,7 @@ impl<S: 'static> Ui<S> {
         if !p.tooltip.is_empty() {
             return Some(&p.tooltip);
         }
-        if !self.tooltips_from_accessibility {
+        if !self.tree.tooltips_from_accessibility {
             return None;
         }
         if !p.accessibility_hint.is_empty() {

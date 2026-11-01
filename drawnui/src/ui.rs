@@ -331,8 +331,6 @@ pub struct Ui<S: 'static> {
     popups_focused: u32,
     /// The tooltip under the mouse (`tooltip.rs`).
     tip: tooltip::Tip,
-    /// Controls without a tooltip of their own show their accessibility hint, else their label.
-    tooltips_from_accessibility: bool,
     /// The popup window the input being routed came from (`None`: the app's window).
     input_popup: Option<u32>,
     /// The popup window the press began in, and the one the mouse is over.
@@ -459,7 +457,6 @@ impl<S: 'static> Ui<S> {
             popup_windows_on: false,
             popups_focused: 0,
             tip: Default::default(),
-            tooltips_from_accessibility: false,
             input_popup: None,
             press_popup: None,
             hover_popup: None,
@@ -617,7 +614,7 @@ impl<S: 'static> Ui<S> {
     /// its accessibility label when it shows no text of its own (an icon button) (DrawnUI
     /// `Super.TooltipsFromAccessibility`). Off by default.
     pub fn tooltips_from_accessibility(mut self, on: bool) -> Self {
-        self.tooltips_from_accessibility = on;
+        self.tree.tooltips_from_accessibility = on;
         self
     }
 

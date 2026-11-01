@@ -153,6 +153,20 @@ fn from_accessibility_uses_the_hint_else_the_label_of_a_control_without_text() {
 }
 
 #[test]
+fn from_accessibility_turned_on_at_run_time_applies_from_the_next_tooltip() {
+    let (mut host, shown) = host(false);
+    host.ui.tree.cx().set_tooltips_from_accessibility(true);
+    hover(&mut host, 260.0, 40.0);
+    wait(&mut host, 700.0);
+    assert_eq!(*shown.borrow(), ["Settings"]);
+    host.ui.tree.cx().set_tooltips_from_accessibility(false);
+    hover(&mut host, 500.0, 250.0);
+    hover(&mut host, 260.0, 40.0);
+    wait(&mut host, 700.0);
+    assert_eq!(shown.borrow().len(), 1, "off again: the icon shows none");
+}
+
+#[test]
 fn it_opens_above_and_right_of_the_pointer_or_below_without_room() {
     let bounds = Rect::from_xywh(0.0, 0.0, 600.0, 300.0);
     let size = Size::new(80.0, 24.0);
