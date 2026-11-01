@@ -620,6 +620,14 @@ SkiaButton::new("Fruit").assign(&mut app.fruit).on_tapped(|_me, app: &mut App, c
   `popup_tap(id, x, y)` and `popup_hover(id, at)` drive the popup's window. Without that call, popups
   are on the canvas, as in the browser.
 
+## Editor caret from code
+
+`set_text`, then `set_cursor_position(usize::MAX)` (after the text) and `cx.focus(Some(editor))`,
+all in one handler, opens a field with the caret after its new text; a field focused from code with
+no caret set gets it at the end too. To put the caret where the user tapped, ask
+`cx.editor_cursor_at(editor, point)` (canvas points, as a gesture's location) and pass the result to
+`set_cursor_position`.
+
 ## Mouse cursor
 
 The engine shows the hand over anything with a tapped handler or `accessibility_can_interact`, and

@@ -2366,7 +2366,7 @@ fn plain_gesture(kind: GestureKind, location: Point, time_ms: f64) -> Gesture {
 }
 
 /// Maps a canvas point into the control's own space, through every ancestor's render transform.
-fn to_local(tree: &Tree, id: ControlId, point: Point) -> Point {
+pub(crate) fn to_local(tree: &Tree, id: ControlId, point: Point) -> Point {
     let Some(parent) = tree.parent(id) else { return map_into(tree, id, point) };
     let offset = tree.base(parent).map_or(Point::default(), |b| b.content_offset);
     map_into(tree, id, to_local(tree, parent, point) - offset)

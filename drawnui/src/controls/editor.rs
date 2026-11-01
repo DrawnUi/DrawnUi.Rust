@@ -323,9 +323,16 @@ impl SkiaEditor {
         Dirty::DRAW_APPLY
     }
 
+    /// Characters of the text as it is now: `chars` is counted again only when the text is
+    /// applied, so a caret placed right after `set_text` is clamped to the new text.
+    fn text_chars(&self) -> usize {
+        self.p.text.chars().count()
+    }
+
     fn select(&mut self, start: usize, end: usize) -> Dirty {
         self.cursor_set = true;
-        let (s, e) = (start.min(end).min(self.chars), start.max(end).min(self.chars));
+        let chars = self.text_chars();
+        let (s, e) = (start.min(end).min(chars), start.max(end).min(chars));
         self.cursor = s;
         self.selection = e - s;
         self.moved()
@@ -798,6 +805,24 @@ fn grapheme_before(text: &str, from: usize) -> usize {
     grapheme_stops(text, 0, from.saturating_sub(1)).last().unwrap_or(0)
 }
 
+impl Cx<'_> {
+    /// The caret index a tap at `point` (canvas points, as a gesture's location) would place in
+    /// `editor`, through its scroll, padding and transforms (C# GetCursorPosition): for an app that
+    /// focuses the field itself and puts the caret where the user tapped. `None` while the editor is
+    /// not laid out.
+    pub fn editor_cursor_at(&self, editor: Handle<SkiaEditor>, point: Point) -> Option<usize> {
+        let tree = &*self.tree;
+        let field = tree.find::<SkiaEditor>(editor)?;
+        let base = tree.base(editor)?;
+        if base.rect.is_empty() {
+            return None;
+        }
+        let local = crate::ui::to_local(tree, editor.id(), Point::new(point.x * base.scale, point.y * base.scale)) + field.scroll;
+        let label = tree.find::<SkiaLabel>(field.label)?;
+        Some(index_at(label, &field.p.text, local.x, local.y))
+    }
+}
+
 /// The caret index nearest to a point (C# GetCursorPosition, DrawnUi.React HitTestIndex): on the
 /// line under it, the grapheme boundary whose caret is nearest on screen; on a tie the smaller one.
 fn index_at(label: &SkiaLabel, text: &str, x: f32, y: f32) -> usize {
@@ -884,7 +909,7 @@ impl Mut<'_, SkiaEditor> {
     /// Moves the caret; the selection keeps its length where it fits.
     pub fn set_cursor_position(&mut self, index: usize) {
         self.apply(|e| {
-            let s = index.min(e.chars);
+            let s = index.min(e.text_chars());
             e.select(s, s + e.selection)
         });
     }
@@ -901,7 +926,7 @@ impl Mut<'_, SkiaEditor> {
 
     /// Selects the whole text.
     pub fn select_all(&mut self) {
-        self.apply(|e| e.select(0, e.chars));
+        self.apply(|e| e.select(0, usize::MAX));
     }
 
     /// Selects the word around a character.
