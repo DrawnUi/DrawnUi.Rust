@@ -1,5 +1,5 @@
 //! The demo's sample pages: the single source of the root menu cards, as the React demo's
-//! `catalog.ts`. Its 20 entries, titles and texts, in its order.
+//! `catalog.ts`. Its entries, titles and texts, in its order (Tooltips & Menus after Shell, from HelloMaui).
 
 use drawnui::prelude::*;
 
@@ -16,7 +16,7 @@ pub struct Sample {
 }
 
 /// Every sample, in the order the React demo lists them.
-pub static SAMPLES: [Sample; 20] = [
+pub static SAMPLES: [Sample; 21] = [
     Sample {
         route: "cells",
         title: "Recycled cells",
@@ -82,6 +82,12 @@ pub static SAMPLES: [Sample; 20] = [
         title: "Shell",
         text: "SkiaShell — page transitions, OpenPopupAsync, PushModalAsync (drawer), ShowToast",
         build: pages::shell::build,
+    },
+    Sample {
+        route: "menus",
+        title: "Tooltips & Menus",
+        text: "Tooltip on any control, TooltipsFromAccessibility for icon buttons, a context menu and a dropdown in popup windows — OpenPopupWindow",
+        build: pages::menus::build,
     },
     Sample {
         route: "editor",

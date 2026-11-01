@@ -1,0 +1,519 @@
+//! Tooltips & Menus, ported from HelloMaui's TooltipsMenusPage: a desktop menu bar, a context menu
+//! (right-click anywhere on the page) and a dropdown in popup windows, then tooltips on any control,
+//! icon buttons showing their accessibility label.
+
+use drawnui::Detached;
+use drawnui::prelude::*;
+
+use super::{column, page_title, scrolling};
+use crate::{App, hex};
+
+const CARD: Color = hex(0x2B3035);
+const BUTTON: Color = hex(0x373B3E);
+const BUTTON_HOVER: Color = hex(0x495057);
+const MUTED: Color = hex(0xADB5BD);
+const ACCENT: Color = hex(0x6EA8FE);
+/// The menus' panel, edge, highlighted line and the title of the open menu.
+const PANEL: Color = hex(0x262B3B);
+const EDGE: Color = hex(0x3B4256);
+const HIGHLIGHT: Color = hex(0x343B52);
+const TITLE_OPEN: Color = hex(0x5A6270);
+
+const ICON_NEW: &str = "<svg viewBox='0 0 24 24'><path fill='#fff' d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zm4 18H6V4h7v5h5zM11 11h2v3h3v2h-3v3h-2v-3H8v-2h3z'/></svg>";
+const ICON_OPEN: &str = "<svg viewBox='0 0 24 24'><path fill='#fff' d='M20 6h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2m0 12H4V8h16z'/></svg>";
+const ICON_SAVE: &str = "<svg viewBox='0 0 24 24'><path fill='#fff' d='M17 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7zm2 16H5V5h11.17L19 7.83zM12 12a3 3 0 1 0 0 6 3 3 0 0 0 0-6M6 6h9v4H6z'/></svg>";
+const ICON_SETTINGS: &str = "<svg viewBox='0 0 24 24'><path fill='#fff' d='M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.6 7.6 0 0 0-1.7-1L15 3h-4l-.4 2.9a7.6 7.6 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.6 7.6 0 0 0 1.7 1L11 21h4l.4-2.9a7.6 7.6 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7'/></svg>";
+const ICON_DELETE: &str = "<svg viewBox='0 0 24 24'><path fill='#fff' d='M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zm2-10h8v10H8zm7.5-5-1-1h-5l-1 1H5v2h14V4z'/></svg>";
+const ICON_INFO: &str = "<svg viewBox='0 0 24 24'><path fill='#fff' d='M11 7h2v2h-2zm0 4h2v6h-2zm1-9a10 10 0 1 0 0 20 10 10 0 0 0 0-20m0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16'/></svg>";
+
+/// One line of a menu bar menu; `text` `None` = a separator. `key` + `ctrl`: its shortcut.
+struct Entry {
+    text: Option<&'static str>,
+    shortcut: Option<&'static str>,
+    key: &'static str,
+    ctrl: bool,
+}
+
+const fn line(text: &'static str, shortcut: &'static str, key: &'static str) -> Entry {
+    Entry { text: Some(text), shortcut: Some(shortcut), key, ctrl: true }
+}
+
+const SEPARATOR: Entry = Entry { text: None, shortcut: None, key: "", ctrl: false };
+
+struct BarMenu {
+    title: &'static str,
+    /// Alt + this key opens it.
+    accelerator: &'static str,
+    entries: &'static [Entry],
+}
+
+static MENUS: [BarMenu; 4] = [
+    BarMenu {
+        title: "File",
+        accelerator: "KeyF",
+        entries: &[line("New", "Ctrl+N", "KeyN"), line("Open…", "Ctrl+O", "KeyO"), line("Save", "Ctrl+S", "KeyS"), SEPARATOR, line("Close", "Ctrl+W", "KeyW")],
+    },
+    BarMenu {
+        title: "Edit",
+        accelerator: "KeyE",
+        entries: &[
+            line("Undo", "Ctrl+Z", "KeyZ"),
+            line("Redo", "Ctrl+Y", "KeyY"),
+            SEPARATOR,
+            line("Cut", "Ctrl+X", "KeyX"),
+            line("Copy", "Ctrl+C", "KeyC"),
+            line("Paste", "Ctrl+V", "KeyV"),
+        ],
+    },
+    BarMenu {
+        title: "View",
+        accelerator: "KeyV",
+        entries: &[
+            line("Zoom in", "Ctrl+=", "Equal"),
+            line("Zoom out", "Ctrl+-", "Minus"),
+            SEPARATOR,
+            Entry { text: Some("Full screen"), shortcut: Some("F11"), key: "F11", ctrl: false },
+        ],
+    },
+    BarMenu {
+        title: "Help",
+        accelerator: "KeyH",
+        entries: &[Entry { text: Some("Documentation"), shortcut: Some("F1"), key: "F1", ctrl: false }, SEPARATOR, Entry { text: Some("About"), shortcut: None, key: "", ctrl: false }],
+    },
+];
+
+/// The lines of a menu (separators left out): (entry index, entry).
+fn lines(menu: usize) -> impl Iterator<Item = (usize, &'static Entry)> {
+    MENUS[menu].entries.iter().enumerate().filter(|(_, entry)| entry.text.is_some())
+}
+
+#[derive(Default)]
+pub struct State {
+    titles: [Handle<SkiaShape>; 4],
+    /// The title under the mouse.
+    hovered: Option<usize>,
+    /// The menu bar menu open and its popup.
+    open: Option<usize>,
+    bar_popup: Option<PopupId>,
+    /// The highlighted line of the open menu (its index among the lines).
+    highlighted: Option<usize>,
+    command: String,
+    /// The context menu or the dropdown open.
+    menu: Option<PopupId>,
+    picked: Option<&'static str>,
+}
+
+#[cfg(test)]
+impl State {
+    pub(crate) fn open(&self) -> Option<usize> {
+        self.open
+    }
+
+    pub(crate) fn title(&self, index: usize) -> ControlId {
+        self.titles[index].into()
+    }
+}
+
+/// Builds the page.
+pub fn build(app: &mut App) -> Build<SkiaLayout> {
+    scrolling(column().children((
+        page_title("Tooltips & Menus").accessibility_role(Aria::HEADING),
+        SkiaLabel::new(
+            "A desktop menu bar, a context menu (right-click anywhere on the page) and a dropdown, then tooltips: rest the mouse on a control, move along a row and the next one shows at once; a click, the wheel or a key closes it.",
+        )
+        .font_size(14)
+        .text_color(hex(0xD3D3D3))
+        .fill_x()
+        .horizontal_text_alignment(TextAlignment::Center),
+        card(
+            "Menu bar",
+            "Click a menu, or press Alt with its first letter (Alt+F, Alt+E, Alt+V, Alt+H). Left and Right open the next menu, Up and Down move through it, Enter picks, Escape closes. The shortcuts (Ctrl+N, Ctrl+S, F1...) work with the menus closed too.",
+            (
+                SkiaShape::new().fill_x().corner_radius(8).background_color(BUTTON).padding(4).children(
+                    SkiaRow::new()
+                        .spacing(2)
+                        .accessibility_role(Aria::MENU_BAR)
+                        .accessibility_label("Menu bar")
+                        .children((0..MENUS.len()).map(|i| title(i, &mut app.menus.titles[i])).collect::<Vec<_>>()),
+                ),
+                SkiaLabel::new("")
+                    .font_size(14)
+                    .text_color(Color::WHITE)
+                    .accessibility_role(Aria::STATUS)
+                    .accessibility_live(Aria::LIVE_POLITE)
+                    .observe(|me, app: &App| {
+                        let text = if app.menus.command.is_empty() { "Last command: none" } else { app.menus.command.as_str() };
+                        me.set_text(text.to_owned());
+                    }),
+            ),
+        ),
+        card(
+            "Context menu and dropdown",
+            "Right-click anywhere on the page: the menu opens where you clicked. The button opens a list below it. A click outside or Escape closes them.",
+            (
+                text_button("Choose a fruit").on_tapped(|me, app: &mut App, cx| {
+                    let fruits = ["Apple", "Banana", "Cherry", "Grape", "Mango", "Orange", "Peach", "Pear"];
+                    app.menus.menu = Some(cx.open_popup_window(menu("Fruits", &fruits), me.id(), PopupWindowOptions::default()));
+                }),
+                SkiaLabel::new("")
+                    .font_size(14)
+                    .text_color(Color::WHITE)
+                    .accessibility_role(Aria::STATUS)
+                    .accessibility_live(Aria::LIVE_POLITE)
+                    .observe(|me, app: &App| {
+                        me.set_text(match app.menus.picked {
+                            Some(item) => format!("Picked: {item}"),
+                            None => "Nothing picked yet".to_owned(),
+                        })
+                    }),
+            ),
+        ),
+        card(
+            "Icon toolbar",
+            "No Tooltip set: the text is each button's AccessibilityLabel (TooltipsFromAccessibility, switch below).",
+            (
+                SkiaRow::new().spacing(6).accessibility_role(Aria::TOOLBAR).accessibility_label("File tools").children((
+                    icon_button(ICON_NEW, "New file"),
+                    icon_button(ICON_OPEN, "Open"),
+                    icon_button(ICON_SAVE, "Save"),
+                    icon_button(ICON_SETTINGS, "Settings"),
+                    icon_button(ICON_DELETE, "Delete"),
+                )),
+                SkiaRow::new().spacing(12).children((
+                    // The Hello palette, not the library's default accent.
+                    SkiaSwitch::new()
+                        .is_toggled(true)
+                        .accessibility_label("Tooltips from accessibility text")
+                        .vertical_options(LayoutOptions::Center)
+                        .color_frame_on(hex(0x0D6EFD))
+                        .color_frame_off(BUTTON_HOVER)
+                        .color_thumb_on(Color::WHITE)
+                        .color_thumb_off(Color::WHITE)
+                        .on_toggled(|_me, _app: &mut App, cx, on| cx.set_tooltips_from_accessibility(on)),
+                    SkiaLabel::new("Tooltips from accessibility text")
+                        .font_size(14)
+                        .text_color(Color::WHITE)
+                        .vertical_options(LayoutOptions::Center)
+                        .accessibility_role(Aria::PRESENTATION),
+                )),
+            ),
+        ),
+        card(
+            "Explicit tooltips",
+            "Set with .tooltip(...). The last one is long: it wraps at the maximum width.",
+            SkiaWrap::new().spacing(10).children((
+                text_button("Publish").tooltip("Uploads the current version"),
+                text_button("Preview").tooltip("Opens a live preview"),
+                text_button("Share").tooltip("Copies a link to this project"),
+                text_button("Long text").tooltip("This tooltip is long on purpose: it wraps at the maximum width of 320 points, so you can see how a tooltip with several lines looks."),
+            )),
+        ),
+        card(
+            "Near the window edge",
+            "Rest on the icon at the right. On Windows the tooltip opens in a window of its own and can go past the edge of the app window; on phones, tablets and in the browser it stays inside the app.",
+            SkiaLayer::new().fill_x().height_request(44).children(
+                icon_button(ICON_INFO, "Information")
+                    .horizontal_options(LayoutOptions::End)
+                    .tooltip("This tooltip opens near the right edge of the window and is long enough to reach it"),
+            ),
+        ),
+        card(
+            "Scrolling closes it",
+            "Rest on a row, then scroll this list with the wheel.",
+            SkiaShape::new().fill_x().height_request(220).corner_radius(8).background_color(hex(0x212529)).is_clipped_to_bounds(true).children(
+                SkiaScroll::new().fill().content(
+                    SkiaStack::new().spacing(1).children(
+                        (1..=30)
+                            .map(|i| {
+                                SkiaLayer::new().height_request(36).fill_x().background_color(CARD).tooltip(format!("Details of row {i}")).children(
+                                    SkiaLabel::new(format!("Row {i}")).font_size(14).text_color(Color::WHITE).margin((12, 0)).vertical_options(LayoutOptions::Center),
+                                )
+                            })
+                            .collect::<Vec<_>>(),
+                    ),
+                ),
+            ),
+        ),
+    )))
+    // Right-click anywhere on the page: the Edit menu where it was.
+    .on_context_menu(|_me, app: &mut App, cx, at| {
+        let items = ["Cut", "Copy", "Paste", "Select all", "Settings…"];
+        app.menus.menu = Some(cx.open_popup_window(menu("Edit", &items), at.location, PopupWindowOptions::default()));
+        true
+    })
+}
+
+/// The page shows icon buttons' accessibility labels as tooltips (the switch turns it off).
+pub fn opened(_app: &mut App, cx: &mut Cx) {
+    cx.set_tooltips_from_accessibility(true);
+}
+
+/// A popup closed, for any reason: the menu bar unselects its title.
+pub fn popup_closed(app: &mut App, id: PopupId) {
+    let state = &mut app.menus;
+    if state.bar_popup == Some(id) {
+        (state.bar_popup, state.open, state.highlighted) = (None, None, None);
+    }
+    if state.menu == Some(id) {
+        state.menu = None;
+    }
+}
+
+/// A menu bar title: a click opens its menu; while a menu is open, the mouse over another title
+/// opens that one. Its first letter is underlined: Alt + it opens the menu.
+fn title(index: usize, handle: &mut Handle<SkiaShape>) -> Build<SkiaShape> {
+    let text = MENUS[index].title;
+    SkiaShape::new()
+        .corner_radius(6)
+        .padding((12, 6))
+        .accessibility_role(Aria::MENU_ITEM)
+        .accessibility_can_interact(Some(true))
+        .accessibility_label(text)
+        .observe(move |me, app: &App| {
+            let state = &app.menus;
+            me.set_background_color(match () {
+                _ if state.open == Some(index) => TITLE_OPEN,
+                _ if state.hovered == Some(index) => BUTTON_HOVER,
+                _ => Color::TRANSPARENT,
+            });
+        })
+        .on_hovered(move |_me, app: &mut App, cx, on| {
+            if on {
+                app.menus.hovered = Some(index);
+                if app.menus.open.is_some_and(|open| open != index) {
+                    open_menu(app, cx, index, false);
+                }
+            } else if app.menus.hovered == Some(index) {
+                app.menus.hovered = None;
+            }
+        })
+        .on_tapped(move |_me, app: &mut App, cx| {
+            if app.menus.open == Some(index) {
+                close_menu(app, cx);
+            } else {
+                open_menu(app, cx, index, false);
+            }
+        })
+        .assign(handle)
+        .children(
+            SkiaLabel::new("")
+                .font_size(14)
+                .text_color(Color::WHITE)
+                .accessibility_role(Aria::PRESENTATION)
+                .spans((TextSpan::new(&text[..1]).underline(true), TextSpan::new(&text[1..]))),
+        )
+}
+
+fn open_menu(app: &mut App, cx: &mut Cx, index: usize, keyboard: bool) {
+    if let Some(popup) = app.menus.bar_popup.take() {
+        cx.close_popup_window(popup);
+    }
+    let menu = &MENUS[index];
+    let content = SkiaShape::new()
+        .corner_radius(8)
+        .background_color(PANEL)
+        .stroke_color(EDGE)
+        .stroke_width(1.5)
+        .width_request(240)
+        .padding(4)
+        .accessibility_role(Aria::MENU)
+        .accessibility_label(menu.title)
+        .children(SkiaStack::new().spacing(0).children(
+            menu.entries
+                .iter()
+                .enumerate()
+                .map(|(entry, it)| match it.text {
+                    None => Detached::from(SkiaShape::new().height_request(1).fill_x().background_color(EDGE).margin((8, 4))),
+                    Some(_) => Detached::from(bar_item(index, entry)),
+                })
+                .collect::<Vec<_>>(),
+        ));
+    app.menus.bar_popup = Some(cx.open_popup_window(content, app.menus.titles[index], PopupWindowOptions::default()));
+    app.menus.open = Some(index);
+    app.menus.highlighted = keyboard.then_some(0);
+}
+
+/// One line of a menu bar menu: its text, its shortcut at the right.
+fn bar_item(menu: usize, entry: usize) -> Build<SkiaShape> {
+    let it = &MENUS[menu].entries[entry];
+    let line = lines(menu).position(|(e, _)| e == entry).unwrap_or(0);
+    SkiaShape::new()
+        .corner_radius(6)
+        .fill_x()
+        .padding((12, 7))
+        .accessibility_role(Aria::MENU_ITEM)
+        .accessibility_can_interact(Some(true))
+        .accessibility_label(it.text.unwrap_or_default())
+        .observe(move |me, app: &App| me.set_background_color(if app.menus.highlighted == Some(line) { HIGHLIGHT } else { Color::TRANSPARENT }))
+        .on_hovered(move |_me, app: &mut App, _cx, on| {
+            if on {
+                app.menus.highlighted = Some(line);
+            }
+        })
+        .on_tapped(move |_me, app: &mut App, cx| run(app, cx, menu, entry))
+        .children((
+            SkiaLabel::new(it.text.unwrap_or_default()).font_size(14).text_color(Color::WHITE).accessibility_role(Aria::PRESENTATION),
+            SkiaLabel::new(it.shortcut.unwrap_or_default())
+                .font_size(13)
+                .text_color(MUTED)
+                .horizontal_options(LayoutOptions::End)
+                .accessibility_role(Aria::PRESENTATION),
+        ))
+}
+
+fn close_menu(app: &mut App, cx: &mut Cx) {
+    if let Some(popup) = app.menus.bar_popup.take() {
+        cx.close_popup_window(popup);
+    }
+    (app.menus.open, app.menus.highlighted) = (None, None);
+}
+
+fn run(app: &mut App, cx: &mut Cx, menu: usize, entry: usize) {
+    let (title, it) = (MENUS[menu].title, &MENUS[menu].entries[entry]);
+    let text = it.text.unwrap_or_default();
+    app.menus.command = match it.shortcut {
+        Some(shortcut) => format!("Last command: {title} › {text} ({shortcut})"),
+        None => format!("Last command: {title} › {text}"),
+    };
+    close_menu(app, cx);
+}
+
+/// The menu bar's keys: Alt + a first letter opens a menu, the arrows walk the menus and their
+/// lines, Enter or Space picks, Escape closes; the shortcuts work with the menus closed. True = used.
+pub fn key(app: &mut App, event: &KeyEvent, cx: &mut Cx) -> bool {
+    if event.kind != KeyKind::Down {
+        return false;
+    }
+    let modifiers = event.modifiers();
+    if modifiers.alt {
+        let Some(index) = MENUS.iter().position(|m| m.accelerator == event.key) else { return false };
+        open_menu(app, cx, index, true);
+        return true;
+    }
+    let open = app.menus.open.filter(|_| app.menus.bar_popup.is_some_and(|p| cx.is_popup_window_open(p)));
+    let Some(open) = open else {
+        // The shortcuts work with the menus closed.
+        for (menu, it) in MENUS.iter().enumerate() {
+            if let Some(entry) = it.entries.iter().position(|e| e.text.is_some() && !e.key.is_empty() && e.key == event.key && e.ctrl == modifiers.ctrl) {
+                run(app, cx, menu, entry);
+                return true;
+            }
+        }
+        return false;
+    };
+    let count = lines(open).count();
+    match event.key {
+        "ArrowLeft" => open_menu(app, cx, (open + MENUS.len() - 1) % MENUS.len(), true),
+        "ArrowRight" => open_menu(app, cx, (open + 1) % MENUS.len(), true),
+        "ArrowDown" => app.menus.highlighted = Some(app.menus.highlighted.map_or(0, |h| (h + 1) % count)),
+        "ArrowUp" => app.menus.highlighted = Some(app.menus.highlighted.map_or(count - 1, |h| (h + count - 1) % count)),
+        "Enter" | "NumpadEnter" | "Space" => {
+            if let Some((entry, _)) = app.menus.highlighted.and_then(|h| lines(open).nth(h)) {
+                run(app, cx, open, entry);
+            }
+        }
+        "Escape" => close_menu(app, cx),
+        _ => return false,
+    }
+    true
+}
+
+/// A menu as in the popups example: a rounded panel of lines; picking one closes it.
+fn menu(name: &'static str, items: &[&'static str]) -> Build<SkiaShape> {
+    SkiaShape::new()
+        .corner_radius(8)
+        .background_color(PANEL)
+        .stroke_color(EDGE)
+        .stroke_width(1.5)
+        .width_request(200)
+        .padding(4)
+        .accessibility_role(Aria::MENU)
+        .accessibility_label(name)
+        .children(
+            SkiaStack::new().spacing(0).children(
+                items
+                    .iter()
+                    .map(|&text| {
+                        SkiaShape::new()
+                            .corner_radius(6)
+                            .fill_x()
+                            .padding((12, 7))
+                            .accessibility_role(Aria::MENU_ITEM)
+                            .accessibility_can_interact(Some(true))
+                            .accessibility_label(text)
+                            .on_hovered(|me, _app: &mut App, _cx, on| me.set_background_color(if on { HIGHLIGHT } else { Color::TRANSPARENT }))
+                            .on_tapped(move |_me, app: &mut App, cx| {
+                                app.menus.picked = Some(text);
+                                if let Some(menu) = app.menus.menu.take() {
+                                    cx.close_popup_window(menu);
+                                }
+                            })
+                            .children(SkiaLabel::new(text).font_size(15).text_color(Color::WHITE).accessibility_role(Aria::PRESENTATION))
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+        )
+}
+
+/// A card of the page: a caption in the accent color, a note, then its content. Static: re-recorded
+/// only when a control inside changes.
+fn card(title: &'static str, note: &'static str, content: impl IntoChildren) -> Build<SkiaShape> {
+    SkiaShape::new()
+        .fill_x()
+        .corner_radius(12)
+        .background_color(CARD)
+        .stroke_color(hex(0x373B3E))
+        .stroke_width(1)
+        .padding((20, 16))
+        .use_cache(CacheType::Operations)
+        .accessibility_role(Aria::GROUP)
+        .accessibility_label(title)
+        .children(SkiaStack::new().spacing(12).children((
+            SkiaLabel::new(title)
+                .font_size(12)
+                .font_attributes(FontAttributes::Bold)
+                .text_transform(TextTransform::Uppercase)
+                .text_color(ACCENT)
+                .accessibility_role(Aria::HEADING),
+            SkiaLabel::new(note).font_size(13).text_color(MUTED).fill_x(),
+            content,
+        )))
+}
+
+/// An icon button without text: its tooltip is its accessibility label.
+fn icon_button(svg: &'static str, label: &'static str) -> Build<SkiaShape> {
+    SkiaShape::new()
+        .width_request(40)
+        .height_request(40)
+        .corner_radius(8)
+        .background_color(BUTTON)
+        .animation_tapped(SkiaTouchAnimation::Ripple)
+        .accessibility_role(Aria::BUTTON)
+        .accessibility_can_interact(Some(true))
+        .accessibility_label(label)
+        .on_hovered(|me, _app: &mut App, _cx, on| me.set_background_color(if on { BUTTON_HOVER } else { BUTTON }))
+        .on_tapped(|_me, _app: &mut App, _cx| {})
+        .children(
+            SkiaSvg::from_string(svg)
+                .width_request(20)
+                .height_request(20)
+                .tint_color(Color::WHITE)
+                .horizontal_options(LayoutOptions::Center)
+                .vertical_options(LayoutOptions::Center),
+        )
+}
+
+/// A text button in the page's colors.
+fn text_button(text: &'static str) -> Build<SkiaShape> {
+    SkiaShape::new()
+        .corner_radius(8)
+        .background_color(BUTTON)
+        .padding((16, 9))
+        .animation_tapped(SkiaTouchAnimation::Ripple)
+        .accessibility_role(Aria::BUTTON)
+        .accessibility_can_interact(Some(true))
+        .accessibility_label(text)
+        .on_hovered(|me, _app: &mut App, _cx, on| me.set_background_color(if on { BUTTON_HOVER } else { BUTTON }))
+        .on_tapped(|_me, _app: &mut App, _cx| {})
+        .children(SkiaLabel::new(text).font_size(14).text_color(Color::WHITE))
+}

@@ -317,6 +317,10 @@ fn slider_row(name: &'static str, min: f32, max: f32, axis: Axis, slider: &mut H
             .accessibility_label(name)
             .min(min)
             .max(max)
+            // The Hello palette, not the library's default accent.
+            .track_selected_color(hex(0x0D6EFD))
+            .track_color(hex(0x495057))
+            .thumb_color(Color::WHITE)
             .margin((104, 0, 0, 0))
             .fill_x()
             .vertical_options(LayoutOptions::Center)

@@ -49,9 +49,18 @@ pub struct App {
     shaders: pages::shaders::State,
     reorder: pages::reorder::State,
     shell_page: pages::shell::State,
+    menus: pages::menus::State,
     snapping: pages::snapping::State,
     pong: pages::pong::State,
     editor: pages::editor::State,
+}
+
+#[cfg(test)]
+impl App {
+    /// The menu bar menu open on the Tooltips & Menus page.
+    fn menus_open(&self) -> Option<usize> {
+        self.menus.open()
+    }
 }
 
 fn build(app: &mut App) -> Build<SkiaLayout> {
@@ -118,6 +127,15 @@ fn configure(ui: Ui<App>) -> Ui<App> {
         .on_key_char(pages::key)
         .default_accessibility_role::<SkiaLabel>(Aria::TEXT)
         .default_accessibility_role::<SkiaButton>(Aria::BUTTON)
+        // Tooltips in the menus' palette, so they stand out on the cards (every hello app).
+        .tooltip_style(TooltipStyle {
+            background_color: hex(0x262B3B),
+            border_color: hex(0x3B4256),
+            text_color: Color::WHITE,
+            ..TooltipStyle::default()
+        })
+        // A menu closed from outside (a press elsewhere, the wheel, the window losing the keyboard).
+        .on_popup_window_closed(|app: &mut App, id, _cx| pages::menus::popup_closed(app, id))
         // A right click, long press or Menu key that no control took: the versions in a toast.
         .on_context_menu(|app: &mut App, _menu, cx| {
             let text = format!("drawnui {} · Skia m{}", drawnui::VERSION, drawnui::skia::MILESTONE);

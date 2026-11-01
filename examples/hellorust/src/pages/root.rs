@@ -1,5 +1,5 @@
 //! Root menu, ported from the React demo's RootPage.tsx: dark body, logo and bold title, then the
-//! sample cards flowing in a wrap of two columns, their titles in gradients that cycle through the
+//! sample cards in a masonry of two columns, their titles in gradients that cycle through the
 //! drawnui.net accents.
 
 use drawnui::prelude::*;
@@ -60,8 +60,8 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
                     .horizontal_text_alignment(TextAlignment::Center)
                     .margin((0, -12, 0, 0)),
                 // Two columns on wide screens, one on phones (React computes the card width from the
-                // window): Split gives every card its share of the width.
-                SkiaWrap::new()
+                // window): a masonry, each card going to the shorter column.
+                SkiaMasonry::new()
                     .spacing(GAP)
                     .split(2)
                     .use_cache(CacheType::ImageComposite)
@@ -102,6 +102,11 @@ fn card(index: usize, sample: &'static Sample) -> Build<SkiaShape> {
         .accessibility_label(sample.title)
         .accessibility_hint(sample.text)
         .animation_tapped(SkiaTouchAnimation::Ripple)
+        // Lighter under the mouse (desktop).
+        .on_hovered(|me, _app: &mut App, _cx, on| {
+            me.set_background_color(hex(if on { 0x343A40 } else { 0x2B3035 }));
+            me.set_stroke_color(hex(if on { 0x495057 } else { 0x373B3E }));
+        })
         .on_tapped(move |_me, app: &mut App, cx| {
             // A left click or a touch opens the page; the other buttons do not (React checks the button).
             if cx.gesture().is_none_or(|gesture| gesture.button == MouseButton::Left) {

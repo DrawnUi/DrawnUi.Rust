@@ -8,6 +8,7 @@ pub mod images;
 pub mod keyboard;
 pub mod layouts;
 pub mod looks;
+pub mod menus;
 pub mod pong;
 pub mod reorder;
 pub mod root;
@@ -44,6 +45,7 @@ pub fn page(app: &mut App, sample: &'static Sample) -> Build<SkiaLayout> {
         "looks" => app.looks = Default::default(),
         "animations" => app.animations = Default::default(),
         "shell" => app.shell_page = Default::default(),
+        "menus" => app.menus = Default::default(),
         "snapping" => app.snapping = Default::default(),
         "pong" => app.pong = Default::default(),
         "editor" => app.editor = Default::default(),
@@ -73,6 +75,7 @@ fn opened(app: &mut App, cx: &mut Cx, route: &str) {
         "images" => images::opened(app, cx),
         "shaders" => shaders::opened(app, cx),
         "a11y" => a11y::opened(app, cx),
+        "menus" => menus::opened(app, cx),
         "layouts" => layouts::opened(app, cx),
         _ => {}
     }
@@ -83,6 +86,7 @@ pub fn key(app: &mut App, event: &KeyEvent, cx: &mut Cx) -> bool {
     match app.route {
         Some("keyboard") => keyboard::key(app, event),
         Some("sprites") => sprites::key(app, event, cx),
+        Some("menus") => menus::key(app, event, cx),
         _ => false,
     }
 }
@@ -385,13 +389,62 @@ mod tests {
     fn catalog_lists_the_react_samples_with_gradient_titles() {
         let host = host(700);
         let titles: Vec<&str> = SAMPLES.iter().map(|s| s.title).collect();
-        assert_eq!(titles.len(), 20);
-        assert_eq!((titles[0], titles[19]), ("Recycled cells", "Accessibility"));
+        assert_eq!(titles.len(), 21);
+        assert_eq!((titles[0], titles[11], titles[20]), ("Recycled cells", "Tooltips & Menus", "Accessibility"));
         // Every card title is drawn with one of the six accent gradients, in turn.
         for (i, sample) in SAMPLES.iter().enumerate() {
             let label = showing(&host, sample.title);
             let gradient = host.ui.tree.base(label).unwrap().p.fill_gradient.clone().expect("a title gradient");
             assert_eq!(gradient.colors[0], root::title_gradient(i)[0], "{}", sample.title);
+        }
+    }
+
+    #[test]
+    fn menus_page_menu_bar_keys_shortcuts_and_closing_from_outside() {
+        let mut host = host(900);
+        open_page(&mut host, "Tooltips & Menus");
+        showing(&host, "Last command: none");
+        let key = |host: &mut Headless<App>, key: &'static str, modifiers: Modifiers| {
+            host.ui.key(KeyKind::Down, key, "", modifiers, false);
+            host.frame_after(16.0);
+            host.ui.key(KeyKind::Up, key, "", Modifiers::default(), false);
+            host.frame_after(16.0);
+        };
+        let open = |host: &Headless<App>| host.ui.state.menus_open();
+        // Alt+F opens File with its first line ready; Down, Enter picks the second.
+        key(&mut host, "KeyF", Modifiers { alt: true, ..Modifiers::default() });
+        assert_eq!(open(&host), Some(0));
+        press(&mut host, "ArrowDown");
+        press(&mut host, "Enter");
+        assert_eq!(open(&host), None);
+        showing(&host, "Last command: File › Open… (Ctrl+O)");
+        // Right goes to the next menu; Escape closes.
+        key(&mut host, "KeyF", Modifiers { alt: true, ..Modifiers::default() });
+        press(&mut host, "ArrowRight");
+        assert_eq!(open(&host), Some(1));
+        press(&mut host, "Escape");
+        assert_eq!(open(&host), None);
+        // The shortcuts work with the menus closed.
+        key(&mut host, "KeyS", Modifiers { ctrl: true, ..Modifiers::default() });
+        showing(&host, "Last command: File › Save (Ctrl+S)");
+        key(&mut host, "F1", Modifiers::default());
+        showing(&host, "Last command: Help › Documentation (F1)");
+        // A click on a title opens its menu; a press outside closes it and the title unselects.
+        let title = on_screen(&host, host.ui.state.menus.title(2));
+        tap_at(&mut host, title.center_x(), title.center_y());
+        assert_eq!(open(&host), Some(2));
+        let heading = on_screen(&host, showing(&host, "Tooltips & Menus"));
+        tap_at(&mut host, heading.center_x(), heading.center_y());
+        assert_eq!(open(&host), None, "closed from outside: the title unselects");
+    }
+
+    /// A tap at a canvas point, with frames after it.
+    fn tap_at(host: &mut Headless<App>, x: f32, y: f32) {
+        let t = host.time_ms();
+        host.ui.pointer(drawnui::PointerKind::Down, x, y, t);
+        host.ui.pointer(drawnui::PointerKind::Up, x, y, t + 50.0);
+        for _ in 0..3 {
+            host.frame_after(16.0);
         }
     }
 
