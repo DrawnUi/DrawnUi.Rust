@@ -75,7 +75,7 @@ fn switch_sizes_and_thumb_travel_follow_the_style() {
     // (width, height) points, thumb side at scales 1 and 2 (pixels), thumb travel when on (points):
     // track width - thumb width - thumb margins, the thumb width as drawn (DrawnUI.React ThumbPosForOn).
     let expected = [
-        ((46.0, 28.0), (24.0, 48.0), (18.0, 18.0)),
+        ((46.0, 20.0), (16.0, 32.0), (26.0, 26.0)),
         // Margin 5.5: 6 pixels a side at scale 1 (halves to even), 11 at scale 2.
         ((48.0, 22.0), (10.0, 22.0), (27.0, 26.0)),
         ((51.0, 31.0), (27.0, 54.0), (20.0, 20.0)),
@@ -139,12 +139,12 @@ fn a_tap_flips_the_switch_the_thumb_slides_and_on_toggled_runs() {
     // The handler runs at the start of the next frame; the thumb starts moving on it.
     host.frame_after(16.0);
     assert_eq!(host.ui.state.toggled, vec![(0, true)]);
-    // 100 of 200 ms, CubicOut: 18 x 0.875.
+    // 100 of 200 ms, CubicOut: 26 x 0.875.
     host.frame_after(100.0);
     let tx = host.ui.tree.base(thumb).unwrap().p.translation_x;
-    assert!((tx - 15.75).abs() < 0.01, "{tx}");
+    assert!((tx - 22.75).abs() < 0.01, "{tx}");
     host.settle();
-    assert_eq!(host.ui.tree.base(thumb).unwrap().p.translation_x, 18.0);
+    assert_eq!(host.ui.tree.base(thumb).unwrap().p.translation_x, 26.0);
     // Track crimson now.
     assert!(near(host.pixel(r.left as i32 + 8, r.center_y() as i32), CRIMSON, 1));
 
@@ -172,7 +172,7 @@ fn a_change_from_code_runs_on_toggled_and_responds_to_gestures_off_ignores_taps(
     assert_eq!(host.ui.state.toggled, vec![(0, true)]);
     let thumb = tagged(&host.ui.tree, host.ui.state.ids[0], "Thumb");
     // Not animated: at its end at once.
-    assert_eq!(host.ui.tree.base(thumb).unwrap().p.translation_x, 18.0);
+    assert_eq!(host.ui.tree.base(thumb).unwrap().p.translation_x, 26.0);
 
     let r = host.rect(host.ui.state.ids[1]);
     host.tap(r.center_x(), r.center_y());
@@ -188,12 +188,12 @@ fn a_style_change_rebuilds_the_content_and_keeps_the_app_sizes() {
         SkiaLayout::column().padding(20).children((styled, sized))
     });
     let (styled, sized) = (host.ui.state.ids[0], host.ui.state.ids[1]);
-    assert_eq!(host.rect(styled).size(), Size::new(46.0, 28.0));
-    assert_eq!(host.rect(sized).size(), Size::new(60.0, 28.0));
+    assert_eq!(host.rect(styled).size(), Size::new(46.0, 20.0));
+    assert_eq!(host.rect(sized).size(), Size::new(60.0, 20.0));
     for (style, size, travel) in [
         (PrebuiltControlStyle::Cupertino, (51.0, 31.0), 20.0),
         (PrebuiltControlStyle::Material3, (52.0, 32.0), 20.0),
-        (PrebuiltControlStyle::Unset, (46.0, 28.0), 18.0),
+        (PrebuiltControlStyle::Unset, (46.0, 20.0), 26.0),
     ] {
         host.ui.state.style = style;
         host.ui.state_changed();

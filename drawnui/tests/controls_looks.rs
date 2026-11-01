@@ -270,7 +270,7 @@ fn looks_host(width: f32, height: f32, scale: f32) -> Headless<Looks> {
 fn the_live_card_follows_the_style_and_every_control_reports() {
     let mut host = looks_host(420.0, 2400.0, 1.0);
     // Switch sizes per style (DrawnUI.React SetContentSize).
-    let sizes = [(46.0, 28.0), (48.0, 22.0), (51.0, 31.0), (46.0, 28.0), (52.0, 32.0)];
+    let sizes = [(46.0, 20.0), (48.0, 22.0), (51.0, 31.0), (46.0, 28.0), (52.0, 32.0)];
     let live_switch = host.ui.state.cards[0].1;
     for step in 0..=STYLES.len() {
         let style = step % STYLES.len();
@@ -307,7 +307,7 @@ fn the_page_renders_at_scale_two() {
     let mut host = looks_host(420.0, 2400.0, 2.0);
     let (_, switch, ..) = host.ui.state.cards[1].clone();
     let r = host.rect(switch);
-    assert_eq!(r.size(), Size::new(92.0, 56.0));
+    assert_eq!(r.size(), Size::new(92.0, 40.0));
     // The Default card's switch is on: crimson track.
     assert!(near(host.pixel(r.left as i32 + 12, r.center_y() as i32), Color::from_rgb(0xDC, 0x14, 0x3C), 1));
 }
@@ -318,7 +318,8 @@ fn scrolling_the_page_allocates_nothing() {
     let vp = host.rect(host.ui.state.scroll);
     let fling = |host: &mut Headless<Looks>, up: bool| {
         let (from, to) = if up { (vp.bottom - 50.0, vp.top + 50.0) } else { (vp.top + 50.0, vp.bottom - 50.0) };
-        host.pan((vp.center_x(), from), (vp.center_x(), to), 80.0, 5);
+        // In the page's left margin: the drag goes to the scroll, never to a slider in a card.
+        host.pan((vp.left + 6.0, from), (vp.left + 6.0, to), 80.0, 5);
     };
     // Every card recorded once.
     for _ in 0..6 {

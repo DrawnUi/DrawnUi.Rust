@@ -109,6 +109,9 @@ impl SkiaSwitch {
                     thumb = thumb.margin(5.5);
                 }
                 _ => {
+                    // 46 x 20, the DrawnUI Designer's switch: a low track that fits a settings row
+                    // (C# CreateDefaultStyleContent).
+                    size = (46.0, 20.0);
                     frame = frame.corner_radius(20.0);
                     thumb = thumb.margin(2.0);
                 }

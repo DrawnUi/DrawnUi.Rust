@@ -17,6 +17,11 @@ version before it. Commits in parentheses.
 - `PopupWindowOptions::passive`: a popup that only shows (no input, no accessibility node), as a
   tooltip; `place_tooltip`.
 
+### Changed
+
+- The default `SkiaSwitch` (no ControlStyle) is 46 x 20 points, a low track that fits a settings
+  row; its thumb is 16 points. The other styles keep their sizes.
+
 ## 0.1.0-preview.29 (crates.io, 2026-11-01)
 
 ### Added
