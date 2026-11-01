@@ -1213,6 +1213,12 @@ impl Tree {
     /// The control drawn on top at a point of a subtree (`Ui::hit_test`): what is seen there,
     /// whether it takes input or not.
     pub(crate) fn visual_pick(&self, id: ControlId, point: Point, outer: &Matrix) -> Option<ControlId> {
+        self.visual_pick_where(id, point, outer, &|_| true)
+    }
+
+    /// `visual_pick`, where a control the point is inside but no child of it was picked counts
+    /// only when `counts` says so; otherwise the controls below it are tried.
+    pub(crate) fn visual_pick_where(&self, id: ControlId, point: Point, outer: &Matrix, counts: &dyn Fn(ControlId) -> bool) -> Option<ControlId> {
         let node = self.node(id)?;
         let (base, p) = (&node.base, &node.base.p);
         if !p.is_visible || p.opacity <= 0.0 || base.offscreen {
@@ -1231,7 +1237,7 @@ impl Tree {
         inner.pre_translate(base.content_offset);
         // The top child first: the reverse of the drawing order (lowest z_index first). Sorted only
         // when a child sets a z_index (no allocation for a hover over plain children).
-        let pick = |c: &ControlId| self.visual_pick(*c, point, &inner);
+        let pick = |c: &ControlId| self.visual_pick_where(*c, point, &inner, counts);
         let hit = if node.children.iter().all(|c| self.node(*c).is_none_or(|n| n.base.p.z_index == 0)) {
             node.children.iter().rev().find_map(pick)
         } else {
@@ -1239,6 +1245,6 @@ impl Tree {
             children.sort_by_key(|c| self.node(*c).map_or(0, |n| n.base.p.z_index));
             children.iter().rev().find_map(pick)
         };
-        hit.or(inside.then_some(id))
+        hit.or((inside && counts(id)).then_some(id))
     }
 }

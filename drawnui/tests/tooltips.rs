@@ -306,6 +306,38 @@ fn the_anchor_is_where_the_control_is_drawn_in_a_cached_card_on_a_scrolled_page(
 }
 
 #[test]
+fn an_empty_overlay_layer_above_is_looked_through_unless_it_has_a_tooltip() {
+    let shown = Rc::new(RefCell::new(Vec::new()));
+    let log = shown.clone();
+    let style = TooltipStyle {
+        content: Some(Rc::new(move |text: &str| {
+            log.borrow_mut().push(text.to_owned());
+            SkiaLabel::new(text.to_owned()).into()
+        })),
+        ..TooltipStyle::default()
+    };
+    let ui = Ui::new(App::default(), |_| {
+        SkiaLayout::new().fill().children((
+            SkiaShape::new().width_request(100).height_request(40).margin((20, 20, 0, 0)).tooltip("Save"),
+            // A shell's toast or popup layer: fills the canvas, draws nothing.
+            SkiaLayer::new().fill(),
+            // A transparent layer with a tooltip of its own still shows it over its empty area.
+            SkiaLayer::new().width_request(100).height_request(40).margin((200, 20, 0, 0)).tooltip("Area"),
+        ))
+    })
+    .font_bytes("Default", FONT)
+    .tooltip_style(style);
+    let mut host = Headless::new(ui, 600, 300, 1.0);
+    host.settle();
+    hover(&mut host, 60.0, 40.0);
+    wait(&mut host, 700.0);
+    assert_eq!(*shown.borrow(), ["Save"]);
+    hover(&mut host, 250.0, 40.0);
+    wait(&mut host, 700.0);
+    assert_eq!(*shown.borrow(), ["Save", "Area"]);
+}
+
+#[test]
 fn it_opens_centered_above_the_control_or_below_without_room() {
     let bounds = Rect::from_xywh(0.0, 0.0, 600.0, 300.0);
     let size = Size::new(80.0, 24.0);

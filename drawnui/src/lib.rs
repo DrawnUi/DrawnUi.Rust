@@ -106,7 +106,7 @@ pub mod prelude {
         AccessibilityNode, AnimationId, Aria, Build, CacheType, FramesBuild, FramesSet, Container, ContextMenu, ContextMenuSource, Control,
         ControlId, CornerRadius, Cursor, Cx, Dirty, Easing, Gesture, GestureCx, GestureKind, GradientType, Handle, Handled,
         Has, InputKey, IntoChildren, KeyEvent, KeyKind, Keyboard, LayoutCx, LayoutOptions, LockTouch, Modifiers,
-        MouseButton, Mut, PaintCx, PopupAnchor, PopupId, PopupWindowOptions, GesturesMode, GpuBackend, RenderingModeType, SkiaGradient, SkiaShadow, Thickness, Ui, ValueAnimator, Waker, easing, props,
+        MouseButton, Mut, PaintCx, PopupAnchor, PopupId, PopupWindowOptions, TooltipStyle, GesturesMode, GpuBackend, RenderingModeType, SkiaGradient, SkiaShadow, Thickness, Ui, ValueAnimator, Waker, easing, props,
     };
 }
 
