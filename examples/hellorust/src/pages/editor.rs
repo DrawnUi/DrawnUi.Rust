@@ -6,7 +6,8 @@ use drawnui::prelude::*;
 use super::{card, card_title, page_title, scrolling};
 use crate::{App, hex};
 
-const FALLBACK: &str = "FontSymbols,FontSymbols2,FontEmoji";
+/// Symbols, emoji, and Arabic letters typed into a field (shaped right to left).
+const FALLBACK: &str = "FontSymbols,FontSymbols2,FontEmoji,FontArabic";
 
 /// What the page keeps.
 #[derive(Default)]
@@ -27,7 +28,7 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
     scrolling(SkiaStack::new().spacing(16).padding((16, 16, 16, 120)).horizontal_options(LayoutOptions::Center).maximum_width_request(720).children((
         page_title("SkiaEditor"),
         card(
-            card_title("").observe(|me, app: &App| {
+            card_title("").font_family_fallback(FALLBACK).observe(|me, app: &App| {
                 let page = &app.editor;
                 me.set_text(format!(
                     "Single line — Text=\"{}\" · IsFocused={} · {} · submitted: \"{}\"",
@@ -156,6 +157,7 @@ fn describe(editor: &Mut<'_, SkiaEditor>, page: &mut State) {
 fn message(slot: usize) -> Build<SkiaLabel> {
     SkiaLabel::new("")
         .font_size(13)
+        .font_family_fallback(FALLBACK)
         .text_color(hex(0xDEE2E6))
         .background_color(hex(0x0F3460))
         .padding((10, 6))
