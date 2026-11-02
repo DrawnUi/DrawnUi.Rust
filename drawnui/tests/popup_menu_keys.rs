@@ -173,3 +173,16 @@ fn a_menu_panel_with_a_title_and_two_columns_moves_in_reading_order() {
     host.settle();
     assert_eq!(host.ui.state.log, ["c", "b"]);
 }
+
+#[test]
+fn a_closed_menu_leaves_the_accessibility_snapshot_in_the_next_frame() {
+    let mut host = host();
+    open(&mut host, 0);
+    let items = |host: &Headless<App>| host.ui.accessibility_nodes().iter().filter(|n| n.label.starts_with("item ")).count();
+    assert_eq!(items(&host), 3);
+    assert!(host.press_key("Escape"));
+    host.frame_after(16.0);
+    assert!(!host.ui.tree.cx().is_popup_window_open(host.ui.state.menu.unwrap()));
+    assert_eq!(items(&host), 0, "not up to a second later");
+    assert_eq!(host.ui.accessibility_focused(), None);
+}

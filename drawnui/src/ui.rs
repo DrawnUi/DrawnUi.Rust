@@ -3319,12 +3319,15 @@ impl<S: 'static> App for Ui<S> {
 }
 
 impl<S: 'static> Ui<S> {
-    /// Tells the app which popup windows closed (`on_popup_window_closed`).
+    /// Tells the app which popup windows closed (`on_popup_window_closed`). The accessibility
+    /// snapshot drops their items in this frame, as it takes them in when a popup opens: the
+    /// keyboard and a screen reader never stay on an item that is gone.
     fn report_popups_closed(&mut self) {
         if self.tree.popups_closed.is_empty() {
             return;
         }
         let closed = std::mem::take(&mut self.tree.popups_closed);
+        self.accessibility_now();
         if let Some(handler) = self.popup_closed.as_mut() {
             for id in closed {
                 handler(&mut self.state, id, &mut Cx { tree: &mut self.tree });
