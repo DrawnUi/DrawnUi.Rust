@@ -174,7 +174,7 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
                         return;
                     }
                     let fruits = ["Apple", "Banana", "Cherry", "Grape", "Mango", "Orange", "Peach", "Pear"];
-                    app.menus.menu = Some(cx.open_popup_window(menu("Fruits", &fruits), me.id(), menu_window()));
+                    open_menu_popup(app, cx, menu("Fruits", &fruits), me.id().into());
                 }),
                 SkiaLabel::new("")
                     .font_size(14)
@@ -259,9 +259,19 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
     // Right-click anywhere on the page: the Edit menu where it was.
     .on_context_menu(|_me, app: &mut App, cx, at| {
         let items = ["Cut", "Copy", "Paste", "Select all", "Settings…"];
-        app.menus.menu = Some(cx.open_popup_window(menu("Edit", &items), at.location, menu_window()));
+        open_menu_popup(app, cx, menu("Edit", &items), at.location.into());
         true
     })
+}
+
+/// Opens the context menu or the dropdown, closing the one open: they share `menu`, so an open one
+/// would otherwise be left on screen with nothing to close it (the Menu key opens the context menu
+/// without a press that closes popups).
+fn open_menu_popup(app: &mut App, cx: &mut Cx, content: Build<SkiaShape>, anchor: PopupAnchor) {
+    if let Some(open) = app.menus.menu.take() {
+        cx.close_popup_window(open);
+    }
+    app.menus.menu = Some(cx.open_popup_window(content, anchor, menu_window()));
 }
 
 /// The page shows icon buttons' accessibility labels as tooltips (the switch turns it off).

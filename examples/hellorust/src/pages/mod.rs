@@ -478,6 +478,24 @@ mod tests {
         let requests = host.popup_window_requests();
         assert_eq!(requests.len(), 1, "{requests:?}");
         assert!(requests[0].point, "the context menu, opened at the click");
+        // The dropdown open, then a context menu elsewhere: only the context menu stays, also from
+        // the Menu key (no press closes the dropdown first).
+        for keyboard in [false, true] {
+            host.press_key("Escape");
+            host.settle();
+            host.tap(fruit.center_x(), fruit.center_y());
+            host.settle();
+            assert_eq!(host.popup_window_requests().len(), 1, "the dropdown");
+            let (x, y) = (fruit.right + 200.0, fruit.center_y());
+            match keyboard {
+                false => assert!(host.right_click(x, y)),
+                true => assert!(host.ui.context_menu(x, y, drawnui::ContextMenuSource::Keyboard, host.time_ms())),
+            }
+            host.settle();
+            let requests = host.popup_window_requests();
+            assert_eq!(requests.len(), 1, "keyboard {keyboard}: {requests:?}");
+            assert!(requests[0].point, "keyboard {keyboard}: the context menu");
+        }
     }
 
     /// A tap at a canvas point, with frames after it.
