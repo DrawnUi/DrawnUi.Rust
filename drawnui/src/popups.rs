@@ -125,11 +125,21 @@ impl Popup {
     }
 }
 
+/// A popup that closed, until `Ui::report_popups_closed` hears it.
+pub(crate) struct Closed {
+    pub(crate) id: PopupId,
+    pub(crate) root: ControlId,
+    pub(crate) opener: Option<ControlId>,
+}
+
 pub(crate) struct Popup {
     pub(crate) id: u32,
     pub(crate) root: ControlId,
     pub(crate) anchor: PopupAnchor,
     pub(crate) options: PopupWindowOptions,
+    /// Where the keyboard goes back when it closes: the control it opened from, else the control
+    /// the keyboard was on as it opened.
+    pub(crate) opener: Option<ControlId>,
     /// In a window of its own, as the host placed it: its size in pixels, its scale, and its
     /// corner relative to the app window's canvas, in the canvas's pixels. `None`: on the canvas,
     /// or the window is not made yet.
@@ -205,11 +215,17 @@ impl Cx<'_> {
         tree.root = main;
         tree.popup_next_id += 1;
         let id = tree.popup_next_id;
+        let anchor = anchor.into();
+        let opener = match anchor {
+            PopupAnchor::Control(control) => Some(control),
+            _ => tree.accessibility_focused,
+        };
         let popup = Popup {
             id,
             root,
-            anchor: anchor.into(),
+            anchor,
             options,
+            opener,
             window: None,
             rect: Rect::default(),
             scale: 1.0,
@@ -244,7 +260,7 @@ impl crate::tree::Tree {
         let Some(index) = self.popups.iter().position(|p| p.id == id) else { return };
         let popup = self.popups.remove(index);
         if !popup.options.passive {
-            self.popups_closed.push(PopupId(popup.id));
+            self.popups_closed.push(crate::popups::Closed { id: PopupId(popup.id), root: popup.root, opener: popup.opener });
         }
         self.removals.push(popup.root);
         self.needs_frame = true;

@@ -609,6 +609,10 @@ SkiaButton::new("Fruit").assign(&mut app.fruit).on_tapped(|_me, app: &mut App, c
   when the app's window is moved, resized or minimized, and on `cx.close_popup_window(id)` / `cx.close_popup_windows()`.
   `Ui::on_popup_window_closed(|app, id, cx| ..)` runs for every popup that closed, whatever closed it:
   a menu bar unselects its title there.
+  When it closes, the keyboard goes back to the control that opened it (the control it is anchored
+  to, else where the keyboard was as it opened), unless the keyboard went elsewhere meanwhile.
+- Menus and dropdowns with round corners: `PopupWindowOptions { cpu: true, .. }`, so on Windows the
+  corners show what is behind them.
   With `PopupWindowOptions { close_on_pointer_leave: true, .. }` it also closes once the mouse has been
   outside both the popup and the app's window for 300 ms. `cx.is_popup_window_open(id)` says if it is
   still open.

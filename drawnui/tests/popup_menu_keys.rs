@@ -186,3 +186,90 @@ fn a_closed_menu_leaves_the_accessibility_snapshot_in_the_next_frame() {
     assert_eq!(items(&host), 0, "not up to a second later");
     assert_eq!(host.ui.accessibility_focused(), None);
 }
+
+#[derive(Default)]
+struct Page {
+    button: Handle<SkiaShape>,
+    menu: Option<PopupId>,
+}
+
+/// A button that opens a menu below itself, and a second button beside it.
+fn page() -> Headless<Page> {
+    let item = |name: &'static str| {
+        SkiaShape::new().width_request(120).height_request(30).accessibility_role(Aria::MENU_ITEM).accessibility_label(name).on_tapped(|_me, page: &mut Page, cx| {
+            if let Some(menu) = page.menu.take() {
+                cx.close_popup_window(menu);
+            }
+        })
+    };
+    let ui = Ui::new(Page::default(), move |page: &mut Page| {
+        SkiaLayout::row().spacing(10.0).padding(10.0).children((
+            SkiaShape::new()
+                .width_request(100)
+                .height_request(30)
+                .accessibility_role(Aria::BUTTON)
+                .accessibility_label("Open menu")
+                .assign(&mut page.button)
+                .on_tapped(move |me, page: &mut Page, cx| {
+                    let menu = SkiaShape::new().accessibility_role(Aria::MENU).children((SkiaLayout::column().spacing(0.0).children((item("one"), item("two"))),));
+                    page.menu = Some(cx.open_popup_window(menu, me.id(), PopupWindowOptions::default()));
+                }),
+            SkiaShape::new().width_request(100).height_request(30).accessibility_role(Aria::BUTTON).accessibility_label("Other").on_tapped(|_me, _page: &mut Page, _cx| {}),
+        ))
+    })
+    .background(Color::WHITE);
+    let mut host = Headless::new(ui, 600, 400, 1.0);
+    host.ui.set_keyboard_navigation(true);
+    host.ui.set_accessibility_enabled(true);
+    host.settle();
+    host
+}
+
+fn keyboard_on(host: &Headless<Page>) -> Option<String> {
+    host.ui.accessibility_focused().and_then(|f| host.ui.tree.base(f)).map(|b| b.p.accessibility_label.to_string())
+}
+
+#[test]
+fn a_closed_menu_gives_the_keyboard_back_to_the_control_that_opened_it() {
+    let mut host = page();
+    host.press_key("Tab");
+    assert_eq!(keyboard_on(&host).as_deref(), Some("Open menu"));
+    // Escape.
+    host.press_key("Enter");
+    host.settle();
+    assert_eq!(keyboard_on(&host).as_deref(), Some("one"));
+    host.press_key("Escape");
+    host.settle();
+    assert_eq!(keyboard_on(&host).as_deref(), Some("Open menu"));
+    // An item picked.
+    host.press_key("Enter");
+    host.settle();
+    host.press_key("ArrowDown");
+    host.press_key("Enter");
+    host.settle();
+    assert!(host.ui.state.menu.is_none());
+    assert_eq!(keyboard_on(&host).as_deref(), Some("Open menu"));
+    // Closed with the mouse elsewhere: the button gets the keyboard back, the ring stays hidden.
+    let button = host.rect(host.ui.state.button);
+    host.tap(button.center_x(), button.center_y());
+    host.settle();
+    host.tap(500.0, 300.0);
+    host.settle();
+    assert_eq!(keyboard_on(&host).as_deref(), Some("Open menu"));
+}
+
+#[test]
+fn the_keyboard_stays_where_it_went_when_it_left_the_menu_before_it_closed() {
+    let mut host = page();
+    host.press_key("Tab");
+    host.press_key("Enter");
+    host.settle();
+    assert_eq!(keyboard_on(&host).as_deref(), Some("one"));
+    // A screen reader moves to the other button, then the app closes the menu: it stays there.
+    let other = host.ui.accessibility_nodes().iter().find(|n| n.label == "Other").map(|n| n.id).unwrap();
+    host.ui.accessibility_focus(other, true);
+    let menu = host.ui.state.menu.unwrap();
+    host.ui.tree.cx().close_popup_window(menu);
+    host.settle();
+    assert_eq!(keyboard_on(&host).as_deref(), Some("Other"));
+}

@@ -3321,13 +3321,32 @@ impl<S: 'static> App for Ui<S> {
 impl<S: 'static> Ui<S> {
     /// Tells the app which popup windows closed (`on_popup_window_closed`). The accessibility
     /// snapshot drops their items in this frame, as it takes them in when a popup opens: the
-    /// keyboard and a screen reader never stay on an item that is gone.
+    /// keyboard and a screen reader never stay on an item that is gone. The keyboard, when it was
+    /// in a closed popup (or nowhere), goes back to the control that opened it, as native menus
+    /// do: the title of a menu bar, a dropdown's button.
     fn report_popups_closed(&mut self) {
         if self.tree.popups_closed.is_empty() {
             return;
         }
         let closed = std::mem::take(&mut self.tree.popups_closed);
         self.accessibility_now();
+        for popup in &closed {
+            let inside = |tree: &Tree, control: ControlId| std::iter::successors(Some(control), |c| tree.parent(*c)).any(|c| c == popup.root);
+            let keyboard = self.tree.accessibility_focused;
+            if keyboard.is_some_and(|k| self.tree.node(k).is_some() && !inside(&self.tree, k)) {
+                continue;
+            }
+            let Some(opener) = popup.opener.filter(|o| self.tree.node(*o).is_some() && !inside(&self.tree, *o)) else { continue };
+            self.accessibility_stale = true;
+            self.fresh_accessibility();
+            if self.tree.accessibility.iter().any(|n| n.control == opener && n.can_interact) {
+                // The ring shows only if it showed already (a menu picked with the mouse).
+                let ring = self.focus_ring;
+                self.keyboard_focus(opener);
+                self.focus_ring = ring;
+            }
+        }
+        let closed: Vec<PopupId> = closed.into_iter().map(|c| c.id).collect();
         if let Some(handler) = self.popup_closed.as_mut() {
             for id in closed {
                 handler(&mut self.state, id, &mut Cx { tree: &mut self.tree });

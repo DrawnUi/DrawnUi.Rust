@@ -19,6 +19,8 @@ version before it. Commits in parentheses.
   `Cx::set_tooltip_style` and `Cx::set_tooltips_from_accessibility` change them at run time.
 - `Ui::on_popup_window_closed`: runs for every popup window that closed, whatever closed it (a menu
   bar unselects its title). The wheel outside a popup window closes it and still scrolls.
+  When a popup window closes, the keyboard goes back to the control that opened it (a menu bar's
+  title, a dropdown's button), as native menus do.
 - `PopupWindowOptions::passive`: a popup that only shows (no input, no accessibility node), as a
   tooltip; `PopupWindowOptions::tooltip` and `place_tooltip` place it.
 
