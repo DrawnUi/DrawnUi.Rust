@@ -2300,10 +2300,13 @@ fn popup_attributes(main: &Window) -> WindowAttributes {
     // could never draw the first frame it waits for; the layer is transparent until then. Made
     // visible but not active, winit orders it front without taking the key window (showing it
     // later with `set_visible` would make it key).
+    // No system shadow: macOS draws it, with its edge line, around the whole window, the room
+    // around the content included; a popup draws its own.
     #[cfg(target_os = "macos")]
     let attributes = {
+        use winit::platform::macos::WindowAttributesExtMacOS;
         let _ = main;
-        attributes.with_visible(true)
+        attributes.with_visible(true).with_has_shadow(false)
     };
     attributes
 }
@@ -3426,8 +3429,11 @@ mod metal {
             let RawWindowHandle::AppKit(handle) = window.window_handle().ok()?.as_raw() else { return None };
             // SAFETY: winit's view lives as long as the window, which outlives the layer's use.
             let view = unsafe { &*(handle.ns_view.as_ptr() as *const NSView) };
-            view.setWantsLayer(true);
+            // A layer-hosting view: the layer first, then wantsLayer (Apple's order). The other way
+            // round the view is layer-backed, and AppKit paints over the layer, see-through parts
+            // included.
             view.setLayer(Some(&layer.clone().into_super()));
+            view.setWantsLayer(true);
             let target = PopupTarget { drawable: None, layer };
             let size = window.inner_size();
             self.resize_popup(&target, &window, size.width.max(1), size.height.max(1));
