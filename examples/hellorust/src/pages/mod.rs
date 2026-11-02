@@ -402,6 +402,9 @@ mod tests {
     #[test]
     fn menus_page_menu_bar_keys_shortcuts_and_closing_from_outside() {
         let mut host = host(900);
+        // The desktop host's keyboard: Tab, the arrows in groups, Enter activates.
+        host.ui.set_accessibility_enabled(true);
+        host.ui.set_keyboard_navigation(true);
         open_page(&mut host, "Tooltips & Menus");
         showing(&host, "Last command: none");
         let key = |host: &mut Headless<App>, key: &'static str, modifiers: Modifiers| {
@@ -411,6 +414,34 @@ mod tests {
             host.frame_after(16.0);
         };
         let open = |host: &Headless<App>| host.ui.state.menus_open();
+        let keyboard_on = |host: &Headless<App>| host.ui.accessibility_focused().and_then(|f| host.ui.tree.base(f)).map(|b| b.p.accessibility_label.to_string());
+        // Tab to the File title, Enter: File opens, the keyboard on its first line; Down: the
+        // second, highlighted too; Right: Edit on its first line; Escape closes it.
+        let file = host.ui.state.menus.title(0);
+        for _ in 0..40 {
+            if host.ui.accessibility_focused() == Some(file) {
+                break;
+            }
+            press(&mut host, "Tab");
+        }
+        assert_eq!(host.ui.accessibility_focused(), Some(file), "Tab reaches File");
+        press(&mut host, "Enter");
+        assert_eq!(open(&host), Some(0));
+        assert_eq!(keyboard_on(&host).as_deref(), Some("New"));
+        press(&mut host, "ArrowDown");
+        assert_eq!(keyboard_on(&host).as_deref(), Some("Open…"));
+        assert_eq!(host.ui.state.menus_highlighted(), Some(1), "the highlight goes with the keyboard");
+        press(&mut host, "ArrowRight");
+        assert_eq!(open(&host), Some(1));
+        assert_eq!(keyboard_on(&host).as_deref(), Some("Undo"));
+        press(&mut host, "Escape");
+        assert_eq!(open(&host), None, "Escape closes the menu");
+        // Down, Enter picks.
+        key(&mut host, "KeyF", Modifiers { alt: true, ..Modifiers::default() });
+        press(&mut host, "ArrowDown");
+        press(&mut host, "Enter");
+        assert_eq!(open(&host), None);
+        showing(&host, "Last command: File › Open… (Ctrl+O)");
         // Alt+F opens File with its first line ready; Down, Enter picks the second.
         key(&mut host, "KeyF", Modifiers { alt: true, ..Modifiers::default() });
         assert_eq!(open(&host), Some(0));

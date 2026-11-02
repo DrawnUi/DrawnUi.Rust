@@ -109,6 +109,10 @@ impl State {
         self.open
     }
 
+    pub(crate) fn highlighted(&self) -> Option<usize> {
+        self.highlighted
+    }
+
     pub(crate) fn title(&self, index: usize) -> ControlId {
         self.titles[index].into()
     }
@@ -291,7 +295,9 @@ fn title(index: usize, handle: &mut Handle<SkiaShape>) -> Build<SkiaShape> {
             if app.menus.open == Some(index) {
                 close_menu(app, cx);
             } else {
-                open_menu(app, cx, index, false);
+                // Enter on a title (no gesture): its first line ready, as Alt + its letter.
+                let keyboard = cx.gesture().is_none();
+                open_menu(app, cx, index, keyboard);
             }
         })
         .assign(handle)
@@ -350,6 +356,20 @@ fn bar_item(menu: usize, entry: usize) -> Build<SkiaShape> {
                 app.menus.highlighted = Some(line);
             }
         })
+        // The keyboard is on this line (opening a menu puts it on the first one): the engine moves
+        // it up and down the menu, the highlight goes along. Enter, Space and Escape are the
+        // engine's too (Enter activates the line, Escape closes the menu).
+        .on_key_down(move |_me, app: &mut App, _cx, event| {
+            let last = lines(menu).count() - 1;
+            match event.key {
+                "ArrowDown" => app.menus.highlighted = Some((line + 1).min(last)),
+                "ArrowUp" => app.menus.highlighted = Some(line.saturating_sub(1)),
+                "Home" => app.menus.highlighted = Some(0),
+                "End" => app.menus.highlighted = Some(last),
+                _ => {}
+            }
+            false
+        })
         .on_tapped(move |_me, app: &mut App, cx| run(app, cx, menu, entry))
         .children((
             SkiaLabel::new(it.text.unwrap_or_default()).font_size(14).text_color(Color::WHITE).accessibility_role(Aria::PRESENTATION),
@@ -378,8 +398,9 @@ fn run(app: &mut App, cx: &mut Cx, menu: usize, entry: usize) {
     close_menu(app, cx);
 }
 
-/// The menu bar's keys: Alt + a first letter opens a menu, the arrows walk the menus and their
-/// lines, Enter or Space picks, Escape closes; the shortcuts work with the menus closed. True = used.
+/// The menu bar's keys: Alt + a first letter opens a menu, Left and Right open the next one; the
+/// shortcuts work with the menus closed. Up, Down, Enter, Space and Escape in an open menu are the
+/// engine's keyboard focus (`bar_item`). True = used.
 pub fn key(app: &mut App, event: &KeyEvent, cx: &mut Cx) -> bool {
     if event.kind != KeyKind::Down {
         return false;
@@ -401,18 +422,9 @@ pub fn key(app: &mut App, event: &KeyEvent, cx: &mut Cx) -> bool {
         }
         return false;
     };
-    let count = lines(open).count();
     match event.key {
         "ArrowLeft" => open_menu(app, cx, (open + MENUS.len() - 1) % MENUS.len(), true),
         "ArrowRight" => open_menu(app, cx, (open + 1) % MENUS.len(), true),
-        "ArrowDown" => app.menus.highlighted = Some(app.menus.highlighted.map_or(0, |h| (h + 1) % count)),
-        "ArrowUp" => app.menus.highlighted = Some(app.menus.highlighted.map_or(count - 1, |h| (h + count - 1) % count)),
-        "Enter" | "NumpadEnter" | "Space" => {
-            if let Some((entry, _)) = app.menus.highlighted.and_then(|h| lines(open).nth(h)) {
-                run(app, cx, open, entry);
-            }
-        }
-        "Escape" => close_menu(app, cx),
         _ => return false,
     }
     true

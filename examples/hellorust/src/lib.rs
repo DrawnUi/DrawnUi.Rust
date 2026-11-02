@@ -61,6 +61,11 @@ impl App {
     fn menus_open(&self) -> Option<usize> {
         self.menus.open()
     }
+
+    /// The highlighted line of the open menu on that page.
+    fn menus_highlighted(&self) -> Option<usize> {
+        self.menus.highlighted()
+    }
 }
 
 fn build(app: &mut App) -> Build<SkiaLayout> {
