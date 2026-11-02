@@ -469,6 +469,15 @@ mod tests {
         let heading = on_screen(&host, showing(&host, "Tooltips & Menus"));
         tap_at(&mut host, heading.center_x(), heading.center_y());
         assert_eq!(open(&host), None, "closed from outside: the title unselects");
+        // A right click on "Choose a fruit" opens the page's context menu only, not the dropdown.
+        host.settle();
+        host.popup_windows(true);
+        let fruit = on_screen(&host, all(&host).into_iter().find(|id| host.ui.tree.base(*id).is_some_and(|b| b.p.accessibility_label == "Choose a fruit")).unwrap());
+        assert!(host.right_click(fruit.center_x(), fruit.center_y()));
+        host.settle();
+        let requests = host.popup_window_requests();
+        assert_eq!(requests.len(), 1, "{requests:?}");
+        assert!(requests[0].point, "the context menu, opened at the click");
     }
 
     /// A tap at a canvas point, with frames after it.

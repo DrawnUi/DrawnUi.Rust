@@ -19,6 +19,12 @@ const EDGE: Color = hex(0x3B4256);
 const HIGHLIGHT: Color = hex(0x343B52);
 const TITLE_OPEN: Color = hex(0x5A6270);
 
+/// Every mouse button taps (DrawnUI); what opens or picks here acts on the primary one only, so a
+/// right click on a button opens the page's context menu alone. Keyboard and touch are primary.
+fn primary(cx: &Cx) -> bool {
+    cx.gesture().is_none_or(|gesture| gesture.button == MouseButton::Left)
+}
+
 /// Menus are drawn on the CPU: on Windows their window then has per-pixel alpha, so the round
 /// corners show what is behind them.
 fn menu_window() -> PopupWindowOptions {
@@ -164,6 +170,9 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
             "Right-click anywhere on the page: the menu opens where you clicked. The button opens a list below it. A click outside or Escape closes them.",
             (
                 text_button("Choose a fruit").on_tapped(|me, app: &mut App, cx| {
+                    if !primary(cx) {
+                        return;
+                    }
                     let fruits = ["Apple", "Banana", "Cherry", "Grape", "Mango", "Orange", "Peach", "Pear"];
                     app.menus.menu = Some(cx.open_popup_window(menu("Fruits", &fruits), me.id(), menu_window()));
                 }),
@@ -300,6 +309,9 @@ fn title(index: usize, handle: &mut Handle<SkiaShape>) -> Build<SkiaShape> {
             }
         })
         .on_tapped(move |_me, app: &mut App, cx| {
+            if !primary(cx) {
+                return;
+            }
             if app.menus.open == Some(index) {
                 close_menu(app, cx);
             } else {
@@ -384,7 +396,11 @@ fn bar_item(menu: usize, entry: usize) -> Build<SkiaShape> {
             }
             false
         })
-        .on_tapped(move |_me, app: &mut App, cx| run(app, cx, menu, entry))
+        .on_tapped(move |_me, app: &mut App, cx| {
+            if primary(cx) {
+                run(app, cx, menu, entry);
+            }
+        })
         .children((
             SkiaLabel::new(it.text.unwrap_or_default()).font_size(14).text_color(Color::WHITE).accessibility_role(Aria::PRESENTATION),
             SkiaLabel::new(it.shortcut.unwrap_or_default())
@@ -469,6 +485,9 @@ fn menu(name: &'static str, items: &[&'static str]) -> Build<SkiaShape> {
                             .accessibility_label(text)
                             .on_hovered(|me, _app: &mut App, _cx, on| me.set_background_color(if on { HIGHLIGHT } else { Color::TRANSPARENT }))
                             .on_tapped(move |_me, app: &mut App, cx| {
+                                if !primary(cx) {
+                                    return;
+                                }
                                 app.menus.picked = Some(text);
                                 if let Some(menu) = app.menus.menu.take() {
                                     cx.close_popup_window(menu);
