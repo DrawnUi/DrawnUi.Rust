@@ -4,7 +4,7 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.30 (crates.io, 2026-11-02)
 
 ### Added
 
@@ -23,6 +23,9 @@ version before it. Commits in parentheses.
   title, a dropdown's button), as native menus do.
 - `PopupWindowOptions::passive`: a popup that only shows (no input, no accessibility node), as a
   tooltip; `PopupWindowOptions::tooltip` and `place_tooltip` place it.
+- Popup windows close when the app's window loses the keyboard, on every host, and a closed popup
+  leaves the accessibility tree in the next frame, so the keyboard and screen readers move on at
+  once. On macOS a popup window shows only what it draws: round corners and its own shadow.
 
 ### Changed
 
@@ -30,6 +33,11 @@ version before it. Commits in parentheses.
   row; its thumb is 18 points. The other styles keep their sizes.
 - The default look (no ControlStyle) uses the blue accent #3B82F6 on buttons, switches, checkboxes,
   radio buttons, sliders, progress bars and the editor caret.
+
+### Breaks
+
+- `PopupWindowOptions` has two new fields (`passive`, `tooltip`): write it with `..Default::default()`.
+- `PopupWindowRequest` (custom hosts) has two new fields, `passive` and `tooltip`.
 
 ## 0.1.0-preview.29 (crates.io, 2026-11-01)
 
