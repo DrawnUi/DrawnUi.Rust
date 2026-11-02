@@ -19,6 +19,12 @@ const EDGE: Color = hex(0x3B4256);
 const HIGHLIGHT: Color = hex(0x343B52);
 const TITLE_OPEN: Color = hex(0x5A6270);
 
+/// Menus are drawn on the CPU: on Windows their window then has per-pixel alpha, so the round
+/// corners show what is behind them.
+fn menu_window() -> PopupWindowOptions {
+    PopupWindowOptions { cpu: true, ..Default::default() }
+}
+
 const ICON_NEW: &str = "<svg viewBox='0 0 24 24'><path fill='#fff' d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zm4 18H6V4h7v5h5zM11 11h2v3h3v2h-3v3h-2v-3H8v-2h3z'/></svg>";
 const ICON_OPEN: &str = "<svg viewBox='0 0 24 24'><path fill='#fff' d='M20 6h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2m0 12H4V8h16z'/></svg>";
 const ICON_SAVE: &str = "<svg viewBox='0 0 24 24'><path fill='#fff' d='M17 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7zm2 16H5V5h11.17L19 7.83zM12 12a3 3 0 1 0 0 6 3 3 0 0 0 0-6M6 6h9v4H6z'/></svg>";
@@ -97,6 +103,8 @@ pub struct State {
     bar_popup: Option<PopupId>,
     /// The highlighted line of the open menu (its index among the lines).
     highlighted: Option<usize>,
+    /// Enter or Space on a title: the menu it opens has its first line highlighted.
+    keyboard_open: bool,
     command: String,
     /// The context menu or the dropdown open.
     menu: Option<PopupId>,
@@ -157,7 +165,7 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
             (
                 text_button("Choose a fruit").on_tapped(|me, app: &mut App, cx| {
                     let fruits = ["Apple", "Banana", "Cherry", "Grape", "Mango", "Orange", "Peach", "Pear"];
-                    app.menus.menu = Some(cx.open_popup_window(menu("Fruits", &fruits), me.id(), PopupWindowOptions::default()));
+                    app.menus.menu = Some(cx.open_popup_window(menu("Fruits", &fruits), me.id(), menu_window()));
                 }),
                 SkiaLabel::new("")
                     .font_size(14)
@@ -242,7 +250,7 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
     // Right-click anywhere on the page: the Edit menu where it was.
     .on_context_menu(|_me, app: &mut App, cx, at| {
         let items = ["Cut", "Copy", "Paste", "Select all", "Settings…"];
-        app.menus.menu = Some(cx.open_popup_window(menu("Edit", &items), at.location, PopupWindowOptions::default()));
+        app.menus.menu = Some(cx.open_popup_window(menu("Edit", &items), at.location, menu_window()));
         true
     })
 }
@@ -295,10 +303,16 @@ fn title(index: usize, handle: &mut Handle<SkiaShape>) -> Build<SkiaShape> {
             if app.menus.open == Some(index) {
                 close_menu(app, cx);
             } else {
-                // Enter on a title (no gesture): its first line ready, as Alt + its letter.
-                let keyboard = cx.gesture().is_none();
+                // Opened from the keyboard: its first line highlighted, as with Alt + its letter.
+                let keyboard = std::mem::take(&mut app.menus.keyboard_open) || cx.gesture().is_none();
                 open_menu(app, cx, index, keyboard);
             }
+        })
+        // Enter or Space activate the title (the engine's keyboard, a screen reader's overlay):
+        // the tap that follows comes from the keyboard.
+        .on_key_down(|_me, app: &mut App, _cx, event| {
+            app.menus.keyboard_open = matches!(event.key, "Enter" | "NumpadEnter" | "Space");
+            false
         })
         .assign(handle)
         .children(
@@ -334,7 +348,7 @@ fn open_menu(app: &mut App, cx: &mut Cx, index: usize, keyboard: bool) {
                 })
                 .collect::<Vec<_>>(),
         ));
-    app.menus.bar_popup = Some(cx.open_popup_window(content, app.menus.titles[index], PopupWindowOptions::default()));
+    app.menus.bar_popup = Some(cx.open_popup_window(content, app.menus.titles[index], menu_window()));
     app.menus.open = Some(index);
     app.menus.highlighted = keyboard.then_some(0);
 }

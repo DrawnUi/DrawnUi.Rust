@@ -428,6 +428,7 @@ mod tests {
         press(&mut host, "Enter");
         assert_eq!(open(&host), Some(0));
         assert_eq!(keyboard_on(&host).as_deref(), Some("New"));
+        assert_eq!(host.ui.state.menus_highlighted(), Some(0), "opened from the keyboard: the first line highlighted");
         press(&mut host, "ArrowDown");
         assert_eq!(keyboard_on(&host).as_deref(), Some("Open…"));
         assert_eq!(host.ui.state.menus_highlighted(), Some(1), "the highlight goes with the keyboard");
@@ -436,6 +437,7 @@ mod tests {
         assert_eq!(keyboard_on(&host).as_deref(), Some("Undo"));
         press(&mut host, "Escape");
         assert_eq!(open(&host), None, "Escape closes the menu");
+        assert_eq!(host.ui.accessibility_focused(), Some(host.ui.state.menus.title(1)), "the keyboard is back on Edit");
         // Down, Enter picks.
         key(&mut host, "KeyF", Modifiers { alt: true, ..Modifiers::default() });
         press(&mut host, "ArrowDown");

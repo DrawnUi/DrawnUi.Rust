@@ -58,7 +58,8 @@ fn build(app: &mut App) -> Build<SkiaLayout> {
             .text_color(Color::from_rgb(180, 190, 210)),
         SkiaButton::new("Choose a fruit").assign(&mut app.dropdown).on_tapped(|_me, app: &mut App, cx| {
             let fruits = ["Apple", "Banana", "Cherry", "Grape", "Mango", "Orange", "Peach", "Pear"];
-            app.popup = Some(cx.open_popup_window(menu(&fruits), app.dropdown, PopupWindowOptions::default()));
+            // Drawn on the CPU: on Windows the window has per-pixel alpha, the round corners show through.
+            app.popup = Some(cx.open_popup_window(menu(&fruits), app.dropdown, PopupWindowOptions { cpu: true, ..Default::default() }));
         }),
         SkiaLabel::new("")
             .font_size(18)
@@ -75,7 +76,7 @@ fn main() {
                 .background(Color::from_rgb(18, 18, 24))
                 .on_context_menu(|app: &mut App, at, cx| {
                     let items = ["Cut", "Copy", "Paste", "Select all", "Settings…"];
-                    let options = PopupWindowOptions { close_on_pointer_leave: true, ..Default::default() };
+                    let options = PopupWindowOptions { close_on_pointer_leave: true, cpu: true, ..Default::default() };
                     app.popup = Some(cx.open_popup_window(menu(&items), at.location, options));
                     true
                 }),
