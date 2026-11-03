@@ -58,6 +58,9 @@ pub(crate) fn tree(title: &str, nodes: &[AccessibilityNode], scale: f64, focus: 
         if !inside.is_empty() {
             node.set_children(inside);
         }
+        if n.modal {
+            node.set_modal();
+        }
         if !n.hint.is_empty() {
             node.set_description(n.hint.as_str());
         }
@@ -191,11 +194,22 @@ mod tests {
             text_lines: Vec::new(),
             parent,
             group: None,
+            modal: false,
         }
     }
 
     fn built(nodes: &[AccessibilityNode], id: u32) -> Node {
         tree("w", nodes, 1.0, ROOT).nodes.into_iter().find(|(n, _)| *n == node_id(id)).expect("node").1
+    }
+
+    #[test]
+    fn a_dialog_keeps_its_name_though_its_title_says_it_and_is_modal() {
+        let mut dialog = node(1, Aria::DIALOG, "Settings", false, None);
+        dialog.modal = true;
+        let nodes = [dialog, node(2, Aria::HEADING, "Settings", false, Some(1)), node(3, Aria::ALERT_DIALOG, "Delete?", false, None), node(4, Aria::TEXT, "Delete?", false, Some(3))];
+        let (built_dialog, alert) = (built(&nodes, 1), built(&nodes, 3));
+        assert_eq!((built_dialog.label(), built_dialog.is_modal()), (Some("Settings"), true));
+        assert_eq!((alert.label(), alert.is_modal()), (Some("Delete?"), false));
     }
 
     #[test]

@@ -1509,7 +1509,8 @@ fn open_popup(cx: &mut Cx, id: ControlId, state: &mut dyn Any, content: Detached
     let inner = SkiaLayer::new().center().scale(if o.animated { 0.5 } else { 1.0 }).internal().children(content);
     let content = inner.id();
     let wrapper = PopupWrapper { layout: SkiaLayout::default(), content, outside: false };
-    let mut wrapper = Build::new(wrapper).fill().block_gestures_below(true).opacity(if o.animated { 0.1 } else { 1.0 }).internal();
+    // Screen readers and Tab keep to the popup while it shows (drawnui-cross 6av).
+    let mut wrapper = Build::new(wrapper).fill().block_gestures_below(true).opacity(if o.animated { 0.1 } else { 1.0 }).internal().accessibility_modal(true);
     if o.show_overlay {
         let dim = o.background_color.unwrap_or(SkiaShell::POPUP_BACKGROUND_COLOR);
         wrapper.push_child(backdrop(dim).internal_tree());
@@ -1638,7 +1639,8 @@ fn push_modal(cx: &mut Cx, id: ControlId, state: &mut dyn Any, content: Detached
         .internal()
         .children(content);
     let dim = o.freeze_background.then(|| backdrop(SkiaShell::POPUP_BACKGROUND_COLOR).internal_tree());
-    let wrapper = SkiaLayer::new().fill().block_gestures_below(true).internal();
+    // Screen readers and Tab keep to the modal while it shows (drawnui-cross 6av).
+    let wrapper = SkiaLayer::new().fill().block_gestures_below(true).internal().accessibility_modal(true);
     let (wrapper_id, drawer_id) = (wrapper.id(), drawer.id());
     let d = drawer.control_mut();
     d.on_state_transition_complete = Some(Box::new(move |_, _, cx, open| {

@@ -207,6 +207,8 @@ pub struct AccessibilityNode {
     /// The arrow-key group it is in: the group's `id` and the control index of the group's item
     /// holding it. An overlay keeps a group one Tab stop with it (roving tabindex).
     pub group: Option<(u32, u32)>,
+    /// The active modal (`accessibility_modal`): read as a modal dialog (aria-modal).
+    pub modal: bool,
 }
 
 /// A role a user operates (a button, a field, a toggle...): one that takes no input is read as
@@ -221,7 +223,65 @@ pub(crate) fn is_control_role(role: &str) -> bool {
 /// A text or a heading inside the node says its name: the node is not named again (a card and
 /// its title). A selectable text stays itself.
 pub(crate) fn said_by_child(nodes: &[AccessibilityNode], node: &AccessibilityNode) -> bool {
+    // A dialog keeps its name though its title says it too (aria-labelledby drawn): readers say
+    // "Settings, dialog" as they enter it, then read the title.
+    if node.role == Aria::DIALOG || node.role == Aria::ALERT_DIALOG {
+        return false;
+    }
     nodes.iter().any(|c| c.parent == Some(node.id) && (c.role == Aria::TEXT || c.role == Aria::HEADING) && c.text_lines.is_empty() && c.label == node.label)
+}
+
+/// The matrix a control is drawn with before its own (`build_accessibility` seeds a subtree with it):
+/// every render matrix and scroll offset above it.
+fn matrix_above(tree: &Tree, id: ControlId) -> Matrix {
+    let mut path = Vec::new();
+    let mut at = tree.parent(id);
+    while let Some(p) = at {
+        path.push(p);
+        at = tree.parent(p);
+    }
+    let mut matrix = Matrix::new_identity();
+    for &p in path.iter().rev() {
+        if let Some(own) = tree.render.get(p.index as usize).and_then(|r| r.matrix) {
+            matrix = Matrix::concat(&matrix, &own);
+        }
+        if let Some(base) = tree.base(p) {
+            matrix.pre_translate(base.content_offset);
+        }
+    }
+    matrix
+}
+
+/// `a` is drawn over `b`: deeper than it, or after it under their common parent (z_index, then
+/// order).
+fn drawn_over(tree: &Tree, a: ControlId, b: ControlId) -> bool {
+    let path = |id: ControlId| {
+        let mut out = vec![id];
+        while let Some(p) = tree.parent(*out.last().unwrap()) {
+            out.push(p);
+        }
+        out.reverse();
+        out
+    };
+    let (pa, pb) = (path(a), path(b));
+    let common = pa.iter().zip(&pb).take_while(|(x, y)| x == y).count();
+    match (pa.get(common), pb.get(common)) {
+        (Some(_), None) => true,
+        (None, _) => false,
+        (Some(&ca), Some(&cb)) => {
+            let siblings = tree.children(pa[common - 1]);
+            let key = |c: ControlId| (tree.base(c).map_or(0, |b| b.p.z_index), siblings.iter().position(|s| *s == c).unwrap_or(0));
+            key(ca) > key(cb)
+        }
+    }
+}
+
+/// Where the keyboard goes when the active modal changed (`Ui::modal_focus`).
+enum ModalFocus {
+    /// A modal became active: into it, when the keyboard is in use.
+    Into(ControlId),
+    /// The modal went: back to this control, when the keyboard was in the modal or nowhere.
+    Back { modal: ControlId, to: Option<ControlId> },
 }
 
 /// The pointer's own finger among the fingers (`Ui::pointer_finger` ids are the host's).
@@ -348,6 +408,10 @@ pub struct Ui<S: 'static> {
     /// Runs after each frame of the app's window (`on_after_frame`).
     #[cfg(feature = "designer")]
     after_frame: Option<Box<dyn FnMut(&mut Ui<S>, &mut Frame)>>,
+    /// The active modal (`accessibility_modal`) the snapshot keeps to.
+    active_modal: Option<ControlId>,
+    /// The modals that were active, oldest first, with where the keyboard was as each came.
+    modal_stack: Vec<(ControlId, Option<ControlId>)>,
 }
 
 /// The FPS overlay: frames per second over the last half second of frames drawn one after the
@@ -472,6 +536,8 @@ impl<S: 'static> Ui<S> {
             popup_closed: None,
             #[cfg(feature = "designer")]
             after_frame: None,
+            active_modal: None,
+            modal_stack: Vec::new(),
         }
     }
 
@@ -1005,8 +1071,8 @@ impl<S: 'static> Ui<S> {
         let focused = self.accessibility_focused().or_else(|| self.focused());
         let group = focused.and_then(|f| self.group_of(f));
         let current = focused.and_then(|f| stops.iter().position(|s| *s == f || (group.is_some() && self.group_of(*s) == group)));
-        // In an open popup Tab goes round its stops, as in a native menu or dialog.
-        let round = self.tree.popups.iter().any(|p| !p.options.passive) && !stops.is_empty();
+        // In an open popup or an active modal Tab goes round its stops, as in a native menu or dialog.
+        let round = (self.active_modal.is_some() || self.tree.popups.iter().any(|p| !p.options.passive)) && !stops.is_empty();
         let next = match (current, back) {
             (None, false) => (!stops.is_empty()).then_some(0),
             (None, true) => stops.len().checked_sub(1),
@@ -2082,10 +2148,18 @@ impl<S: 'static> Ui<S> {
         // The focused control may have moved: the host's keyboard follows it.
         self.update_text_input();
         if self.accessibility_on {
+            // A modal that came or went: the snapshot follows in this frame.
+            let modal = self.update_modal();
+            if modal.is_some() {
+                self.accessibility_built_ms = f64::NEG_INFINITY;
+            }
             if time_ms - self.accessibility_built_ms >= ACCESSIBILITY_INTERVAL_MS {
                 self.build_accessibility(width, height, scale, time_ms);
             } else {
                 self.accessibility_stale = true;
+            }
+            if let Some(focus) = modal {
+                self.modal_focus(focus);
             }
         }
     }
@@ -2105,7 +2179,11 @@ impl<S: 'static> Ui<S> {
         let mut main_len = 0;
         for seed in 0..=self.tree.popups.len() {
             let (seed_root, seed_matrix, popup) = match seed.checked_sub(1).map(|i| &self.tree.popups[i]) {
-                None => (root, Matrix::new_identity(), false),
+                // An active modal: only it, of the app's tree.
+                None => match self.active_modal {
+                    Some(modal) => (modal, matrix_above(&self.tree, modal), false),
+                    None => (root, Matrix::new_identity(), false),
+                },
                 Some(p) if p.options.passive => continue,
                 Some(p) if !p.in_window(self.popup_windows_on) => (p.root, Matrix::new_identity(), true),
                 Some(p) => match p.window {
@@ -2130,10 +2208,13 @@ impl<S: 'static> Ui<S> {
                 None => matrix,
             };
             let (p, kind) = (&node.base.p, node.kind.as_deref());
-            // Set on the control, else the app's default for its type, else the control's own.
+            let is_modal = self.active_modal == Some(id);
+            // Set on the control, else the app's default for its type, else the control's own;
+            // the active modal is a dialog unless it has a role.
             let role = match &*p.accessibility_role {
                 "" => std::borrow::Cow::Borrowed(
-                    kind.and_then(|k| type_role(&self.accessibility_roles, k).or_else(|| k.accessibility_role())).unwrap_or(""),
+                    kind.and_then(|k| type_role(&self.accessibility_roles, k).or_else(|| k.accessibility_role()))
+                        .unwrap_or(if is_modal { Aria::DIALOG } else { "" }),
                 ),
                 _ => p.accessibility_role.clone(),
             };
@@ -2145,7 +2226,11 @@ impl<S: 'static> Ui<S> {
                         "" => kind.and_then(|k| k.accessibility_label()).map(|l| l.into_owned()).unwrap_or_default(),
                         label => label.to_owned(),
                     };
-                    let can_interact = p.accessibility_can_interact.or_else(|| kind.and_then(|k| k.accessibility_can_interact()));
+                    // A modal (a wrapper whose tap outside closes it) is no Tab stop unless the app says so.
+                    let can_interact = match is_modal {
+                        true => Some(p.accessibility_can_interact == Some(true)),
+                        false => p.accessibility_can_interact.or_else(|| kind.and_then(|k| k.accessibility_can_interact())),
+                    };
                     let s = scale.max(0.1);
                     below_parent = Some(id.index);
                     list.push(AccessibilityNode {
@@ -2166,6 +2251,7 @@ impl<S: 'static> Ui<S> {
                         },
                         parent,
                         group: None,
+                        modal: is_modal,
                     });
                 }
             }
@@ -3413,6 +3499,84 @@ impl<S: 'static> App for Ui<S> {
 }
 
 impl<S: 'static> Ui<S> {
+    /// The active modal of this frame (`accessibility_modal`): among the flagged controls of the
+    /// app's tree that show (no hidden or transparent ancestor, drawn in the last frame), the one
+    /// drawn on top. Nothing to do while no control is flagged. Answers where the keyboard goes
+    /// when it changed.
+    fn update_modal(&mut self) -> Option<ModalFocus> {
+        if self.active_modal.is_none() && crate::tree::MODALS.with_borrow(|m| m.is_empty()) {
+            return None;
+        }
+        let tree = &self.tree;
+        let shows = |id: ControlId| {
+            let mut at = Some(id);
+            let mut top = id;
+            while let Some(c) = at {
+                let Some(base) = tree.base(c) else { return false };
+                if !base.p.is_visible || base.p.opacity <= 0.0 || base.offscreen {
+                    return false;
+                }
+                top = c;
+                at = tree.parent(c);
+            }
+            // Laid out with a size: drawn in the last frame.
+            Some(top) == tree.root && tree.base(id).is_some_and(|b| !b.rect.is_empty())
+        };
+        let active = crate::tree::MODALS.with_borrow(|modals| {
+            modals
+                .iter()
+                .copied()
+                .filter(|m| tree.base(*m).is_some_and(|b| b.accessibility_modal) && shows(*m))
+                .reduce(|top, m| if drawn_over(tree, m, top) { m } else { top })
+        });
+        if active == self.active_modal {
+            return None;
+        }
+        self.active_modal = active;
+        // The one that went, and the one under it that is active again.
+        if let Some(i) = active.and_then(|a| self.modal_stack.iter().position(|(m, _)| *m == a)) {
+            let fallback = (self.modal_stack[i].0, None);
+            let (modal, to) = self.modal_stack.drain(i + 1..).next().unwrap_or(fallback);
+            return Some(ModalFocus::Back { modal, to });
+        }
+        match active {
+            Some(modal) => {
+                self.modal_stack.push((modal, self.tree.accessibility_focused));
+                Some(ModalFocus::Into(modal))
+            }
+            None => {
+                let (modal, to) = self.modal_stack.drain(..).next()?;
+                Some(ModalFocus::Back { modal, to })
+            }
+        }
+    }
+
+    /// The keyboard follows a modal that came or went (after the snapshot was rebuilt).
+    fn modal_focus(&mut self, focus: ModalFocus) {
+        let inside = |tree: &Tree, control: ControlId, modal: ControlId| std::iter::successors(Some(control), |c| tree.parent(*c)).any(|c| c == modal);
+        match focus {
+            ModalFocus::Into(modal) => {
+                if !self.focus_ring {
+                    return;
+                }
+                let first = self.tree.accessibility.iter().find(|n| n.can_interact && inside(&self.tree, n.control, modal)).map(|n| n.control);
+                if let Some(first) = first {
+                    self.keyboard_focus(first);
+                }
+            }
+            ModalFocus::Back { modal, to } => {
+                let keyboard = self.tree.accessibility_focused;
+                if keyboard.is_some_and(|k| self.tree.node(k).is_some() && !inside(&self.tree, k, modal)) {
+                    return;
+                }
+                let Some(to) = to.filter(|t| self.tree.accessibility.iter().any(|n| n.control == *t && n.can_interact)) else { return };
+                let ring = self.focus_ring;
+                self.keyboard_focus(to);
+                self.focus_ring = ring;
+            }
+        }
+    }
+
     /// Tells the app which popup windows closed (`on_popup_window_closed`). The accessibility
     /// snapshot drops their items in this frame, as it takes them in when a popup opens: the
     /// keyboard and a screen reader never stay on an item that is gone. The keyboard, when it was

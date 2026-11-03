@@ -429,6 +429,8 @@ pub extern "C" fn dui_poll_output(s: *mut WebState) -> *const c_char {
                 let separator = if i > 0 { "\u{1e}" } else { "" };
                 let _ = write!(out, "{separator}{text}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{family}\u{1f}{}\u{1f}{}", l.left, l.top, l.width, l.height, l.font_weight, l.font_size);
             }
+            // The active modal: aria-modal.
+            out.push_str(if n.modal { "\t1" } else { "\t" });
         }
         Some(out)
     } else if let Some(id) = host.keyboard_moved.take() {

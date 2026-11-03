@@ -11,11 +11,29 @@ version before it. Commits in parentheses.
 - `Host::on_frame_requested(f)`: a host that draws on demand hears when another thread changed
   something (`Waker::invalidate`), once until the next frame takes the changes, on the thread that
   made the change (DrawnUI .NET `DrawnView.FrameRequested`).
+- `.accessibility_modal(true)` (aria-modal): while that control shows, screen readers and Tab keep to
+  it and to the popup windows open; the keyboard moves into it and back when it goes; with several,
+  the one on top. Its node is read as a modal dialog.
 - For tools (DrawnUI Designer): `ControlId::to_bits` / `from_bits` (an id as one number; an id of a
-  control that is gone finds nothing). With feature `designer`: `Tree::drawn_rect(id)` (where the
-  last frame drew a control, also under cached parents), `Ui::hit_test_visual(point)` (the control a
-  person sees at a point, through layouts that draw nothing) and `Ui::on_after_frame(|tree, frame|)`
-  (draw over each frame, read it, apply edits on the UI thread).
+  control that is gone finds nothing). With feature `designer`: `Tree::drawn_rect(id)`,
+  `Ui::hit_test_visual(point)` (the control a person sees at a point, through layouts that draw
+  nothing), `Ui::on_after_frame(|ui, frame|)` (draw over each frame, read it, apply edits on the UI
+  thread), `Tree::is_internal(id)` (controls the engine makes for itself), `Tree::popup_roots()`,
+  `Ui::snapshot_popup(id, gpu)`, `Ui::render_offscreen(gpu, w, h, scale, time)`,
+  `Waker::request_hidden_frame()` (a frame off screen while the window is minimized),
+  `Host::request_window_focus()`, and the case names of a choice in `PropInfo::choices`.
+
+### Changed
+
+- A draggable scroll bar takes presses only while it shows (or is kept visible): a click on the strip
+  of a faded-out bar goes to the content.
+
+- SkiaShell popups and modals are accessibility modals: while one is open, the page under it is not
+  read and Tab stays in it.
+
+### Breaks
+
+- `AccessibilityNode` (custom hosts) has a new field, `modal`.
 
 ## 0.1.0-preview.30 (crates.io, 2026-11-02)
 

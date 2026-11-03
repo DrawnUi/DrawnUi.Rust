@@ -103,6 +103,8 @@ impl<T> From<Handle<T>> for ControlId {
 #[derive(Debug)]
 pub struct Base {
     pub p: ControlProps,
+    /// `accessibility_modal`: while it is the active modal, accessibility and Tab keep to it.
+    pub(crate) accessibility_modal: bool,
     /// Measured size in pixels, margin included.
     pub measured: Size,
     /// Where the control draws, in pixels (DrawingRect).
@@ -159,6 +161,7 @@ impl Default for Base {
     fn default() -> Self {
         Self {
             p: ControlProps::default(),
+            accessibility_modal: false,
             measured: Size::default(),
             rect: Rect::default(),
             scale: 1.0,
@@ -260,6 +263,14 @@ pub struct Mut<'a, T: ?Sized> {
 impl<T: ?Sized> Mut<'_, T> {
     pub fn id(&self) -> ControlId {
         self.id
+    }
+
+    /// See `Build::accessibility_modal`.
+    pub fn set_accessibility_modal(&mut self, on: bool) {
+        if self.base.accessibility_modal != on {
+            self.base.accessibility_modal = on;
+            register_modal(self.id, on);
+        }
     }
     pub fn base(&self) -> &Base {
         self.base
@@ -594,6 +605,44 @@ impl<T: Control> Build<T> {
         }
         self
     }
+}
+
+impl<T: Control> Build<T> {
+    /// ARIA aria-modal (DrawnUI `AccessibilityModal`): while this control shows (no hidden or
+    /// transparent ancestor, drawn in the last frame), screen readers and Tab keep to it and the
+    /// popup windows open: what is under it leaves the accessibility tree until it goes. With
+    /// several, the one drawn on top wins. The keyboard, when in use, moves to its first item, and
+    /// goes back where it was when it goes. Its node is read as a modal dialog (role `dialog` unless
+    /// it has a role). Input is not touched: a backdrop under it keeps taps from the page.
+    pub fn accessibility_modal(mut self, on: bool) -> Self {
+        self.base.accessibility_modal = on;
+        register_modal(self.id, on);
+        self
+    }
+}
+
+impl Base {
+    /// `Build::accessibility_modal`.
+    pub fn accessibility_modal(&self) -> bool {
+        self.accessibility_modal
+    }
+}
+
+thread_local! {
+    /// Controls flagged `accessibility_modal` (on this thread): empty, nothing is ever checked.
+    pub(crate) static MODALS: std::cell::RefCell<Vec<ControlId>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn register_modal(id: ControlId, on: bool) {
+    MODALS.with_borrow_mut(|modals| {
+        if on {
+            if !modals.contains(&id) {
+                modals.push(id);
+            }
+        } else {
+            modals.retain(|m| *m != id);
+        }
+    });
 }
 
 /// Controls that host children.
