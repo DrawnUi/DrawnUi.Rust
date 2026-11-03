@@ -350,6 +350,9 @@ pub trait App {
     /// that follows (the click that activated the window); the browser on window focus / blur;
     /// phones with the app shown / hidden.
     fn window_focus(&mut self, _focused: bool) {}
+    /// A screen reader started or stopped reading the app (the desktop host: an AccessKit client
+    /// connected or left); `Ui::set_screen_reader_running`.
+    fn screen_reader_running(&mut self, _running: bool) {}
     /// The page's focus went to an element outside the canvas (a field of the page): no drawn
     /// control keeps the keyboard (the browser host).
     fn focus_out(&mut self) {}

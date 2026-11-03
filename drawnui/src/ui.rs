@@ -410,6 +410,10 @@ pub struct Ui<S: 'static> {
     after_frame: Option<Box<dyn FnMut(&mut Ui<S>, &mut Frame)>>,
     /// The active modal (`accessibility_modal`) the snapshot keeps to.
     active_modal: Option<ControlId>,
+    /// `arrows_start_keyboard_navigation`.
+    arrows_start: bool,
+    /// A screen reader reads the app (`set_screen_reader_running`): true until a host says.
+    screen_reader: bool,
     /// The modals that were active, oldest first, with where the keyboard was as each came.
     modal_stack: Vec<(ControlId, Option<ControlId>)>,
 }
@@ -537,6 +541,8 @@ impl<S: 'static> Ui<S> {
             #[cfg(feature = "designer")]
             after_frame: None,
             active_modal: None,
+            arrows_start: false,
+            screen_reader: true,
             modal_stack: Vec::new(),
         }
     }
@@ -711,6 +717,14 @@ impl<S: 'static> Ui<S> {
     #[cfg(feature = "designer")]
     pub fn on_after_frame(mut self, f: impl FnMut(&mut Ui<S>, &mut Frame) + 'static) -> Self {
         self.after_frame = Some(Box::new(f));
+        self
+    }
+
+    /// DrawnUI `ArrowsStartKeyboardNavigation`: while nothing has the keyboard (or only a control
+    /// behind the active modal), the first arrow key starts keyboard navigation, as Tab (Down,
+    /// Right) or Shift+Tab (Up, Left) would. Off by default.
+    pub fn arrows_start_keyboard_navigation(mut self, on: bool) -> Self {
+        self.arrows_start = on;
         self
     }
 
@@ -986,7 +1000,10 @@ impl<S: 'static> Ui<S> {
                 handled = self.navigate(key, modifiers.shift);
             } else if self.accessibility_on && GROUP_KEYS.contains(&key) {
                 // The browser's overlay keeps Tab, Enter and Escape; the groups are the engine's.
-                handled = self.move_in_group(key);
+                handled = match self.arrow_starts_navigation(key) {
+                    true => self.tab(matches!(key, "ArrowUp" | "ArrowLeft")),
+                    false => self.move_in_group(key),
+                };
             }
         }
         handled
@@ -998,7 +1015,8 @@ impl<S: 'static> Ui<S> {
     fn navigate(&mut self, key: InputKey, back: bool) -> bool {
         match key {
             "Tab" => self.tab(back),
-            "Enter" | "NumpadEnter" | "Space" => match self.accessibility_focused() {
+            // A control behind the active modal is no focus: Enter never presses it.
+            "Enter" | "NumpadEnter" | "Space" => match self.accessibility_focused().filter(|_| !self.has_no_keyboard_focus()) {
                 Some(focused) => {
                     self.focus_ring = true;
                     self.accessibility_activate(focused.index);
@@ -1012,9 +1030,32 @@ impl<S: 'static> Ui<S> {
                 self.tree.needs_frame = true;
                 had
             }
+            _ if self.arrow_starts_navigation(key) => self.tab(matches!(key, "ArrowUp" | "ArrowLeft")),
             _ if GROUP_KEYS.contains(&key) => self.move_in_group(key),
             _ => false,
         }
+    }
+
+    /// `arrows_start_keyboard_navigation` is on, `key` is an arrow and nothing has the keyboard.
+    fn arrow_starts_navigation(&self, key: InputKey) -> bool {
+        self.arrows_start && matches!(key, "ArrowDown" | "ArrowRight" | "ArrowUp" | "ArrowLeft") && self.has_no_keyboard_focus()
+    }
+
+    /// Nothing has the keyboard (DrawnUI `HasNoKeyboardFocus`): no control, one that is gone, or
+    /// one behind the active modal (taken with the mouse just before the dialog opened), which
+    /// Enter and the arrows leave alone.
+    pub fn has_no_keyboard_focus(&self) -> bool {
+        let Some(focused) = self.accessibility_focused() else { return true };
+        let Some(modal) = self.active_modal else { return false };
+        let inside = |root: ControlId| std::iter::successors(Some(focused), |c| self.tree.parent(*c)).any(|c| c == root);
+        !inside(modal) && !self.tree.popups.iter().any(|p| inside(p.root))
+    }
+
+    /// A host's screen-reader state (DrawnUI `IsScreenReaderRunning`): the desktop host follows
+    /// AccessKit (a client connected); true until a host says. Without one, the keyboard focus
+    /// clears when its control leaves the screen; with one, it follows the node the reader moves to.
+    pub fn set_screen_reader_running(&mut self, running: bool) {
+        self.screen_reader = running;
     }
 
     /// The snapshot as it is now, built here when the last one is older than the frame (C#
@@ -1107,7 +1148,7 @@ impl<S: 'static> Ui<S> {
             Horizontal,
             Both,
         }
-        let Some(focused) = self.accessibility_focused() else { return false };
+        let Some(focused) = self.accessibility_focused().filter(|_| !self.has_no_keyboard_focus()) else { return false };
         self.fresh_accessibility();
         let Some(role_holder) = self.group_of(focused) else { return false };
         let tree = &self.tree;
@@ -2153,13 +2194,17 @@ impl<S: 'static> Ui<S> {
             if modal.is_some() {
                 self.accessibility_built_ms = f64::NEG_INFINITY;
             }
-            if time_ms - self.accessibility_built_ms >= ACCESSIBILITY_INTERVAL_MS {
+            let rebuilt = time_ms - self.accessibility_built_ms >= ACCESSIBILITY_INTERVAL_MS;
+            if rebuilt {
                 self.build_accessibility(width, height, scale, time_ms);
             } else {
                 self.accessibility_stale = true;
             }
             if let Some(focus) = modal {
                 self.modal_focus(focus);
+            }
+            if rebuilt {
+                self.focus_follows_snapshot();
             }
         }
     }
@@ -3472,6 +3517,10 @@ impl<S: 'static> App for Ui<S> {
         Ui::popup_window_placed(self, id, width, height, scale, offset)
     }
 
+    fn screen_reader_running(&mut self, running: bool) {
+        Ui::set_screen_reader_running(self, running);
+    }
+
     #[cfg(feature = "designer")]
     fn take_hidden_frame_request(&mut self) -> bool {
         self.tree.waker.take_hidden_frame()
@@ -3547,6 +3596,36 @@ impl<S: 'static> Ui<S> {
             None => {
                 let (modal, to) = self.modal_stack.drain(..).next()?;
                 Some(ModalFocus::Back { modal, to })
+            }
+        }
+    }
+
+    /// The control the keyboard is on left the snapshot (left the screen, hidden, gone): with no
+    /// screen reader the keyboard goes to nothing and its ring hides, so the keys are the app's
+    /// again (a game); with one, the keyboard follows the node the reader moves to, the first one
+    /// on screen that says something (`host_access::refocus`).
+    fn focus_follows_snapshot(&mut self) {
+        let Some(focused) = self.tree.accessibility_focused else { return };
+        // A control only covered by the active modal stays (it is no focus while the modal shows).
+        let behind_modal = self.tree.node(focused).is_some() && shown(&self.tree, focused) && self.has_no_keyboard_focus();
+        if behind_modal || (self.tree.node(focused).is_some() && self.tree.accessibility.iter().any(|n| n.control == focused)) {
+            return;
+        }
+        let height = self.tree.canvas_size.height;
+        let next = match self.screen_reader {
+            true => self.tree.accessibility.iter().filter(|n| n.can_interact || !n.label.is_empty()).find(|n| n.rect.bottom > 0.0 && n.rect.top < height).map(|n| n.control),
+            false => None,
+        };
+        match next {
+            Some(next) => {
+                let ring = self.focus_ring;
+                self.keyboard_focus(next);
+                self.focus_ring = ring;
+            }
+            None => {
+                self.tree.accessibility_focused = None;
+                self.focus_ring = false;
+                self.tree.needs_frame = true;
             }
         }
     }

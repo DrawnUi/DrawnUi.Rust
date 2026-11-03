@@ -299,6 +299,9 @@ impl Desktop {
             let _ = waking.lock().map(|proxy| proxy.send_event(Arrived::Wake));
         });
         app.init(&mut host);
+        // No screen reader until AccessKit hears a client (`access_event`).
+        #[cfg(not(target_os = "emscripten"))]
+        app.screen_reader_running(false);
         #[cfg(target_os = "android")]
         let size = window.inner_size();
         let cpu = (app.rendering_mode() == RenderingModeType::Default).then(|| CpuFrames { gpu: Gpu::raster(), surface: None });
@@ -378,7 +381,10 @@ impl Desktop {
     fn access_event(&mut self, event: accesskit_winit::WindowEvent) {
         use accesskit_winit::WindowEvent as Access;
         match event {
-            Access::InitialTreeRequested => self.send_access_tree(),
+            Access::InitialTreeRequested => {
+                self.app.screen_reader_running(true);
+                self.send_access_tree();
+            }
             Access::ActionRequested(request) => {
                 let id = host_access::snapshot_id(request.target_node);
                 match (request.action, id) {
@@ -408,7 +414,7 @@ impl Desktop {
                 }
             }
             // The snapshot stays on: the keyboard navigation reads it too.
-            Access::AccessibilityDeactivated => {}
+            Access::AccessibilityDeactivated => self.app.screen_reader_running(false),
         }
     }
 
