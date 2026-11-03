@@ -192,6 +192,9 @@ pub struct Host {
     pub(crate) bakes: Vec<BakeRequest>,
     /// `Host::on_frame_requested`: installed into the app's [`Waker`] by `App::init`.
     pub(crate) frame_requested: Option<Box<dyn Fn() + Send + Sync>>,
+    /// `Host::request_window_focus`.
+    #[cfg(feature = "designer")]
+    pub(crate) window_focus_requested: bool,
     /// Set by a host that shows popup windows in windows of their own (the desktop, not Wayland):
     /// without it the app draws them on its canvas.
     pub(crate) popup_windows_on: bool,
@@ -225,6 +228,14 @@ impl Host {
     /// for those.
     pub fn on_frame_requested(&mut self, f: impl Fn() + Send + Sync + 'static) {
         self.frame_requested = Some(Box::new(f));
+    }
+
+    /// Feature `designer`: brings the app's window back from the taskbar and to the front, after
+    /// the frame (a tool that shows the app it inspects). The desktop host does it; the browser
+    /// and phones ignore it. The system may refuse to take the keyboard from another app.
+    #[cfg(feature = "designer")]
+    pub fn request_window_focus(&mut self) {
+        self.window_focus_requested = true;
     }
 
     /// Asks for the bytes of `url`; they arrive later through [`App::asset`] with the same `id`.
@@ -417,6 +428,13 @@ pub trait App {
     fn close_popup_windows(&mut self) {}
     /// The app as `Any`, so code that knows its type can reach it ([`Ui`] returns itself; hot
     /// reload reads the state through it).
+    /// Feature `designer`: a frame was asked for while the window shows none
+    /// (`Waker::request_hidden_frame`); the host draws it off screen. Answered once.
+    #[cfg(feature = "designer")]
+    fn take_hidden_frame_request(&mut self) -> bool {
+        false
+    }
+
     fn as_any(&self) -> Option<&dyn std::any::Any> {
         None
     }

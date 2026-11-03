@@ -3386,6 +3386,11 @@ impl<S: 'static> App for Ui<S> {
         Ui::popup_window_placed(self, id, width, height, scale, offset)
     }
 
+    #[cfg(feature = "designer")]
+    fn take_hidden_frame_request(&mut self) -> bool {
+        self.tree.waker.take_hidden_frame()
+    }
+
     fn popup_frame(&mut self, id: u32, frame: &mut Frame) {
         self.draw_popup(id, frame.surface.canvas(), frame.gpu)
     }

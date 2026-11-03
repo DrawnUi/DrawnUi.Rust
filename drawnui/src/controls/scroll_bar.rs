@@ -74,6 +74,12 @@ impl SkiaScrollBar {
         self.shown
     }
 
+    /// A draggable bar takes a press only while it shows (or is kept visible): a faded-out bar
+    /// leaves its strip to the content.
+    pub(crate) fn grabs(&self) -> bool {
+        self.shown > 0.0 || self.keep
+    }
+
     /// The track inside the bar's rect, pixels.
     pub(crate) fn track(&self, rect: Rect, scale: f32, horizontal: bool) -> Rect {
         let (thickness, margin) = (self.p.thickness * scale, self.p.edge_margin * scale);

@@ -757,7 +757,7 @@ impl SkiaScroll {
             true => Rect::new(track.left, track.top - pad, track.right, track.bottom + pad),
             false => Rect::new(track.left - pad, track.top, track.right + pad, track.bottom),
         };
-        if !bar.p.is_draggable || !hit.contains(point) {
+        if !bar.p.is_draggable || !bar.grabs() || !hit.contains(point) {
             return None;
         }
         let at = if horizontal { point.x } else { point.y } - start;

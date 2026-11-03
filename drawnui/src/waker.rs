@@ -22,6 +22,9 @@ struct Shared {
     marks: Mutex<Vec<(ControlId, Dirty)>>,
     /// Asks the host for a frame (`Host::on_frame_requested`); set once.
     frame_requested: OnceLock<Box<dyn Fn() + Send + Sync>>,
+    /// `request_hidden_frame`: a frame is wanted even while the window shows none.
+    #[cfg(feature = "designer")]
+    hidden_frame: AtomicBool,
 }
 
 impl Waker {
@@ -37,6 +40,25 @@ impl Waker {
         if first && let Some(request) = self.0.frame_requested.get() {
             request();
         }
+    }
+
+    /// Feature `designer`: asks for one frame even while the window is minimized or covered (the
+    /// host shows none then): the host draws it off screen at the window's last size, and
+    /// `Ui::on_after_frame` runs, so a tool gets its answer. From any thread; nothing is shown.
+    #[cfg(feature = "designer")]
+    pub fn request_hidden_frame(&self) {
+        self.0.hidden_frame.store(true, Ordering::Relaxed);
+        if !self.0.pending.swap(true, Ordering::Relaxed)
+            && let Some(request) = self.0.frame_requested.get()
+        {
+            request();
+        }
+    }
+
+    /// A hidden frame was asked for; answered once.
+    #[cfg(feature = "designer")]
+    pub(crate) fn take_hidden_frame(&self) -> bool {
+        self.0.hidden_frame.swap(false, Ordering::Relaxed)
     }
 
     /// Marks are waiting for a frame.

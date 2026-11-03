@@ -403,7 +403,10 @@ fn a_scroll_shows_the_bar_of_the_hold_scene_and_it_hides_again() {
 #[test]
 fn a_draggable_thumb_moves_the_content_and_a_press_on_the_track_jumps_there() {
     let mut host = scene(2000.0, 1.0, false, |bar| bar.is_draggable(true));
-    // The thumb is 0..80. Taken at 40, nothing moves; the bar shows at once.
+    // A bar takes presses while it shows: a scroll shows it (and it does not hide by itself here).
+    scroll_to(&mut host, 0.0, -10.0);
+    scroll_to(&mut host, 0.0, 0.0);
+    // The thumb is 0..80. Taken at 40, nothing moves; the bar shows.
     press(&mut host, PointerKind::Down, 295.0, 40.0);
     assert_eq!((y(&host), shown(&host)), (0.0, 1.0));
     // 100 down: 100 of the 320 the thumb can go, of 1600.
@@ -452,6 +455,8 @@ fn a_bar_that_is_not_draggable_lets_every_gesture_through() {
 #[test]
 fn a_horizontal_bar_drags_along_x() {
     let mut host = scene(2000.0, 1.0, true, |bar| bar.is_draggable(true));
+    scroll_to(&mut host, -10.0, 0.0);
+    scroll_to(&mut host, 0.0, 0.0);
     // The thumb is 45 of 300; held by its middle at 150: 127.5 of the 255 it can go, of 1700.
     press(&mut host, PointerKind::Down, 150.0, 396.0);
     assert_eq!(scroll(&host).viewport_offset_x(), -850.0);
@@ -485,4 +490,44 @@ fn a_bar_changes_no_layout_and_allocates_nothing_while_scrolling() {
     host.settle();
     assert_eq!(ALLOCATIONS.with(|a| a.get()) - before, wheel);
     assert_eq!((shown(&host), measured(&host)), (0.0, before_size));
+}
+
+#[test]
+fn a_hidden_draggable_bar_leaves_its_strip_to_the_content() {
+    // A bar that hides: 1 s after scrolling stops, then 0.25 s to fade.
+    let mut host = scene(2000.0, 1.0, false, |bar| bar.is_draggable(true).auto_hide(true));
+    // Not shown yet: a tap on the strip is the content's.
+    assert_eq!(shown(&host), 0.0);
+    host.tap(295.0, 300.0);
+    assert_eq!((y(&host), host.ui.state.taps), (0.0, 1));
+    // Shown by a scroll: the strip is the bar's, during the scroll and right after it.
+    host.wheel(150.0, 200.0, -1.0);
+    let after = y(&host);
+    assert!(after < 0.0 && shown(&host) > 0.0);
+    press(&mut host, PointerKind::Down, 295.0, 300.0);
+    press(&mut host, PointerKind::Up, 295.0, 300.0);
+    host.settle();
+    assert_ne!(y(&host), after, "the press on the track moved the content");
+    assert_eq!(host.ui.state.taps, 1, "no tap for the content");
+    // Faded out (settle runs the frames to the end of the fade): the content's again.
+    assert_eq!(shown(&host), 0.0);
+    let at = y(&host);
+    host.tap(295.0, 300.0);
+    assert_eq!((y(&host), host.ui.state.taps), (at, 2));
+}
+
+#[test]
+fn a_bar_kept_visible_takes_presses() {
+    let ui_keep = |bar: Build<SkiaScrollBar>| bar.is_draggable(true);
+    let mut host = scene(2000.0, 1.0, false, ui_keep);
+    let scroll = host.ui.state.scroll;
+    if let Some(mut s) = host.ui.tree.cx().get_mut(scroll) {
+        s.set_keep_scroll_bars_visible(true);
+    }
+    host.settle();
+    press(&mut host, PointerKind::Down, 295.0, 300.0);
+    press(&mut host, PointerKind::Up, 295.0, 300.0);
+    host.settle();
+    assert!(y(&host) < 0.0, "kept visible: the press is the bar's");
+    assert_eq!(host.ui.state.taps, 0);
 }

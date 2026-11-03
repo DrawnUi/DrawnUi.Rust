@@ -126,6 +126,9 @@ struct Desktop {
     window: Window,
     /// Minimized or covered: no frames (Metal's `nextDrawable` would block up to a second).
     occluded: bool,
+    /// The window's size when it last showed, pixels: a hidden frame is drawn at it.
+    #[cfg(feature = "designer")]
+    shown_size: winit::dpi::PhysicalSize<u32>,
     /// In the background (iOS): no GPU work at all, the system kills an app that submits any.
     suspended: bool,
     /// What the app was last told (`App::visibility`): several platform events mean the same
@@ -268,6 +271,8 @@ impl Desktop {
     }
 
     fn new(window: Window, presenter: Presenter, mut app: Box<dyn App>, proxy: EventLoopProxy<Arrived>) -> Self {
+        #[cfg(feature = "designer")]
+        let shown_size = window.inner_size();
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         let ticker = ticker::Ticker::new(proxy.clone(), &window);
         #[cfg(windows)]
@@ -321,6 +326,8 @@ impl Desktop {
             proxy,
             window,
             occluded: false,
+            #[cfg(feature = "designer")]
+            shown_size,
             suspended: false,
             shown: true,
             #[cfg(any(target_os = "ios", target_os = "android"))]
@@ -592,6 +599,12 @@ impl Desktop {
     }
 
     fn draw(&mut self) {
+        // A tool asked for a frame while the window shows none: drawn off screen, not shown.
+        #[cfg(feature = "designer")]
+        if self.occluded && self.app.take_hidden_frame_request() {
+            self.hidden_frame();
+            return;
+        }
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         if self.occluded {
             return;
@@ -672,6 +685,8 @@ impl Desktop {
         self.presenter.present(&mut self.surface);
         self.deliver_assets();
         self.apply_input_requests();
+        #[cfg(feature = "designer")]
+        self.focus_window_if_asked();
         let wake = self.host.wake_ms.take().filter(|_| !more);
         self.wake = wake.map(|ms| self.start + Duration::from_secs_f64(ms / 1000.0));
         if more {
@@ -681,6 +696,33 @@ impl Desktop {
 }
 
 impl Desktop {
+    /// Feature `designer`: a frame of the app drawn off screen at the window's last shown size
+    /// while the window is minimized or covered (`Waker::request_hidden_frame`); nothing is shown.
+    #[cfg(feature = "designer")]
+    fn hidden_frame(&mut self) {
+        let size = self.shown_size;
+        let Some(mut surface) = self.gpu.offscreen(size.width.max(1) as i32, size.height.max(1) as i32) else { return };
+        let time_ms = self.start.elapsed().as_secs_f64() * 1000.0;
+        let (width, height, scale) = (size.width.max(1) as f32, size.height.max(1) as f32, self.window.scale_factor() as f32);
+        self.app.frame(&mut Frame { surface: &mut surface, gpu: &mut self.gpu, width, height, scale, time_ms, host: &mut self.host });
+        self.deliver_assets();
+        self.apply_input_requests();
+        self.focus_window_if_asked();
+    }
+
+    /// Feature `designer`: `Host::request_window_focus` after a frame: back from the taskbar, in
+    /// front.
+    #[cfg(feature = "designer")]
+    fn focus_window_if_asked(&mut self) {
+        if std::mem::take(&mut self.host.window_focus_requested) {
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
+            {
+                self.window.set_minimized(false);
+                self.window.focus_window();
+            }
+        }
+    }
+
     /// A new GPU context on the same window after the GPU lost the old one; the window surface
     /// is made again at the next frame.
     fn recreate_gpu(&mut self) {
@@ -1832,6 +1874,10 @@ impl ApplicationHandler<Arrived> for Desktop {
                 if let Some(minimized) = self.window.is_minimized().filter(|&m| m != self.occluded) {
                     self.occluded = minimized;
                     self.report_visible(!minimized);
+                }
+                #[cfg(feature = "designer")]
+                if size.width > 0 && size.height > 0 && !self.window.is_minimized().unwrap_or(false) {
+                    self.shown_size = size;
                 }
                 self.redraw();
             }
