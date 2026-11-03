@@ -177,3 +177,38 @@ fn a_modal_that_closes_on_a_tap_is_no_tab_stop() {
         assert_eq!(keyboard_on(&host).as_deref(), Some("OK"));
     }
 }
+
+#[derive(Default)]
+struct ShellApp {
+    shell: Handle<SkiaShell>,
+}
+
+fn shell_button(name: &'static str) -> Build<SkiaShape> {
+    SkiaShape::new().width_request(80).height_request(30).accessibility_role(Aria::BUTTON).accessibility_label(name).on_tapped(|_me, _app: &mut ShellApp, _cx| {})
+}
+
+#[test]
+fn a_shell_popup_or_modal_hides_the_page_under_it_from_accessibility() {
+    let ui = Ui::new(ShellApp::default(), |app: &mut ShellApp| {
+        SkiaShell::new().assign(&mut app.shell).root(SkiaLayout::column().fill().children((shell_button("Page A"),)))
+    });
+    let mut host = Headless::new(ui, 400, 300, 1.0);
+    host.ui.set_accessibility_enabled(true);
+    host.settle();
+    let names = |host: &Headless<ShellApp>| host.ui.accessibility_nodes().iter().map(|n| n.label.clone()).collect::<Vec<_>>();
+    assert!(names(&host).contains(&"Page A".to_owned()));
+    let shell = host.ui.state.shell;
+    let options = PopupOptions { animated: false, ..Default::default() };
+    host.ui.tree.cx().open_popup(shell, shell_button("In popup"), options);
+    host.settle();
+    let seen = names(&host);
+    assert!(seen.contains(&"In popup".to_owned()) && !seen.contains(&"Page A".to_owned()), "{seen:?}");
+    host.ui.tree.cx().close_popup(shell, false);
+    host.settle();
+    assert!(names(&host).contains(&"Page A".to_owned()));
+    let options = ModalOptions { animated: false, ..Default::default() };
+    host.ui.tree.cx().push_modal(shell, shell_button("In modal"), options);
+    host.settle();
+    let seen = names(&host);
+    assert!(seen.contains(&"In modal".to_owned()) && !seen.contains(&"Page A".to_owned()), "{seen:?}");
+}
