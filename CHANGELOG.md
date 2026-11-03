@@ -11,6 +11,18 @@ version before it. Commits in parentheses.
 - `Host::on_frame_requested(f)`: a host that draws on demand hears when another thread changed
   something (`Waker::invalidate`), once until the next frame takes the changes, on the thread that
   made the change (DrawnUI .NET `DrawnView.FrameRequested`).
+- `.accessibility_modal(true)` (aria-modal): while that control shows, screen readers and Tab keep to
+  it and to the popup windows open; the keyboard moves into it and back when it goes; with several,
+  the one on top. Its node is read as a modal dialog.
+
+### Changed
+
+- SkiaShell popups and modals are accessibility modals: while one is open, the page under it is not
+  read and Tab stays in it.
+
+### Breaks
+
+- `AccessibilityNode` (custom hosts) has a new field, `modal`.
 
 ## 0.1.0-preview.30 (crates.io, 2026-11-02)
 
