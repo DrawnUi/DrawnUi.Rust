@@ -4,6 +4,16 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## Unreleased
+
+### Added
+
+- For tools (DrawnUI Designer): `ControlId::to_bits` / `from_bits` (an id as one number; an id of a
+  control that is gone finds nothing). With feature `designer`: `Tree::drawn_rect(id)` (where the
+  last frame drew a control, also under cached parents), `Ui::hit_test_visual(point)` (the control a
+  person sees at a point, through layouts that draw nothing) and `Ui::on_after_frame(|tree, frame|)`
+  (draw over each frame, read it, apply edits on the UI thread).
+
 ## 0.1.0-preview.30 (crates.io, 2026-11-02)
 
 ### Added

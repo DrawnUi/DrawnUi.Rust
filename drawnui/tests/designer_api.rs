@@ -110,3 +110,98 @@ fn label_properties_by_name() {
     let after = host.ui.tree.base(label).unwrap().rect;
     assert!(after.height() > before.height() && after.center_x() > before.center_x(), "{before:?} -> {after:?}");
 }
+
+#[test]
+fn an_id_goes_over_the_wire_and_a_stale_one_finds_nothing() {
+    let host = host();
+    let id: ControlId = host.ui.state.label.into();
+    assert_eq!(ControlId::from_bits(id.to_bits()), id);
+    assert!(host.ui.tree.base(ControlId::from_bits(id.to_bits())).is_some());
+    // The same slot in a later generation, and a slot that was never used.
+    assert!(host.ui.tree.base(ControlId::from_bits(id.to_bits() + (1 << 32))).is_none());
+    assert!(host.ui.tree.base(ControlId::from_bits(u64::MAX)).is_none());
+}
+
+#[cfg(feature = "designer")]
+#[test]
+fn drawn_rect_is_where_the_last_frame_drew_it() {
+    let host = host();
+    let state = &host.ui.state;
+    assert_eq!(host.ui.tree.drawn_rect(state.front), Some(Rect::from_xywh(10.0, 10.0, 100.0, 100.0)));
+    let (drawn, screen) = (host.ui.tree.drawn_rect(state.turned).unwrap(), host.ui.tree.screen_rect(state.turned));
+    let near = |a: f32, b: f32| (a - b).abs() < 0.01;
+    assert!(near(drawn.left, screen.left) && near(drawn.top, screen.top) && near(drawn.right, screen.right) && near(drawn.bottom, screen.bottom), "{drawn:?}");
+    assert_eq!(host.ui.tree.drawn_rect(ControlId::from_bits(u64::MAX)), None);
+}
+
+#[cfg(feature = "designer")]
+#[test]
+fn hit_test_visual_looks_through_an_empty_layer_on_top() {
+    #[derive(Default)]
+    struct Page {
+        shape: Handle<SkiaShape>,
+        layer: Handle<SkiaLayout>,
+    }
+    let ui = Ui::new(Page::default(), |page: &mut Page| {
+        SkiaLayout::new().fill().children((
+            SkiaShape::new().width_request(100).height_request(100).margin((10, 10, 0, 0)).background_color(Color::BLUE).assign(&mut page.shape),
+            // An overlay that fills the canvas and draws nothing (a shell's toast layer).
+            SkiaLayer::new().fill().assign(&mut page.layer),
+        ))
+    });
+    let mut host = Headless::new(ui, 400, 300, 1.0);
+    host.settle();
+    let at = Point::new(50.0, 50.0);
+    assert_eq!(host.ui.hit_test(at), Some(host.ui.state.layer.into()), "hit_test: what is on top");
+    assert_eq!(host.ui.hit_test_visual(at), Some(host.ui.state.shape.into()), "the shape a person sees");
+    // Where only empty layouts are, nothing is seen.
+    assert_eq!(host.ui.hit_test_visual(Point::new(300.0, 250.0)), None);
+}
+
+#[cfg(feature = "designer")]
+#[test]
+fn after_frame_draws_over_the_frame_reads_it_and_applies_edits() {
+    use std::sync::mpsc;
+    use drawnui::App as _;
+    #[derive(Default)]
+    struct Page {
+        label: Handle<SkiaLabel>,
+    }
+    // Edits a tool queued from another thread, and what it saw.
+    let (edits, queued) = mpsc::channel::<(u64, &'static str, &'static str)>();
+    let (seen_tx, seen) = mpsc::channel::<(Color, Color)>();
+    let ui = Ui::new(Page::default(), |page: &mut Page| SkiaLayout::new().fill().children((SkiaLabel::new("Before").assign(&mut page.label),)))
+        .font_bytes("Default", FONT)
+        .background(Color::WHITE)
+        .on_after_frame(move |tree, frame| {
+            while let Ok((id, name, value)) = queued.try_recv() {
+                tree.set_prop(ControlId::from_bits(id), name, value).unwrap();
+            }
+            let canvas = frame.surface.canvas();
+            canvas.draw_rect(Rect::from_xywh(300.0, 200.0, 20.0, 20.0), &drawnui::skia::Paint::new(drawnui::skia::Color4f::from(Color::RED), None));
+            let image = frame.surface.image_snapshot();
+            let mut px = [0u8; 4];
+            let info = drawnui::skia::ImageInfo::new((1, 1), drawnui::skia::ColorType::RGBA8888, drawnui::skia::AlphaType::Unpremul, None);
+            let at = |px: &mut [u8; 4], x, y| {
+                image.read_pixels(&info, px, 4, (x, y), drawnui::skia::image::CachingHint::Disallow);
+                Color::from_rgb(px[0], px[1], px[2])
+            };
+            let _ = seen_tx.send((at(&mut px, 310, 210), at(&mut px, 390, 290)));
+        });
+    let mut host = Headless::new(ui, 400, 300, 1.0);
+    host.settle();
+    let mut surface = drawnui::skia::surfaces::raster_n32_premul((400, 300)).unwrap();
+    let (mut gpu, mut app_host) = (drawnui::Gpu::raster(), drawnui::Host::default());
+    let mut frame = |ui: &mut Ui<Page>, surface: &mut drawnui::skia::Surface, time_ms: f64| {
+        let mut f = drawnui::Frame { surface, gpu: &mut gpu, width: 400.0, height: 300.0, scale: 1.0, time_ms, host: &mut app_host };
+        ui.frame(&mut f)
+    };
+    frame(&mut host.ui, &mut surface, 1000.0);
+    assert_eq!(seen.try_recv().unwrap(), (Color::RED, Color::WHITE), "drawn over the app, read back");
+    let label = ControlId::from(host.ui.state.label).to_bits();
+    edits.send((label, "text", "After")).unwrap();
+    let more = frame(&mut host.ui, &mut surface, 1016.0);
+    assert!(more, "the edit asks for the next frame");
+    frame(&mut host.ui, &mut surface, 1032.0);
+    assert_eq!(host.ui.tree.find::<SkiaLabel>(host.ui.state.label).unwrap().p.text, "After");
+}

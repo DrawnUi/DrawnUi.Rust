@@ -8,7 +8,6 @@ use skia_safe::{Color, Point};
 
 use super::Ui;
 use crate::controls::label::SkiaLabel;
-use crate::controls::layout::SkiaLayout;
 use crate::controls::shape::SkiaShape;
 use crate::prelude::*;
 use crate::tree::{ControlId, Cx, Detached};
@@ -138,19 +137,7 @@ impl<S: 'static> Ui<S> {
     /// The innermost control with a tooltip at a canvas point. A layout that draws nothing of its
     /// own there (an empty overlay layer of a shell) is looked through, unless it has a tooltip.
     fn tooltip_target(&self, point: Point) -> Option<ControlId> {
-        let tree = &self.tree;
-        let seen = |id: ControlId| {
-            tree.find::<SkiaLayout>(id).is_none()
-                || tree.base(id).is_some_and(|b| b.p.background_color.is_some_and(|c| c.a() > 0) || b.p.fill_gradient.is_some())
-                || self.tooltip_text(id).is_some()
-        };
-        let identity = skia_safe::Matrix::default();
-        // Popups drawn on the canvas first, as `Ui::hit_test`.
-        let on_canvas = tree.popups.iter().rev().filter(|p| !p.options.passive && !p.in_window(self.popup_windows_on));
-        let mut at = on_canvas
-            .filter_map(|p| tree.visual_pick_where(p.root, point, &identity, &seen))
-            .next()
-            .or_else(|| tree.visual_pick_where(tree.root?, point, &identity, &seen));
+        let mut at = self.pick_seen(point, &|id| self.tooltip_text(id).is_some());
         while let Some(id) = at {
             if self.tooltip_text(id).is_some() {
                 return Some(id);

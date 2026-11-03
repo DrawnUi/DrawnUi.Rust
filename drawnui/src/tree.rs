@@ -21,6 +21,18 @@ pub struct ControlId {
     pub(crate) generation: u32,
 }
 
+impl ControlId {
+    /// The id as one number, for a tool that sends it elsewhere (DrawnUI Designer).
+    pub fn to_bits(self) -> u64 {
+        (self.generation as u64) << 32 | self.index as u64
+    }
+
+    /// The id `to_bits` gave. An id of a control that is gone finds nothing in the tree.
+    pub fn from_bits(bits: u64) -> ControlId {
+        ControlId { index: bits as u32, generation: (bits >> 32) as u32 }
+    }
+}
+
 thread_local! {
     // (generation per index, free indices). Builders have no tree to ask, so ids come from here.
     // ponytail: one allocator per thread shared by every Tree, so a second tree gets sparse slots,

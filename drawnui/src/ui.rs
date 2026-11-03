@@ -345,6 +345,9 @@ pub struct Ui<S: 'static> {
     window_focus: Option<Box<dyn FnMut(&mut S, bool, &mut Cx<'_>)>>,
     /// Runs for each popup window that closed (`on_popup_window_closed`).
     popup_closed: Option<Box<dyn FnMut(&mut S, PopupId, &mut Cx<'_>)>>,
+    /// Runs after each frame of the app's window (`on_after_frame`).
+    #[cfg(feature = "designer")]
+    after_frame: Option<Box<dyn FnMut(&mut Tree, &mut Frame)>>,
 }
 
 /// The FPS overlay: frames per second over the last half second of frames drawn one after the
@@ -467,6 +470,8 @@ impl<S: 'static> Ui<S> {
             left_all_at: None,
             window_focus: None,
             popup_closed: None,
+            #[cfg(feature = "designer")]
+            after_frame: None,
         }
     }
 
@@ -628,6 +633,16 @@ impl<S: 'static> Ui<S> {
     /// Tooltips are not reported.
     pub fn on_popup_window_closed(mut self, f: impl FnMut(&mut S, PopupId, &mut Cx<'_>) + 'static) -> Self {
         self.popup_closed = Some(Box::new(f));
+        self
+    }
+
+    /// Feature `designer`: runs after each frame of the app's window is drawn, before the host
+    /// shows it, on the UI thread: a tool draws over the frame (`frame.surface.canvas()`), reads
+    /// it (`frame.surface.image_snapshot()`), and applies the edits it queued (`Tree::set_prop`;
+    /// the frame they ask for follows). Popup windows are drawn apart and not seen here.
+    #[cfg(feature = "designer")]
+    pub fn on_after_frame(mut self, f: impl FnMut(&mut Tree, &mut Frame) + 'static) -> Self {
+        self.after_frame = Some(Box::new(f));
         self
     }
 
@@ -1553,6 +1568,32 @@ impl<S: 'static> Ui<S> {
         self.tree.visual_pick(self.tree.root?, point, &identity)
     }
 
+    /// Feature `designer`: as `hit_test`, but a layout that draws nothing of its own at the point
+    /// (no background, no gradient: an empty overlay layer, a SkiaShell's popup or toast layer) is
+    /// looked through: the control a person sees there; `None` where only such layouts are.
+    #[cfg(feature = "designer")]
+    pub fn hit_test_visual(&self, point: Point) -> Option<ControlId> {
+        self.pick_seen(point, &|_| false)
+    }
+
+    /// The control seen at a canvas point, popups on the canvas first; a layout that draws nothing
+    /// there counts only when `also` says so (`hit_test_visual`, tooltips).
+    pub(crate) fn pick_seen(&self, point: Point, also: &dyn Fn(ControlId) -> bool) -> Option<ControlId> {
+        use crate::controls::layout::SkiaLayout;
+        let tree = &self.tree;
+        let seen = |id: ControlId| {
+            tree.find::<SkiaLayout>(id).is_none()
+                || tree.base(id).is_some_and(|b| b.p.background_color.is_some_and(|c| c.a() > 0) || b.p.fill_gradient.is_some())
+                || also(id)
+        };
+        let identity = skia_safe::Matrix::default();
+        let on_canvas = tree.popups.iter().rev().filter(|p| !p.options.passive && !p.in_window(self.popup_windows_on));
+        on_canvas
+            .filter_map(|p| tree.visual_pick_where(p.root, point, &identity, &seen))
+            .next()
+            .or_else(|| tree.visual_pick_where(tree.root?, point, &identity, &seen))
+    }
+
     /// The root of the popup drawn on the canvas under the pixel, the top one first.
     fn popup_on_canvas_at(&self, point: Point) -> Option<ControlId> {
         let on = self.popup_windows_on;
@@ -2314,6 +2355,16 @@ fn shown(tree: &Tree, id: ControlId) -> bool {
         }
     }
     true
+}
+
+impl Tree {
+    /// Feature `designer`: where a control was drawn on the canvas at the last frame, pixels: its
+    /// rect through every matrix recorded while painting (transforms, scroll offsets, also under a
+    /// cached parent), as tooltips and popups anchor to it. `None` for a control that is gone.
+    #[cfg(feature = "designer")]
+    pub fn drawn_rect(&self, id: impl Into<ControlId>) -> Option<Rect> {
+        drawn_rect(self, id.into())
+    }
 }
 
 /// Where a control is drawn on the canvas, pixels: its rect through every render matrix and
@@ -3254,6 +3305,10 @@ impl<S: 'static> App for Ui<S> {
             self.set_accessibility_enabled(frame.host.accessibility_on);
         }
         self.draw(frame.surface.canvas(), frame.gpu, frame.width, frame.height, frame.scale, frame.time_ms);
+        #[cfg(feature = "designer")]
+        if let Some(after) = self.after_frame.as_mut() {
+            after(&mut self.tree, frame);
+        }
         // Image loads asked for during the frame go to the host.
         for request in self.tree.images.take_requests() {
             frame.host.fetch_image(request);
