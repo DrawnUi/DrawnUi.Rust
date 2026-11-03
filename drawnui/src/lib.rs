@@ -39,7 +39,7 @@ pub use gpu::{GlTarget, Gpu, GpuApi, VulkanHandles};
 pub use images::{Frames, ImageRequest, Images};
 pub use keyboard::{Cursor, InputKey, KEY_CODES, KeyEvent, KeyKind, Keyboard, Modifiers, key_name};
 pub use popups::{PopupAnchor, PopupId, PopupWindowOptions, PopupWindowRequest, TooltipPlacement, place_popup, place_tooltip};
-pub use tree::{Base, Build, Container, ControlId, ControlProps, Cx, Detached, Handle, IntoChildren, Mut, Tree};
+pub use tree::{Base, Build, Container, ControlId, ControlProps, Cx, Detached, Handle, IntoChildren, Mut, Tree, modal_registered};
 pub use ui::{ACCESSIBILITY_INTERVAL_MS, AccessibilityNode, AccessibilityTextLine, AccessibilityValue, Aria, ContextMenu, FrameStats, HistoryOp};
 pub use types::{
     CacheType, CornerRadius, Dirty, GesturesMode, GpuBackend, GradientType, IntoProp, LayoutOptions, LockTouch, RenderingModeType, SkiaGradient, SkiaShadow,

@@ -645,6 +645,12 @@ fn register_modal(id: ControlId, on: bool) {
     });
 }
 
+/// `accessibility_modal` is registered (tests).
+#[doc(hidden)]
+pub fn modal_registered(id: ControlId) -> bool {
+    MODALS.with_borrow(|modals| modals.contains(&id))
+}
+
 /// Controls that host children.
 pub trait Container: Control {}
 
@@ -895,6 +901,9 @@ impl Tree {
         self.render[id.index as usize] = RenderSlot::default();
         if node.base.tracks_viewport {
             self.trackers.retain(|t| *t != id);
+        }
+        if node.base.accessibility_modal {
+            register_modal(id, false);
         }
         if node.kind.as_deref().is_some_and(|k| k.moves_content().is_some()) {
             self.movers.retain(|m| *m != id);

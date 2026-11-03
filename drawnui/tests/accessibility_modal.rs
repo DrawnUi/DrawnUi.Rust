@@ -212,3 +212,26 @@ fn a_shell_popup_or_modal_hides_the_page_under_it_from_accessibility() {
     let seen = names(&host);
     assert!(seen.contains(&"In modal".to_owned()) && !seen.contains(&"Page A".to_owned()), "{seen:?}");
 }
+
+#[test]
+fn a_removed_or_closed_modal_leaves_the_registry() {
+    let mut host = host();
+    let dialog: ControlId = host.ui.state.dialog.into();
+    assert!(drawnui::modal_registered(dialog));
+    host.ui.tree.cx().remove(dialog);
+    host.settle();
+    assert!(!drawnui::modal_registered(dialog), "removed: no check left running for it");
+    // A shell popup's wrapper is a modal while it is open, and leaves when it closes.
+    let ui = Ui::new(ShellApp::default(), |app: &mut ShellApp| SkiaShell::new().assign(&mut app.shell).root(SkiaLayout::column().fill().children((shell_button("Page A"),))));
+    let mut host = Headless::new(ui, 400, 300, 1.0);
+    host.ui.set_accessibility_enabled(true);
+    host.settle();
+    let shell = host.ui.state.shell;
+    host.ui.tree.cx().open_popup(shell, shell_button("In popup"), PopupOptions { animated: false, ..Default::default() });
+    host.settle();
+    let wrapper = host.ui.accessibility_nodes().iter().find(|n| n.modal).map(|n| n.control).expect("the popup's modal node");
+    assert!(drawnui::modal_registered(wrapper));
+    host.ui.tree.cx().close_popup(shell, false);
+    host.settle();
+    assert!(!drawnui::modal_registered(wrapper));
+}
