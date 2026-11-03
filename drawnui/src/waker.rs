@@ -8,8 +8,10 @@ use crate::tree::ControlId;
 use crate::types::Dirty;
 
 /// A handle other threads use to ask for a frame (`Cx::waker`, `Ui::waker`). Cheap to clone.
-/// Desktop and mobile: the first call after a frame wakes the event loop. Web: the marks wait for
-/// the next frame; the page script that delivered the data calls the host's `requestFrame`.
+/// The first call after a frame took the marks calls the host's frame request
+/// (`Host::on_frame_requested`) on the calling thread; later calls only add marks until the next
+/// frame starts. Web: no frame request; the page script that delivered the data calls the host's
+/// `requestFrame`.
 #[derive(Clone, Default)]
 pub struct Waker(Arc<Shared>);
 
@@ -18,8 +20,8 @@ struct Shared {
     /// Marks are queued and no frame took them yet.
     pending: AtomicBool,
     marks: Mutex<Vec<(ControlId, Dirty)>>,
-    /// Wakes the host's event loop; set once by the host.
-    signal: OnceLock<Box<dyn Fn() + Send + Sync>>,
+    /// Asks the host for a frame (`Host::on_frame_requested`); set once.
+    frame_requested: OnceLock<Box<dyn Fn() + Send + Sync>>,
 }
 
 impl Waker {
@@ -32,8 +34,8 @@ impl Waker {
             marks.push((id.into(), dirty));
             !self.0.pending.swap(true, Ordering::Relaxed)
         };
-        if first && let Some(signal) = self.0.signal.get() {
-            signal();
+        if first && let Some(request) = self.0.frame_requested.get() {
+            request();
         }
     }
 
@@ -52,9 +54,9 @@ impl Waker {
         std::mem::swap(&mut *marks, into);
     }
 
-    /// The host's way to wake its event loop; only the first one set counts.
-    pub(crate) fn set_signal(&self, signal: Box<dyn Fn() + Send + Sync>) {
-        let _ = self.0.signal.set(signal);
+    /// The host's frame request (`Host::on_frame_requested`); only the first one set counts.
+    pub(crate) fn set_frame_requested(&self, request: Box<dyn Fn() + Send + Sync>) {
+        let _ = self.0.frame_requested.set(request);
     }
 }
 
@@ -67,7 +69,7 @@ mod tests {
     fn a_burst_of_marks_wakes_the_loop_once_until_a_frame_takes_them() {
         let (waker, signals) = (Waker::default(), Arc::new(AtomicU32::new(0)));
         let counted = signals.clone();
-        waker.set_signal(Box::new(move || {
+        waker.set_frame_requested(Box::new(move || {
             counted.fetch_add(1, Ordering::Relaxed);
         }));
         let id = ControlId { index: 1, generation: 0 };

@@ -289,9 +289,10 @@ impl Desktop {
             host.popup_windows_on = !matches!(window.window_handle().map(|h| h.as_raw()), Ok(RawWindowHandle::Wayland(_)));
         }
         let waking = std::sync::Mutex::new(proxy.clone());
-        host.wake = Some(Box::new(move || {
+        // A frame asked for from another thread comes to the event loop as an event.
+        host.on_frame_requested(move || {
             let _ = waking.lock().map(|proxy| proxy.send_event(Arrived::Wake));
-        }));
+        });
         app.init(&mut host);
         #[cfg(target_os = "android")]
         let size = window.inner_size();

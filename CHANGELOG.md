@@ -8,6 +8,9 @@ version before it. Commits in parentheses.
 
 ### Added
 
+- `Host::on_frame_requested(f)`: a host that draws on demand hears when another thread changed
+  something (`Waker::invalidate`), once until the next frame takes the changes, on the thread that
+  made the change (DrawnUI .NET `DrawnView.FrameRequested`).
 - For tools (DrawnUI Designer): `ControlId::to_bits` / `from_bits` (an id as one number; an id of a
   control that is gone finds nothing). With feature `designer`: `Tree::drawn_rect(id)` (where the
   last frame drew a control, also under cached parents), `Ui::hit_test_visual(point)` (the control a
