@@ -1737,7 +1737,7 @@ impl<T: Has<ScrollProps>> Build<T> {
         for (horizontal, other) in [(false, ScrollBarVisibility::Horizontal), (true, ScrollBarVisibility::Vertical)] {
             let wanted = visibility != ScrollBarVisibility::None && visibility != other;
             if wanted && scroll_part(self.control_mut()).bars[horizontal as usize].is_none() {
-                self = self.push_bar(SkiaScrollBar::new(), horizontal);
+                self = self.push_bar(SkiaScrollBar::new().internal_tree(), horizontal);
             }
         }
         self

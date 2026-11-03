@@ -464,13 +464,13 @@ impl SkiaShell {
         let me = self.me;
         let insets = self.p.insets.unwrap_or(cx.content_insets());
         self.applied_insets = Some(insets);
-        let pages = cx.add_child(me, SkiaLayer::new().fill());
+        let pages = cx.add_child(me, SkiaLayer::new().fill().internal());
         if !self.tabs.is_empty() {
             let bar = self.tab_bar_build(insets);
-            self.tab_bar_id = Some(cx.add_child(me, bar));
+            self.tab_bar_id = Some(cx.add_child(me, bar.internal_tree()));
         }
         // Modals, popups and toasts keep out of the safe area on every side.
-        let overlays = || SkiaLayer::new().fill().margin(insets);
+        let overlays = || SkiaLayer::new().fill().margin(insets).internal();
         let (modals, popups, toasts) = (cx.add_child(me, overlays()), cx.add_child(me, overlays()), cx.add_child(me, overlays()));
         self.parts = Some(Parts { pages, modals, popups, toasts });
         self.stacks = (0..self.tabs.len().max(1)).map(|_| None).collect();
@@ -603,8 +603,8 @@ impl SkiaShell {
                 .accessibility_role(Aria::BUTTON)
                 .accessibility_label(text.trim_start_matches(['‹', ' ']))
         };
-        SkiaLayer::new().fill().background_color(p.page_background_color).block_gestures_below(true).children((
-            SkiaLayer::new().fill().margin(content_margin).children(page),
+        SkiaLayer::new().fill().background_color(p.page_background_color).block_gestures_below(true).internal().children((
+            SkiaLayer::new().fill().margin(content_margin).internal().children(page),
             // Static chrome: one bitmap; the ripple of a button is drawn over it.
             SkiaLayer::new()
                 .height_request(nav_top)
@@ -627,7 +627,8 @@ impl SkiaShell {
                         cx.pop_to_root(me)
                     }),
                     SkiaLayer::new().height_request(1).vertical_options(LayoutOptions::End).background_color(LINE),
-                )),
+                ))
+                .internal_tree(),
         ))
     }
 }
@@ -1048,13 +1049,13 @@ fn set_visible(tree: &mut Tree, id: ControlId, visible: bool) {
 fn mount_stack(cx: &mut Cx, pages: ControlId, content: Vec<Detached>, visible: bool, tab: Option<(f32, Color)>, insets: Thickness) -> Stack {
     // The root page keeps out of the safe area; the tab bar takes the bottom one when there is one.
     let bottom_inset = if tab.is_some() { 0.0 } else { insets.bottom };
-    let mut root = SkiaLayer::new().fill().margin((insets.left, insets.top, insets.right, bottom_inset)).children(content);
+    let mut root = SkiaLayer::new().fill().margin((insets.left, insets.top, insets.right, bottom_inset)).internal().children(content);
     if let Some((_, background)) = tab {
         root = root.background_color(background);
     }
     let root_id = root.id();
     let bottom = tab.map_or(0.0, |(bottom, _)| bottom);
-    let layer = SkiaLayer::new().fill().margin((0.0, 0.0, 0.0, bottom)).is_visible(visible).children(root);
+    let layer = SkiaLayer::new().fill().margin((0.0, 0.0, 0.0, bottom)).is_visible(visible).internal().children(root);
     Stack { layer: cx.add_child(pages, layer), root: root_id, pages: Vec::new() }
 }
 
@@ -1505,13 +1506,13 @@ fn open_popup(cx: &mut Cx, id: ControlId, state: &mut dyn Any, content: Detached
         return;
     }
     let Some(layer) = shell(cx.tree, id).and_then(|s| s.parts).map(|p| p.popups) else { return };
-    let inner = SkiaLayer::new().center().scale(if o.animated { 0.5 } else { 1.0 }).children(content);
+    let inner = SkiaLayer::new().center().scale(if o.animated { 0.5 } else { 1.0 }).internal().children(content);
     let content = inner.id();
     let wrapper = PopupWrapper { layout: SkiaLayout::default(), content, outside: false };
-    let mut wrapper = Build::new(wrapper).fill().block_gestures_below(true).opacity(if o.animated { 0.1 } else { 1.0 });
+    let mut wrapper = Build::new(wrapper).fill().block_gestures_below(true).opacity(if o.animated { 0.1 } else { 1.0 }).internal();
     if o.show_overlay {
         let dim = o.background_color.unwrap_or(SkiaShell::POPUP_BACKGROUND_COLOR);
-        wrapper.push_child(backdrop(dim));
+        wrapper.push_child(backdrop(dim).internal_tree());
     }
     wrapper.push_child(inner);
     let close = o.close_when_background_tapped;
@@ -1634,9 +1635,10 @@ fn push_modal(cx: &mut Cx, id: ControlId, state: &mut dyn Any, content: Detached
         .animated(o.animated)
         .bounces(false)
         .block_gestures_below(true)
+        .internal()
         .children(content);
-    let dim = o.freeze_background.then(|| backdrop(SkiaShell::POPUP_BACKGROUND_COLOR));
-    let wrapper = SkiaLayer::new().fill().block_gestures_below(true);
+    let dim = o.freeze_background.then(|| backdrop(SkiaShell::POPUP_BACKGROUND_COLOR).internal_tree());
+    let wrapper = SkiaLayer::new().fill().block_gestures_below(true).internal();
     let (wrapper_id, drawer_id) = (wrapper.id(), drawer.id());
     let d = drawer.control_mut();
     d.on_state_transition_complete = Some(Box::new(move |_, _, cx, open| {
@@ -1742,7 +1744,8 @@ fn show_toast(cx: &mut Cx, id: ControlId, content: Detached, ms: f32) {
         .block_gestures_below(true)
         .use_cache(CacheType::Operations)
         .opacity(0)
-        .children(SkiaLayer::new().children(content));
+        .internal()
+        .children(SkiaLayer::new().internal().children(content));
     let toast = cx.add_child(layer, toast);
     // Up from its own height and in, once laid out: the first tick comes after the frame that measured it.
     let animation = cx.animate(toast, TOAST_IN_MS, easing::linear, move |v, cx| {

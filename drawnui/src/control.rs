@@ -354,6 +354,7 @@ macro_rules! __prop_table {
                     value: <$ty as $crate::designer::PropText>::to_text(&self.$name),
                     settable: <$ty as $crate::designer::PropText>::settable(),
                     is_set: self.$name != default.$name,
+                    choices: <$ty as $crate::designer::PropText>::choices(),
                 }),*]
             }
 

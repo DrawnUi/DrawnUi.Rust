@@ -58,6 +58,9 @@ pub struct PropInfo {
     pub settable: bool,
     /// The value differs from the default.
     pub is_set: bool,
+    /// For a choice (an enum): its case names, what `set_prop` takes (an `Option` also takes
+    /// `none`). `None` for other types.
+    pub choices: Option<&'static [&'static str]>,
 }
 
 /// A properties group that lists and sets its properties by name.
@@ -79,6 +82,10 @@ pub trait PropText: Sized + std::fmt::Debug {
     }
     fn settable() -> bool {
         false
+    }
+    /// The case names of a choice.
+    fn choices() -> Option<&'static [&'static str]> {
+        None
     }
 }
 
@@ -183,6 +190,9 @@ impl<T: PropText> PropText for Option<T> {
     fn settable() -> bool {
         T::settable()
     }
+    fn choices() -> Option<&'static [&'static str]> {
+        T::choices()
+    }
 }
 
 impl<T: PropText> PropText for Box<T> {
@@ -195,6 +205,9 @@ impl<T: PropText> PropText for Box<T> {
     fn settable() -> bool {
         T::settable()
     }
+    fn choices() -> Option<&'static [&'static str]> {
+        T::choices()
+    }
 }
 
 /// A choice set by its case name.
@@ -206,6 +219,7 @@ macro_rules! choice_text {
                 [$(<$t>::$v),*].into_iter().find(|v| format!("{v:?}").eq_ignore_ascii_case(text))
             }
             fn settable() -> bool { true }
+            fn choices() -> Option<&'static [&'static str]> { Some(&[$(stringify!($v)),*]) }
         }
     )*};
 }
@@ -335,6 +349,22 @@ impl crate::Tree {
             out.extend(own_props(kind));
         }
         out
+    }
+
+    /// A control the engine made for itself, not the app: a button's caption, an editor's text, a
+    /// scroll bar, a toggle's look, a shell's layers, bars and title. `false` for a control that is
+    /// gone. A wrapper the engine puts around the app's content is internal; the content is not.
+    pub fn is_internal(&self, id: impl Into<crate::ControlId>) -> bool {
+        let id = id.into();
+        let Some(node) = self.node(id) else { return false };
+        // A toggle's look is a part, with all it holds.
+        node.internal || std::iter::successors(Some(id), |c| self.parent(*c)).any(|c| self.node(c).is_some_and(|n| n.part))
+    }
+
+    /// The popup windows open, oldest first: each one's id and the root of its content (a part of
+    /// this tree, not under `root`).
+    pub fn popup_roots(&self) -> Vec<(crate::PopupId, crate::ControlId)> {
+        self.popups.iter().map(|p| (crate::popups::PopupId(p.id), p.root)).collect()
     }
 
     /// Sets a property of a control by name from text (see the module docs) and invalidates what

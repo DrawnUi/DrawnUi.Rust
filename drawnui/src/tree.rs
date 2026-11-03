@@ -200,6 +200,9 @@ pub struct Node {
     /// children operations (insert, move, replace, clear) leave it in its place (C# a subview
     /// that is not an `IsChildrenItem`).
     pub(crate) part: bool,
+    /// Made by the engine for itself (`Tree::is_internal`).
+    #[cfg(feature = "designer")]
+    pub(crate) internal: bool,
     pub base: Base,
     /// `None` only while one of its own hooks runs.
     pub(crate) kind: Option<Box<dyn Control>>,
@@ -466,6 +469,9 @@ pub struct Build<T: Control> {
     control: T,
     children: Vec<Detached>,
     pub(crate) handlers: Handlers,
+    /// Made by the engine for itself (`Tree::is_internal`).
+    #[cfg(feature = "designer")]
+    internal: bool,
 }
 
 /// A type-erased subtree, ready to mount.
@@ -475,11 +481,32 @@ pub struct Detached {
     control: Box<dyn Control>,
     children: Vec<Detached>,
     handlers: Handlers,
+    #[cfg(feature = "designer")]
+    internal: bool,
+}
+
+impl Detached {
+    /// Marks the subtree as made by the engine for itself.
+    #[cfg(feature = "designer")]
+    fn mark_internal(&mut self) {
+        self.internal = true;
+        for child in &mut self.children {
+            child.mark_internal();
+        }
+    }
 }
 
 impl<T: Control> From<Build<T>> for Detached {
     fn from(b: Build<T>) -> Self {
-        Detached { id: b.id, base: b.base, control: Box::new(b.control), children: b.children, handlers: b.handlers }
+        Detached {
+            id: b.id,
+            base: b.base,
+            control: Box::new(b.control),
+            children: b.children,
+            handlers: b.handlers,
+            #[cfg(feature = "designer")]
+            internal: b.internal,
+        }
     }
 }
 
@@ -493,7 +520,15 @@ pub(crate) fn wrong_state<S>() -> ! {
 
 impl<T: Control> Build<T> {
     pub fn new(control: T) -> Self {
-        Build { id: reserve_id(), base: Base::default(), control, children: Vec::new(), handlers: Handlers::default() }
+        Build {
+            id: reserve_id(),
+            base: Base::default(),
+            control,
+            children: Vec::new(),
+            handlers: Handlers::default(),
+            #[cfg(feature = "designer")]
+            internal: false,
+        }
     }
 
     pub fn id(&self) -> ControlId {
@@ -534,6 +569,30 @@ impl<T: Control> Build<T> {
 
     pub(crate) fn push_child(&mut self, child: impl Into<Detached>) {
         self.children.push(child.into());
+    }
+
+    /// A control the engine makes for itself (a button's caption, a shell's bar), without the
+    /// children it holds (the app's content in a wrapper) (`Tree::is_internal`).
+    #[cfg_attr(not(feature = "designer"), allow(unused_mut))]
+    pub(crate) fn internal(mut self) -> Self {
+        #[cfg(feature = "designer")]
+        {
+            self.internal = true;
+        }
+        self
+    }
+
+    /// `internal` for the whole subtree: all of it is the engine's.
+    #[cfg_attr(not(feature = "designer"), allow(unused_mut))]
+    pub(crate) fn internal_tree(mut self) -> Self {
+        #[cfg(feature = "designer")]
+        {
+            self.internal = true;
+            for child in &mut self.children {
+                child.mark_internal();
+            }
+        }
+        self
     }
 }
 
@@ -759,6 +818,8 @@ impl Tree {
             parent,
             children: Vec::with_capacity(d.children.len()),
             part: false,
+            #[cfg(feature = "designer")]
+            internal: d.internal,
             base,
             kind: Some(d.control),
             handlers: d.handlers,

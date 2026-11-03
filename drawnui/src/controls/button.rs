@@ -124,7 +124,7 @@ impl SkiaButton {
             shadow: None,
         };
         let mut build = Build::new(button).text(text.into()).padding((16, 10));
-        build.push_child(label);
+        build.push_child(label.internal_tree());
         build
     }
 

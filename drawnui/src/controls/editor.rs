@@ -256,8 +256,8 @@ impl SkiaEditor {
         let mut build = Build::new(editor).padding((12, 8)).horizontal_options(LayoutOptions::Fill).use_cache(CacheType::Operations);
         let id = build.id();
         build.control_mut().id = id;
-        build.push_child(placeholder);
-        build.push_child(label);
+        build.push_child(placeholder.internal_tree());
+        build.push_child(label.internal_tree());
         build
     }
 

@@ -347,7 +347,7 @@ pub struct Ui<S: 'static> {
     popup_closed: Option<Box<dyn FnMut(&mut S, PopupId, &mut Cx<'_>)>>,
     /// Runs after each frame of the app's window (`on_after_frame`).
     #[cfg(feature = "designer")]
-    after_frame: Option<Box<dyn FnMut(&mut Tree, &mut Frame)>>,
+    after_frame: Option<Box<dyn FnMut(&mut Ui<S>, &mut Frame)>>,
 }
 
 /// The FPS overlay: frames per second over the last half second of frames drawn one after the
@@ -637,11 +637,13 @@ impl<S: 'static> Ui<S> {
     }
 
     /// Feature `designer`: runs after each frame of the app's window is drawn, before the host
-    /// shows it, on the UI thread: a tool draws over the frame (`frame.surface.canvas()`), reads
-    /// it (`frame.surface.image_snapshot()`), and applies the edits it queued (`Tree::set_prop`;
-    /// the frame they ask for follows). Popup windows are drawn apart and not seen here.
+    /// shows it, on the UI thread, with the app's `Ui`: a tool draws over the frame
+    /// (`frame.surface.canvas()`), reads it (`frame.surface.image_snapshot()`), and applies the
+    /// edits it queued (`ui.tree.set_prop`; the frame they ask for follows). Popup windows are drawn
+    /// apart: `Ui::snapshot_popup`. While the window is minimized or covered the host draws no
+    /// frame; `Waker::request_hidden_frame` asks for one off screen.
     #[cfg(feature = "designer")]
-    pub fn on_after_frame(mut self, f: impl FnMut(&mut Tree, &mut Frame) + 'static) -> Self {
+    pub fn on_after_frame(mut self, f: impl FnMut(&mut Ui<S>, &mut Frame) + 'static) -> Self {
         self.after_frame = Some(Box::new(f));
         self
     }
@@ -1678,8 +1680,38 @@ impl<S: 'static> Ui<S> {
         canvas.clear(Color::TRANSPARENT);
         let Some(index) = self.tree.popups.iter().position(|p| p.id == id) else { return };
         let key = self.popup_paint_key(&self.tree.popups[index]);
-        let p = &mut self.tree.popups[index];
-        p.painted = Some(key);
+        self.tree.popups[index].painted = Some(key);
+        self.paint_popup(index, canvas, gpu);
+    }
+
+    /// Feature `designer`: a picture of popup window `id` as it was last laid out (in its own
+    /// window or on the canvas), its pixels at its scale; `None` when it is closed or not laid out
+    /// yet. Its window is not touched.
+    #[cfg(feature = "designer")]
+    pub fn snapshot_popup(&mut self, id: crate::PopupId, gpu: &mut Gpu) -> Option<skia_safe::Image> {
+        let index = self.tree.popups.iter().position(|p| crate::PopupId(p.id) == id)?;
+        let rect = self.tree.popups[index].rect;
+        let mut surface = gpu.offscreen(rect.width().ceil() as i32, rect.height().ceil() as i32)?;
+        let canvas = surface.canvas();
+        canvas.clear(Color::TRANSPARENT);
+        canvas.translate((-rect.left, -rect.top));
+        self.paint_popup(index, canvas, gpu);
+        Some(surface.image_snapshot())
+    }
+
+    /// Feature `designer`: draws a whole frame of the app off screen, `width` x `height` pixels at
+    /// `scale`, and gives its picture: for a tool while the window is minimized or covered (the
+    /// host shows no frame then). The next frame of the window lays out at its own size again.
+    #[cfg(feature = "designer")]
+    pub fn render_offscreen(&mut self, gpu: &mut Gpu, width: i32, height: i32, scale: f32, time_ms: f64) -> Option<skia_safe::Image> {
+        let mut surface = gpu.offscreen(width.max(1), height.max(1))?;
+        self.draw(surface.canvas(), gpu, width.max(1) as f32, height.max(1) as f32, scale, time_ms);
+        Some(surface.image_snapshot())
+    }
+
+    /// Paints popup `index` with its layout as it is.
+    fn paint_popup(&mut self, index: usize, canvas: &Canvas, gpu: &mut Gpu) {
+        let p = &self.tree.popups[index];
         let (root, rect, scale) = (p.root, p.rect, p.scale);
         let Tree { nodes, render, drops, animators, bakes, .. } = &mut self.tree;
         let image_blits = std::cell::Cell::new(0);
@@ -3306,8 +3338,10 @@ impl<S: 'static> App for Ui<S> {
         }
         self.draw(frame.surface.canvas(), frame.gpu, frame.width, frame.height, frame.scale, frame.time_ms);
         #[cfg(feature = "designer")]
-        if let Some(after) = self.after_frame.as_mut() {
-            after(&mut self.tree, frame);
+        if let Some(mut after) = self.after_frame.take() {
+            after(self, frame);
+            // The hook may have set a new one.
+            self.after_frame.get_or_insert(after);
         }
         // Image loads asked for during the frame go to the host.
         for request in self.tree.images.take_requests() {
