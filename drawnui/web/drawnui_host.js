@@ -701,7 +701,7 @@ window.DrawnUi = {
           a11yNodes.delete(id);
         }
       }
-      nodes.forEach(([id, role, label, hint, left, top, width, height, interactive, pressed, live, group, value, lines, modal], i) => {
+      nodes.forEach(([id, role, label, hint, left, top, width, height, interactive, pressed, live, group, value, lines], i) => {
         const canInteract = interactive === "1";
         const kind = canInteract ? "i" : lines ? "t" : "p";
         let el = a11yNodes.get(id);
@@ -720,7 +720,6 @@ window.DrawnUi = {
         setAttribute(el, "aria-pressed", role === "button" ? state : null);
         setAttribute(el, "aria-checked", role === "switch" || role === "checkbox" || role === "radio" ? state : null);
         setAttribute(el, "aria-live", live);
-        setAttribute(el, "aria-modal", modal === "1" ? "true" : null);
         setAttribute(el, "aria-disabled", interactive === "-" ? "true" : null);
         const [now, min, max, valueText] = value ? value.split("\x1f") : [];
         setAttribute(el, "aria-valuenow", now);
