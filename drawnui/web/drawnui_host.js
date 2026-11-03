@@ -691,7 +691,13 @@ window.DrawnUi = {
     };
     const renderAccessibility = (message) => {
       const stretch = [];
-      const nodes = message.split("\n").slice(1).map((line) => line.split("\t"));
+      const [head, ...rows] = message.split("\n");
+      const nodes = rows.map((line) => line.split("\t"));
+      // The active modal: the overlay is the dialog, its controls are the elements inside it.
+      const [, modalRole, modalLabel] = head.split("\t");
+      setAttribute(overlay, "role", modalRole);
+      setAttribute(overlay, "aria-label", modalRole ? modalLabel : null);
+      setAttribute(overlay, "aria-modal", modalRole ? "true" : null);
       // Gone nodes first: what stays is then moved only when the order changed, since moving the
       // focused element would take the focus away.
       const seen = new Set(nodes.map((n) => n[0]));

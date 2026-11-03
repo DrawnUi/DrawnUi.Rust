@@ -403,7 +403,16 @@ pub extern "C" fn dui_poll_output(s: *mut WebState) -> *const c_char {
         use std::fmt::Write;
         let clean = |t: &str| t.replace(['\t', '\n', '\r', '\u{1e}', '\u{1f}'], " ");
         let mut out = String::from("a");
+        // The active modal: the overlay itself is the dialog (role, name, aria-modal), its controls
+        // are the overlay's elements, all inside it; aria-modal on an element of its own would hide
+        // them, as the overlay is flat. Its own node is not sent apart.
+        if let Some(m) = nodes.iter().find(|n| n.modal) {
+            let _ = write!(out, "	{}	{}", m.role, clean(&m.label));
+        }
         for n in &nodes {
+            if n.modal {
+                continue;
+            }
             // Flat elements: a control is not named by what is inside it, so its title is left
             // out instead; a group keeps its title and goes unnamed.
             // A scroll's node is for native screen readers; the page scrolls nothing itself.
