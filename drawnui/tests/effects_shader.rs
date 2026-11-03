@@ -432,3 +432,34 @@ fn a_tap_starts_a_ripple_that_ends_by_itself() {
     assert!(near(plain, Color::from_rgb(198, 0, 0), 1), "{plain:?}");
     assert_eq!(host.pixel(70, 40), plain);
 }
+
+#[test]
+fn a_once_texture_goes_with_its_control_when_it_moves() {
+    let mut id: Handle<SkiaLayout> = Handle::default();
+    let effect = SkiaShaderEffect::new().shader_code(BLIT).use_background(UseBackground::Once);
+    let mut host = host(halves().use_cache(CacheType::Image).visual_effect(effect).assign(&mut id));
+    assert_eq!((host.pixel(60, 50), host.pixel(120, 50)), (Color::RED, Color::BLUE));
+    // Moved by layout, not scrolled: the frozen texture is drawn where the control is now.
+    host.ui.tree.get_mut(id).unwrap().set_margin(Thickness::new(80.0, 20.0, 0.0, 0.0));
+    host.settle();
+    assert_eq!((host.pixel(100, 50), host.pixel(160, 50)), (Color::RED, Color::BLUE));
+}
+
+#[test]
+fn a_control_texture_is_read_where_the_effect_draws_now() {
+    let (mut from, mut id): (Handle<SkiaLayout>, Handle<SkiaLayout>) = Default::default();
+    let half = |color: Color, left: f32| SkiaLayout::new().width_request(50).height_request(60).margin(Thickness::new(left, 0.0, 0.0, 0.0)).background_color(color);
+    let slide = SkiaLayout::new().fill().use_cache(CacheType::Image).children((half(Color::RED, 0.0), half(Color::BLUE, 50.0))).assign(&mut from);
+    let mut effect = SkiaShaderEffect::transition().shader_code(include_str!("shaders/transitions/fade.sksl"));
+    effect.progress = 0.0;
+    let layout = SkiaLayout::new().width_request(100).height_request(60).margin(Thickness::new(40.0, 20.0, 0.0, 0.0)).children((slide,)).assign(&mut id);
+    let mut host = host(layout);
+    effect.control_from = Some(from.id());
+    effect.control_to = Some(from.id());
+    host.ui.tree.get_mut(id).unwrap().add_visual_effect(effect);
+    host.settle();
+    assert_eq!((host.pixel(60, 50), host.pixel(120, 50)), (Color::RED, Color::BLUE));
+    host.ui.tree.get_mut(id).unwrap().set_margin(Thickness::new(80.0, 20.0, 0.0, 0.0));
+    host.settle();
+    assert_eq!((host.pixel(100, 50), host.pixel(160, 50)), (Color::RED, Color::BLUE));
+}

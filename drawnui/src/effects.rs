@@ -474,7 +474,7 @@ struct Runtime {
     secondary: Option<(u32, Shader)>,
     /// A file texture drawn into the control's box (DrawnUI Resize*LoadedBitmap): (source image, w, h, image).
     resized: [Option<(u32, i32, i32, Image)>; 2],
-    /// The texture of `UseBackground::Once`.
+    /// The texture of `UseBackground::Once`, its bounds relative to the destination it was taken at.
     frozen: Option<CachedTexture>,
     transparent: Option<Shader>,
     /// The shader of the last frame, the uniform bytes and textures it was made from.
@@ -916,7 +916,7 @@ impl SkiaShaderEffect {
         destination: Rect,
     ) -> Option<CachedTexture> {
         if let Some(from) = self.control_from {
-            return control_texture(cx, from);
+            return control_texture(cx, from, Some(destination));
         }
         if !self.primary_source.is_empty() {
             return self.file_texture(cx, rt, 0, destination).map(|image| CachedTexture { image, bounds: destination });
@@ -924,14 +924,16 @@ impl SkiaShaderEffect {
         match self.use_background {
             UseBackground::Never => None,
             UseBackground::Once => {
+                // Kept relative to where the control was: it goes with the control when it moves.
                 if rt.frozen.is_none() {
-                    rt.frozen = match cached {
+                    let texture = match cached {
                         Some(texture) => Some(texture.clone()),
                         None if self.auto_create_input_texture => snapshot(cx, destination),
                         None => None,
                     };
+                    rt.frozen = texture.map(|t| CachedTexture { bounds: t.bounds.with_offset((-destination.left, -destination.top)), image: t.image });
                 }
-                rt.frozen.clone()
+                rt.frozen.as_ref().map(|t| CachedTexture { image: t.image.clone(), bounds: t.bounds.with_offset((destination.left, destination.top)) })
             }
             UseBackground::Always => cached.cloned(),
         }
@@ -940,7 +942,7 @@ impl SkiaShaderEffect {
     /// DrawnUI GetSecondaryTexture: `iImage2`.
     fn secondary_texture(&self, cx: &mut PaintCx<'_>, rt: &mut Runtime, destination: Rect) -> Option<Image> {
         match self.control_to {
-            Some(to) => Some(control_texture(cx, to)?.image),
+            Some(to) => Some(control_texture(cx, to, None)?.image),
             None if !self.secondary_source.is_empty() => self.file_texture(cx, rt, 1, destination),
             None => None,
         }
@@ -1101,10 +1103,20 @@ impl Uniforms<'_> {
     }
 }
 
-/// The Image cache of a control and the canvas rect it covers, when it has one.
-fn control_texture(cx: &PaintCx<'_>, id: ControlId) -> Option<CachedTexture> {
+/// The Image cache of a control and the canvas rect it covers, when it has one: at `at`, the
+/// current destination of the effect that reads it, with the cache's margin around it (DrawnUI
+/// CacheAt), not where the cache was recorded.
+fn control_texture(cx: &PaintCx<'_>, id: ControlId, at: Option<Rect>) -> Option<CachedTexture> {
     cx.node(id)?;
-    let (image, bounds) = cx.render[id.index as usize].cache.as_ref()?.image()?;
+    let cache = cx.render[id.index as usize].cache.as_ref()?;
+    let (image, bounds) = cache.image()?;
+    let bounds = match at {
+        Some(at) => {
+            let m = cache.margin();
+            Rect::from_xywh(at.left - m.left, at.top - m.top, bounds.width(), bounds.height())
+        }
+        None => bounds,
+    };
     Some(CachedTexture { image: image.clone(), bounds })
 }
 
