@@ -325,3 +325,12 @@ fn the_wheel_outside_closes_it_and_still_scrolls_what_is_under_it() {
 fn menu_for<S: 'static>() -> Build<SkiaShape> {
     SkiaShape::new().width_request(120).height_request(60).background_color(RED)
 }
+
+#[test]
+fn a_popup_id_is_the_number_its_window_request_carries() {
+    let mut host = page();
+    host.popup_windows(true);
+    host.right_click(300.0, 60.0);
+    let menu = host.ui.state.menu.unwrap();
+    assert_eq!(host.popup_window_requests()[0].id, menu.get());
+}

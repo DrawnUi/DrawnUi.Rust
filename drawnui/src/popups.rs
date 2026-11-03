@@ -11,6 +11,14 @@ use crate::tree::{ControlId, Cx, Detached};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct PopupId(pub(crate) u32);
 
+impl PopupId {
+    /// Its number: the `id` a host gets for its window (`PopupWindowRequest::id`,
+    /// `App::popup_frame`, `Ui::draw_popup`).
+    pub fn get(self) -> u32 {
+        self.0
+    }
+}
+
 /// Where a popup window opens from, in canvas points.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PopupAnchor {

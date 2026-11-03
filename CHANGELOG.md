@@ -11,6 +11,7 @@ version before it. Commits in parentheses.
 - `Host::on_frame_requested(f)`: a host that draws on demand hears when another thread changed
   something (`Waker::invalidate`), once until the next frame takes the changes, on the thread that
   made the change (DrawnUI .NET `DrawnView.FrameRequested`).
+- `PopupId::get()`: a popup's number, the `id` its window request carries.
 - `.accessibility_modal(true)` (aria-modal): while that control shows, screen readers and Tab keep to
   it and to the popup windows open; the keyboard moves into it and back when it goes; with several,
   the one on top. Its node is read as a modal dialog.
