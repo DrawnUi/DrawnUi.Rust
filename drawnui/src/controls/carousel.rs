@@ -359,7 +359,12 @@ impl SkiaCarousel {
         if !self.looped() || !matches!(self.nearest_virtual(self.s.snap).id, -1 | -2) || self.selected >= self.s.snap_points.len() {
             return;
         }
-        let snap = self.nearest_virtual(self.s.position);
+        // From the nearest anchor that stands for the selected slide (the slide, or its copy past
+        // the other end), never another slide's: a fast swipe over the end keeps its pair.
+        let (selected, last) = (self.selected as i32, self.s.snap_points.len() as i32 - 1);
+        let stands = |a: &Anchor| a.id == selected || (a.id == -1 && selected == last) || (a.id == -2 && selected == 0);
+        let position = self.s.position;
+        let Some(snap) = self.virtual_anchors().into_iter().filter(stands).min_by(|a, b| dist(a.at, position).total_cmp(&dist(b.at, position))) else { return };
         let real = self.s.snap_points[self.selected];
         (self.s.snap, self.s.position) = (real, real + (self.s.position - snap.at));
         self.moved = true;

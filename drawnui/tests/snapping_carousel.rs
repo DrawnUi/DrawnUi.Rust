@@ -488,3 +488,35 @@ fn snap_frame_cost() {
     }
     println!("{frames} snap frames, {:.3} ms each", started.elapsed().as_secs_f64() * 1000.0 / frames as f64);
 }
+
+/// Fast swipes across the wrap of a looped carousel, either way, each before the last one ended:
+/// every frame shows the strip a little further along, never a jump to another pair of slides
+/// (C# CarouselLoopedFastSwipeTests).
+#[test]
+fn fast_swipes_across_the_wrap_never_jump_to_another_pair() {
+    let mut host = scene(1.0, |c| c.is_looped(true));
+    // The loop is 4 slides of 400: positions compared around it.
+    let mut positions = vec![state(&host).0];
+    let mut record = |host: &mut Host, positions: &mut Vec<f32>| {
+        for _ in 0..6 {
+            host.frame_after(16.0);
+            positions.push(state(host).0);
+        }
+    };
+    for _ in 0..10 {
+        host.pan((300.0, 100.0), (100.0, 100.0), 60.0, 4);
+        positions.push(state(&host).0);
+        record(&mut host, &mut positions);
+    }
+    for _ in 0..10 {
+        host.pan((100.0, 100.0), (300.0, 100.0), 60.0, 4);
+        positions.push(state(&host).0);
+        record(&mut host, &mut positions);
+    }
+    for w in positions.windows(2) {
+        let step = (w[1] - w[0]).abs() % 1600.0;
+        let step = step.min(1600.0 - step);
+        // A swipe moves 200 at once; another pair would be 400 off.
+        assert!(step < 300.0, "{} -> {}", w[0], w[1]);
+    }
+}
