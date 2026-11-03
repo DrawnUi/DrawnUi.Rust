@@ -353,3 +353,48 @@ fn a_hidden_frame_is_drawn_off_screen_on_request() {
     image.read_pixels(&info, &mut px, 4, (290, 140), drawnui::skia::image::CachingHint::Disallow);
     assert_eq!(Color::from_rgb(px[0], px[1], px[2]), Color::BLUE);
 }
+
+#[cfg(feature = "designer")]
+#[test]
+fn popup_rect_is_where_the_popup_shows_on_the_canvas() {
+    #[derive(Default)]
+    struct Page {}
+    let ui = Ui::new(Page::default(), |_| SkiaLayout::new().fill()).background(Color::WHITE);
+    let mut host = Headless::new(ui, 400, 300, 2.0);
+    host.settle();
+    let menu = || SkiaShape::new().width_request(60).height_request(30).background_color(Color::RED);
+    // On the canvas: at the point, 60 x 30 points at scale 2.
+    let id = host.ui.tree.cx().open_popup_window(menu(), Point::new(10.0, 10.0), PopupWindowOptions::default());
+    host.settle();
+    assert_eq!(host.ui.tree.popup_rect(id), Some(Rect::from_xywh(20.0, 20.0, 120.0, 60.0)));
+    host.ui.tree.cx().close_popup_window(id);
+    host.settle();
+    assert_eq!(host.ui.tree.popup_rect(id), None);
+    // In a window of its own on a screen of scale 1.5, 1000 px right of the canvas: in the
+    // canvas's pixels (scale 2), 90 x 45 window pixels are 120 x 60.
+    host.popup_windows(true);
+    let id = host.ui.tree.cx().open_popup_window(menu(), Point::new(10.0, 10.0), PopupWindowOptions::default());
+    host.settle();
+    let request = host.popup_window_requests()[0];
+    host.place_popup_window(request.id, 90.0, 45.0, 1.5, Point::new(1000.0, 60.0));
+    host.settle();
+    assert_eq!(host.ui.tree.popup_rect(id), Some(Rect::from_xywh(1000.0, 60.0, 120.0, 60.0)));
+}
+
+#[cfg(feature = "designer")]
+#[test]
+fn an_optional_choice_takes_its_own_none_and_empty_clears_it() {
+    use drawnui::designer::PropText;
+    // A choice with a None case of its own.
+    assert_eq!(<Option<CacheType> as PropText>::from_text("none"), Some(Some(CacheType::None)));
+    assert_eq!(<Option<CacheType> as PropText>::from_text("Image"), Some(Some(CacheType::Image)));
+    assert_eq!(<Option<CacheType> as PropText>::from_text(""), Some(None));
+    assert_eq!(<Option<CacheType> as PropText>::to_text(&None), "");
+    assert_eq!(<Option<CacheType> as PropText>::to_text(&Some(CacheType::None)), "None");
+    // A type without one: `none` is nothing, as before.
+    assert_eq!(<Option<f32> as PropText>::from_text("none"), Some(None));
+    assert_eq!(<Option<f32> as PropText>::from_text(" "), Some(None));
+    assert_eq!(<Option<f32> as PropText>::from_text("1.5"), Some(Some(1.5)));
+    assert_eq!(<Option<f32> as PropText>::to_text(&None), "none");
+    assert_eq!(<Option<f32> as PropText>::from_text("x"), None);
+}

@@ -19,6 +19,7 @@ version before it. Commits in parentheses.
   `Ui::hit_test_visual(point)` (the control a person sees at a point, through layouts that draw
   nothing), `Ui::on_after_frame(|ui, frame|)` (draw over each frame, read it, apply edits on the UI
   thread), `Tree::is_internal(id)` (controls the engine makes for itself), `Tree::popup_roots()`,
+  `Tree::popup_rect(id)`,
   `Ui::snapshot_popup(id, gpu)`, `Ui::render_offscreen(gpu, w, h, scale, time)`,
   `Waker::request_hidden_frame()` (a frame off screen while the window is minimized),
   `Host::request_window_focus()`, and the case names of a choice in `PropInfo::choices`.

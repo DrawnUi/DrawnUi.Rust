@@ -6,7 +6,8 @@
 //! - a choice by its case name (`Center`, `AspectFill`), any letter case;
 //! - a color as `#RRGGBB` or `#AARRGGBB`;
 //! - a `Thickness` as `l,t,r,b`, `h,v` or one number; a `CornerRadius` as four numbers or one;
-//! - an `Option` as `none` or its value.
+//! - an `Option` as its value, or empty (or `none`) for nothing; a choice with a `None` case of its
+//!   own takes `none` as that case.
 //!
 //! Other types (gradients, shadows, lists) are listed with their debug text and cannot be set.
 
@@ -181,11 +182,26 @@ impl PropText for CornerRadius {
 }
 
 impl<T: PropText> PropText for Option<T> {
+    /// `none` for nothing; empty for nothing when the type has a `None` case of its own (a choice).
     fn to_text(&self) -> String {
-        self.as_ref().map_or_else(|| "none".to_owned(), PropText::to_text)
+        match self {
+            Some(v) => v.to_text(),
+            None if T::from_text("none").is_some() => String::new(),
+            None => "none".to_owned(),
+        }
     }
+    /// Empty: nothing. A value of the type wins, so a choice's own `None` case is that case; else
+    /// `none` is nothing.
     fn from_text(text: &str) -> Option<Self> {
-        if text.trim().eq_ignore_ascii_case("none") { Some(None) } else { T::from_text(text).map(Some) }
+        let text = text.trim();
+        if text.is_empty() {
+            return Some(None);
+        }
+        match T::from_text(text) {
+            Some(v) => Some(Some(v)),
+            None if text.eq_ignore_ascii_case("none") => Some(None),
+            None => None,
+        }
     }
     fn settable() -> bool {
         T::settable()
@@ -359,6 +375,20 @@ impl crate::Tree {
         let Some(node) = self.node(id) else { return false };
         // A toggle's look is a part, with all it holds.
         node.internal || std::iter::successors(Some(id), |c| self.parent(*c)).any(|c| self.node(c).is_some_and(|n| n.part))
+    }
+
+    /// Where popup window `id` shows, in the app canvas's pixels (in its own window: where the host
+    /// put that window, relative to the canvas); `None` when it is closed or not laid out yet.
+    pub fn popup_rect(&self, id: crate::PopupId) -> Option<crate::skia::Rect> {
+        let p = self.popups.iter().find(|p| crate::popups::PopupId(p.id) == id)?;
+        match p.window {
+            Some((size, own, offset)) => {
+                let canvas = self.root.and_then(|r| self.base(r)).map_or(own, |b| b.scale);
+                let k = canvas / own.max(0.01);
+                Some(crate::skia::Rect::from_xywh(offset.x, offset.y, size.width * k, size.height * k))
+            }
+            None => (!p.rect.is_empty()).then_some(p.rect),
+        }
     }
 
     /// The popup windows open, oldest first: each one's id and the root of its content (a part of
