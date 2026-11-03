@@ -4,6 +4,14 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## Unreleased
+
+### Added
+
+- `Host::on_frame_requested(f)`: a host that draws on demand hears when another thread changed
+  something (`Waker::invalidate`), once until the next frame takes the changes, on the thread that
+  made the change (DrawnUI .NET `DrawnView.FrameRequested`).
+
 ## 0.1.0-preview.30 (crates.io, 2026-11-02)
 
 ### Added

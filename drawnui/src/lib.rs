@@ -190,9 +190,8 @@ pub struct Host {
     /// Pictures of ImageDoubleBuffered caches for the workers; the bitmaps come back through
     /// [`App::baked`].
     pub(crate) bakes: Vec<BakeRequest>,
-    /// Set by a host with an event loop to wake from other threads (desktop, mobile): the app's
-    /// [`Waker`] calls it.
-    pub(crate) wake: Option<Box<dyn Fn() + Send + Sync>>,
+    /// `Host::on_frame_requested`: installed into the app's [`Waker`] by `App::init`.
+    pub(crate) frame_requested: Option<Box<dyn Fn() + Send + Sync>>,
     /// Set by a host that shows popup windows in windows of their own (the desktop, not Wayland):
     /// without it the app draws them on its canvas.
     pub(crate) popup_windows_on: bool,
@@ -214,6 +213,20 @@ pub struct Decoded {
 }
 
 impl Host {
+    /// For a host that draws on demand (an event loop that sleeps): `f` asks it for a frame when
+    /// something changed from another thread ([`Waker::invalidate`]: a camera frame, a download, a
+    /// sensor). DrawnUI .NET `DrawnView.FrameRequested`. Set it before `App::init`, once.
+    ///
+    /// The rule: `f` runs once, on the first change after a frame took the changes, then not again
+    /// until the next frame starts and takes them; a burst of changes asks for one frame. It runs on
+    /// the thread that made the change: the host takes it to its UI thread itself (winit: an
+    /// `EventLoopProxy` event). Input the host hands the app, animations (`App::frame` returning
+    /// true) and timers (the wake time after each frame) do not call it: the host already draws
+    /// for those.
+    pub fn on_frame_requested(&mut self, f: impl Fn() + Send + Sync + 'static) {
+        self.frame_requested = Some(Box::new(f));
+    }
+
     /// Asks for the bytes of `url`; they arrive later through [`App::asset`] with the same `id`.
     /// Desktop reads the path relative to the working directory, web fetches it.
     pub fn fetch(&mut self, id: u32, url: &str) {

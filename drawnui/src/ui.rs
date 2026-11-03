@@ -3054,8 +3054,8 @@ impl<S: 'static> App for Ui<S> {
     }
 
     fn init(&mut self, host: &mut Host) {
-        if let Some(wake) = host.wake.take() {
-            self.tree.waker.set_signal(wake);
+        if let Some(request) = host.frame_requested.take() {
+            self.tree.waker.set_frame_requested(request);
         }
         for (index, (_, url, ..)) in self.font_urls.iter().enumerate() {
             host.fetch(index as u32, url);
