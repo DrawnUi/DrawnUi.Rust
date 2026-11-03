@@ -344,8 +344,23 @@ impl SkiaCarousel {
             return;
         }
         let velocity = Snapping::snap_velocity(velocity);
-        let origin = self.nearest_anchor_internal(location);
-        let target = self.select_next_anchor(origin, velocity);
+        let target = match self.release_home.filter(|_| self.apply_looped_logic()) {
+            // A finger release on a looped carousel: one slide at most from the slide the gesture
+            // started on, counted along the strip, so across the edge it is the virtual slot next
+            // to it. A flick goes one slide its way, a slow drag to the nearest of that slide and
+            // its two neighbours (C# 11196529).
+            Some(home) if self.along(self.s.snap_points[1] - self.s.snap_points[0]) != 0.0 => {
+                let step = self.s.snap_points[1] - self.s.snap_points[0];
+                let step_axis = self.along(step);
+                let vel = self.along(velocity);
+                let k = match vel != 0.0 {
+                    true => vel.signum() * step_axis.signum(),
+                    false => ((self.along(location) - self.along(home)) / step_axis).round_ties_even().clamp(-1.0, 1.0),
+                };
+                home + step * k
+            }
+            _ => self.select_next_anchor(self.nearest_anchor_internal(location), velocity),
+        };
         if dist(location, target) >= 0.5 {
             self.scroll_to_offset(target, velocity, self.can_animate());
         } else {

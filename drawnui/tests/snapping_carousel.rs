@@ -520,3 +520,37 @@ fn fast_swipes_across_the_wrap_never_jump_to_another_pair() {
         assert!(step < 300.0, "{} -> {}", w[0], w[1]);
     }
 }
+
+/// Slow drags of 60% of a slide, released without a flick, move one slide their way, around the
+/// loop through the virtual slide both ways; a short slow drag stays, a flick moves one (C# 11196529).
+#[test]
+fn slow_drags_past_half_move_one_slide_both_ways_across_the_wrap() {
+    let mut host = scene(1.0, |c| c.is_looped(true));
+    // A pan over `ms`, the finger held still `hold_ms` before it lifts (no speed left).
+    let drag = |host: &mut Host, dx: f32, ms: f64, hold_ms: f64| {
+        let from = if dx < 0.0 { 340.0 } else { 60.0 };
+        let (steps, now) = (30, host.time_ms());
+        host.ui.pointer(PointerKind::Down, from, 100.0, now);
+        host.frame_after(ms / steps as f64);
+        for i in 1..=steps {
+            let x = from + dx * i as f32 / steps as f32;
+            let t = host.time_ms();
+            host.ui.pointer(PointerKind::Move, x, 100.0, t);
+            host.frame_after(ms / steps as f64);
+        }
+        if hold_ms > 0.0 {
+            host.frame_after(hold_ms);
+        }
+        let t = host.time_ms();
+        host.ui.pointer(PointerKind::Up, from + dx, 100.0, t);
+        host.frame_after(16.0);
+        run(host);
+        state(host).1
+    };
+    let forward: Vec<usize> = (0..5).map(|_| drag(&mut host, -240.0, 600.0, 300.0)).collect();
+    assert_eq!(forward, [1, 2, 3, 0, 1]);
+    let back: Vec<usize> = (0..5).map(|_| drag(&mut host, 240.0, 600.0, 300.0)).collect();
+    assert_eq!(back, [0, 3, 2, 1, 0]);
+    assert_eq!(drag(&mut host, -80.0, 600.0, 300.0), 0, "a short slow drag stays");
+    assert_eq!(drag(&mut host, -120.0, 60.0, 0.0), 1, "a flick moves one");
+}
