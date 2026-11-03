@@ -715,7 +715,10 @@ impl Desktop {
     #[cfg(feature = "designer")]
     fn focus_window_if_asked(&mut self) {
         if std::mem::take(&mut self.host.window_focus_requested) {
-            #[cfg(not(any(target_os = "ios", target_os = "android")))]
+            // winit's own restore did not bring a minimized window back on Windows.
+            #[cfg(windows)]
+            win::restore_to_front(&self.window);
+            #[cfg(not(any(windows, target_os = "ios", target_os = "android")))]
             {
                 self.window.set_minimized(false);
                 self.window.focus_window();
@@ -2400,6 +2403,29 @@ mod win {
         pub(super) fn GetMonitorInfoW(monitor: isize, info: *mut MonitorInfo) -> i32;
         fn GetWindowLongPtrW(window: isize, index: i32) -> isize;
         fn SetWindowLongPtrW(window: isize, index: i32, value: isize) -> isize;
+        #[cfg(feature = "designer")]
+        fn IsIconic(window: isize) -> i32;
+        #[cfg(feature = "designer")]
+        fn ShowWindow(window: isize, command: i32) -> i32;
+        #[cfg(feature = "designer")]
+        fn SetForegroundWindow(window: isize) -> i32;
+    }
+
+    /// Back from the taskbar and in front (`Host::request_window_focus`). Windows may refuse the
+    /// foreground to an app that is not active; the taskbar button flashes then.
+    #[cfg(feature = "designer")]
+    pub(super) fn restore_to_front(window: &winit::window::Window) {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        let Ok(RawWindowHandle::Win32(handle)) = window.window_handle().map(|h| h.as_raw()) else { return };
+        let hwnd = handle.hwnd.get();
+        const SW_RESTORE: i32 = 9;
+        // SAFETY: a live window of this thread.
+        unsafe {
+            if IsIconic(hwnd) != 0 {
+                ShowWindow(hwnd, SW_RESTORE);
+            }
+            SetForegroundWindow(hwnd);
+        }
     }
 
     #[repr(C)]
