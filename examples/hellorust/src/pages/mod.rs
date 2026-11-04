@@ -1241,6 +1241,26 @@ mod tests {
 "));
     }
 
+    /// Transforms: a slider's caption repeats its name, so only the slider is read.
+    #[test]
+    fn a_slider_caption_is_not_read_twice() {
+        let mut host = host(700);
+        host.ui.set_accessibility_enabled(true);
+        open_page(&mut host, "Transforms");
+        let mut seen = false;
+        for _ in 0..12 {
+            host.frame_after(1100.0);
+            for name in ["RotationX", "RotationY", "TranslationZ"] {
+                let said: Vec<_> = host.ui.accessibility_nodes().iter().filter(|n| n.label == name).map(|n| n.role.to_string()).collect();
+                seen |= !said.is_empty();
+                assert!(said.is_empty() || said == [Aria::SLIDER], "{name}: {said:?}");
+            }
+            host.wheel(500.0, 400.0, -4.0);
+            deliver(&mut host);
+        }
+        assert!(seen, "the sliders were never in the snapshot");
+    }
+
     #[test]
     fn cells_tap_the_row_under_the_pointer_and_jump() {
         let mut host = host(700);

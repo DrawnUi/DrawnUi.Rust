@@ -312,7 +312,8 @@ enum Axis {
 /// A caption and a slider for one 3D value of the card; moving the slider sets it.
 fn slider_row(name: &'static str, min: f32, max: f32, axis: Axis, slider: &mut Handle<SkiaSlider>) -> Build<SkiaLayout> {
     SkiaLayer::new().fill_x().children((
-        SkiaLabel::new(name).font_size(13).text_color(MUTED).vertical_options(LayoutOptions::Center),
+        // The slider carries the name: the caption is not read again (hello rule: said once).
+        SkiaLabel::new(name).font_size(13).text_color(MUTED).vertical_options(LayoutOptions::Center).accessibility_role(Aria::PRESENTATION),
         SkiaSlider::new()
             .accessibility_label(name)
             .min(min)
