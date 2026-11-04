@@ -1261,6 +1261,32 @@ mod tests {
         assert!(seen, "the sliders were never in the snapshot");
     }
 
+    /// Cells: the keyboard walks all 100 000 rows (hello spec), End to the last one.
+    #[test]
+    fn cells_keys_walk_all_rows() {
+        let mut host = host(700);
+        host.ui.set_accessibility_enabled(true);
+        host.ui.set_keyboard_navigation(true);
+        open_page(&mut host, "Recycled cells");
+        host.frame_after(1100.0);
+        let first = host.ui.accessibility_nodes().iter().find(|n| n.label == "Contact 1").map(|n| n.id).expect("row 1");
+        host.ui.accessibility_focus(first, true);
+        let on = |host: &Headless<App>| {
+            let focused = host.ui.accessibility_focused()?;
+            host.ui.accessibility_nodes().iter().find(|n| n.control == focused).map(|n| (n.label.clone(), n.rect))
+        };
+        for (key, row) in [("End", 100_000), ("ArrowUp", 99_999), ("Home", 1), ("ArrowDown", 2)] {
+            press(&mut host, key);
+            for _ in 0..60 {
+                host.frame_after(16.0);
+            }
+            host.frame_after(1100.0);
+            let (label, rect) = on(&host).unwrap_or_else(|| panic!("{key}: nothing has the keyboard"));
+            assert_eq!(label, format!("Contact {row}"), "{key}");
+            assert!(rect.top >= 0.0 && rect.bottom <= 700.0, "{key}: {rect:?}");
+        }
+    }
+
     #[test]
     fn cells_tap_the_row_under_the_pointer_and_jump() {
         let mut host = host(700);

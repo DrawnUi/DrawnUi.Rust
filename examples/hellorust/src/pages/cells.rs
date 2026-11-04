@@ -49,6 +49,8 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
                     .spacing(8)
                     .padding((16, 8))
                     .assign(&mut app.cells.feed)
+                    // One Tab stop; the arrows, Home, End and the page keys walk all the rows.
+                    .accessibility_role(Aria::LIST)
                     .items(|_app: &App| ITEMS, contact_cell, bind_contact),
             ),
         // Jump toolbar: wraps on narrow windows.
@@ -104,6 +106,7 @@ fn first_visible(app: &App, cx: &Cx) -> usize {
 /// The labels of one cell that a bind writes.
 #[derive(Default)]
 struct ContactHandles {
+    cell: Handle<SkiaLayout>,
     initials: Handle<SkiaLabel>,
     title: Handle<SkiaLabel>,
     subtitle: Handle<SkiaLabel>,
@@ -121,6 +124,9 @@ fn contact_cell() -> (Build<SkiaLayout>, ContactHandles) {
         // One bitmap per cell, blitted while scrolling; the ripple is drawn over it.
         .use_cache(CacheType::Image)
         .animation_tapped(SkiaTouchAnimation::Ripple)
+        // A button named "Contact N" (set in bind): the keyboard and screen readers reach every row.
+        .accessibility_role(Aria::BUTTON)
+        .assign(&mut handles.cell)
         .on_tapped(|me, app: &mut App, _cx| {
             if let Some(index) = me.base().context_index {
                 app.cells.last_tapped = Some(index + 1);
@@ -145,6 +151,9 @@ fn contact_cell() -> (Build<SkiaLayout>, ContactHandles) {
 
 fn bind_contact(cell: &ContactHandles, _app: &App, index: usize, cx: &mut Cx) {
     let i = index + 1;
+    if let Some(mut c) = cx.get_mut(cell.cell) {
+        c.set_accessibility_label(format!("Contact {i}"));
+    }
     set_text(cx, cell.initials, (i % 100).to_string());
     set_text(cx, cell.title, format!("Contact {i}"));
     set_text(cx, cell.subtitle, format!("Recycled drawn cell #{i} — scroll me fast"));
