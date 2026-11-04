@@ -1196,6 +1196,51 @@ mod tests {
         }
     }
 
+    /// Hello rule 11 on every page: no control a screen reader reaches is without a name, and every
+    /// value has a range. The page is scrolled to its end so every card is in the snapshot once.
+    #[test]
+    fn every_control_on_every_page_has_a_name() {
+        const CONTROLS: [&str; 17] = [
+            Aria::BUTTON, Aria::LINK, Aria::CHECKBOX, Aria::RADIO, Aria::SWITCH, Aria::SLIDER, Aria::SPIN_BUTTON, Aria::TEXT_BOX,
+            Aria::SEARCH_BOX, Aria::COMBO_BOX, Aria::OPTION, Aria::TAB, Aria::MENU_ITEM, Aria::MENU_ITEM_CHECKBOX, Aria::MENU_ITEM_RADIO,
+            Aria::PROGRESS_BAR, Aria::MENU,
+        ];
+        let mut host = host(700);
+        host.ui.set_accessibility_enabled(true);
+        let (mut missing, mut checked) = (Vec::new(), 0);
+        for sample in &SAMPLES {
+            open_page(&mut host, sample.title);
+            for _ in 0..12 {
+                host.frame_after(1100.0);
+                for n in host.ui.accessibility_nodes() {
+                    checked += CONTROLS.contains(&&*n.role) as usize;
+                    if CONTROLS.contains(&&*n.role) && n.label.trim().is_empty() {
+                        missing.push(format!("{}: a {} without a name at {:?}", sample.title, n.role, n.rect));
+                    }
+                    if let Some(v) = n.value.as_ref().filter(|v| !(v.min < v.max)) {
+                        missing.push(format!("{}: {} \"{}\" has the range {} to {}", sample.title, n.role, n.label, v.min, v.max));
+                    }
+                }
+                host.wheel(500.0, 400.0, -6.0);
+                deliver(&mut host);
+            }
+            let home = all(&host)
+                .into_iter()
+                .filter(|id| host.ui.tree.find::<SkiaButton>(*id).is_some_and(|b| b.p.text == "Home"))
+                .last()
+                .expect("the Home button");
+            let rect = on_screen(&host, home);
+            let now = host.time_ms();
+            host.ui.pointer(drawnui::PointerKind::Down, rect.center_x(), rect.center_y(), now);
+            host.ui.pointer(drawnui::PointerKind::Up, rect.center_x(), rect.center_y(), now);
+            host.settle();
+        }
+        missing.dedup();
+        assert!(checked > 500, "{checked} controls checked");
+        assert!(missing.is_empty(), "{}", missing.join("
+"));
+    }
+
     #[test]
     fn cells_tap_the_row_under_the_pointer_and_jump() {
         let mut host = host(700);
