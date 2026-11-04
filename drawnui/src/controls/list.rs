@@ -1394,6 +1394,27 @@ impl SkiaLayout {
         self.items.as_ref().map_or(0, |items| items.sizes.len)
     }
 
+    /// The item index of `child` when it is a realized cell of a list or a slot of a recycled
+    /// layout: items that are not realized are not children, so their place is counted here.
+    pub(crate) fn templated_index(&self, child: ControlId) -> Option<usize> {
+        let items = self.items.as_ref()?;
+        match (items.list, items.slotted) {
+            (true, _) => items.cells.iter().position(|c| c.id == child).map(|at| items.first + at),
+            (false, true) => items.slots.iter().position(|s| s.node == child),
+            _ => None,
+        }
+    }
+
+    /// The realized cell (list) or the slot (recycled layout) of item `index`, if there is one now.
+    pub(crate) fn templated_item(&self, index: usize) -> Option<ControlId> {
+        let items = self.items.as_ref()?;
+        match (items.list, items.slotted) {
+            (true, _) => items.cells.get(index.checked_sub(items.first)?).map(|c| c.id),
+            (false, true) => items.slots.get(index).map(|s| s.node),
+            _ => None,
+        }
+    }
+
     /// Pixels from the layout's top to the row of item `index`: what a scroll needs for
     /// ScrollToIndex. Exact when every row above is measured, otherwise estimated. Not a list:
     /// where the last arrange put the item.

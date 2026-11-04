@@ -410,6 +410,8 @@ pub struct Ui<S: 'static> {
     after_frame: Option<Box<dyn FnMut(&mut Ui<S>, &mut Frame)>>,
     /// The active modal (`accessibility_modal`) the snapshot keeps to.
     active_modal: Option<ControlId>,
+    /// An item of a recycled group a key asked for, not drawn yet: scrolled in, then focused.
+    group_request: Option<GroupRequest>,
     /// `arrows_start_keyboard_navigation`.
     arrows_start: bool,
     /// A screen reader reads the app (`set_screen_reader_running`): true until a host says.
@@ -541,6 +543,7 @@ impl<S: 'static> Ui<S> {
             #[cfg(feature = "designer")]
             after_frame: None,
             active_modal: None,
+            group_request: None,
             arrows_start: false,
             screen_reader: true,
             modal_stack: Vec::new(),
@@ -1195,7 +1198,20 @@ impl<S: 'static> Ui<S> {
             return true;
         }
         let items = tree.children(group).to_vec();
-        let Some(current) = items.iter().position(|i| *i == item) else { return false };
+        // A recycled list or layout counts its items, realized or not; a key pressed again before
+        // the item it asked for was drawn goes on from that item.
+        let templated = tree.find::<SkiaLayout>(group).and_then(|l| l.templated_index(item).map(|at| (at, l.items_count())));
+        let pending = self.group_request.filter(|r| r.group == group).map(|r| r.index);
+        let (current, count) = match templated {
+            Some((at, count)) => (pending.unwrap_or(at), count),
+            None => match items.iter().position(|i| *i == item) {
+                Some(at) => (at, items.len()),
+                None => return false,
+            },
+        };
+        if count == 0 {
+            return false;
+        }
         let layout = tree.find::<SkiaLayout>(group).map(|l| (l.p.layout_type, l.p.split));
         let axis = match layout {
             Some((LayoutType::Column, split)) if split <= 1 => Axis::Vertical,
@@ -1224,7 +1240,7 @@ impl<S: 'static> Ui<S> {
             let (viewport, size) = if axis == Axis::Horizontal { (viewport.width(), size.width()) } else { (viewport.height(), size.height()) };
             Some(if size > 0.0 { ((viewport / size) as usize).max(1) } else { 1 })
         };
-        let (count, last) = (items.len(), items.len() - 1);
+        let last = count - 1;
         let viewport = || {
             let mut scroll = tree.parent(group);
             while let Some(s) = scroll.filter(|s| tree.find::<crate::controls::scroll::SkiaScroll>(*s).is_none()) {
@@ -1258,6 +1274,11 @@ impl<S: 'static> Ui<S> {
             _ => return false,
         };
         if target >= count || target == current {
+            return true;
+        }
+        if templated.is_some() {
+            self.group_request = Some(GroupRequest { group, index: target, step, deadline: self.tree.time_ms + 3000.0, scrolled: false });
+            self.tree.needs_frame = true;
             return true;
         }
         let mut at = target as isize;
@@ -1318,6 +1339,7 @@ impl<S: 'static> Ui<S> {
     }
 
     fn keyboard_focus(&mut self, control: ControlId) {
+        self.group_request = None;
         if let Some(previous) = self.tree.accessibility_focused.filter(|p| *p != control) {
             self.accessibility_focus(previous.index, false);
         }
@@ -2208,6 +2230,51 @@ impl<S: 'static> Ui<S> {
                 self.focus_follows_snapshot();
             }
         }
+        if self.group_request.is_some() {
+            self.process_group_request();
+        }
+    }
+
+    /// Frame end: the item a group key asked for gets the keyboard once it is drawn; until then the
+    /// scroll above the group brings it in (C# ProcessGroupFocus). Items that take no input or are
+    /// hidden are passed over in the key's direction; after 3 s without the item the request ends.
+    fn process_group_request(&mut self) {
+        use crate::controls::layout::SkiaLayout;
+        let Some(mut request) = self.group_request.take() else { return };
+        if self.tree.node(request.group).is_none() || self.tree.time_ms > request.deadline {
+            return;
+        }
+        self.accessibility_stale = true;
+        self.fresh_accessibility();
+        let count = self.tree.find::<SkiaLayout>(request.group).map_or(0, |l| l.items_count());
+        while let Some(cell) = self.tree.find::<SkiaLayout>(request.group).and_then(|l| l.templated_item(request.index)) {
+            let hidden = self.tree.hidden(cell);
+            let inside = |control: ControlId| std::iter::successors(Some(control), |c| self.tree.parent(*c)).any(|c| c == cell);
+            if !hidden && !self.tree.accessibility.iter().any(|n| inside(n.control)) {
+                // Realized but not drawn yet.
+                break;
+            }
+            if let Some(node) = (!hidden).then(|| self.item_target(cell)).flatten() {
+                self.keyboard_focus(node);
+                return;
+            }
+            let Some(next) = request.index.checked_add_signed(request.step).filter(|n| *n < count) else { return };
+            (request.index, request.deadline, request.scrolled) = (next, self.tree.time_ms + 3000.0, false);
+        }
+        if !request.scrolled {
+            request.scrolled = true;
+            let mut scroll = self.tree.parent(request.group);
+            while let Some(s) = scroll.filter(|s| self.tree.find::<crate::controls::scroll::SkiaScroll>(*s).is_none()) {
+                scroll = self.tree.parent(s);
+            }
+            if let Some(scroll) = scroll {
+                use crate::controls::scroll::RelativePositionType;
+                let at = if request.step > 0 { RelativePositionType::End } else { RelativePositionType::Start };
+                Cx { tree: &mut self.tree }.scroll_to_index(scroll, request.index, at, 0.0);
+            }
+        }
+        self.group_request = Some(request);
+        self.tree.needs_frame = true;
     }
 
     /// Rebuilds the accessibility snapshot (React SkiaAccessibilityManager.OnFrameEnd): every
@@ -2486,6 +2553,17 @@ impl<S: 'static> Ui<S> {
 }
 
 /// The keys a group takes: arrows, Home / End, PageUp / PageDown (C# SkiaAccessibilityManager.Key).
+/// The item of a recycled group a key asked for (`Ui::move_in_group`), by item index.
+#[derive(Clone, Copy)]
+struct GroupRequest {
+    group: ControlId,
+    index: usize,
+    /// Where to go on when the item takes no input.
+    step: isize,
+    deadline: f64,
+    scrolled: bool,
+}
+
 const GROUP_KEYS: [&str; 8] = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"];
 
 /// Roles whose items are one Tab stop, walked with the arrows (C# Aria.IsCompositeRole).
