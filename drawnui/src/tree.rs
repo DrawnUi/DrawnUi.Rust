@@ -908,6 +908,12 @@ impl Tree {
         if node.base.accessibility_modal {
             register_modal(id, false);
         }
+        // Its listener entries go with it (otherwise they waited for their next event).
+        for listeners in [&mut self.key_listeners, &mut self.history_listeners, &mut self.app_visibility_listeners, &mut self.device_rotation_listeners] {
+            if !listeners.is_empty() {
+                listeners.retain(|l| *l != id);
+            }
+        }
         if node.kind.as_deref().is_some_and(|k| k.moves_content().is_some()) {
             self.movers.retain(|m| *m != id);
         }

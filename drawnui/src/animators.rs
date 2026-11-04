@@ -275,12 +275,13 @@ pub(crate) fn tick(tree: &mut Tree, state: &mut dyn Any, time_ms: f64) -> bool {
         let i = tree.animators.partition_point(|a| a.id <= last);
         let Some(&Animator { id, control, wake_ms, .. }) = tree.animators.get(i).filter(|a| a.id <= newest) else { break };
         last = id;
-        if time_ms < wake_ms {
+        // Its control is gone: nothing to animate, nobody to tell. Checked before the wake time,
+        // so a paused one (never due) goes too, with what its closures hold.
+        if tree.node(control).is_none() {
+            tree.animators.remove(i);
             continue;
         }
-        if tree.node(control).is_none() {
-            // Its control is gone: nothing to animate, nobody to tell.
-            tree.animators.remove(i);
+        if time_ms < wake_ms {
             continue;
         }
         if let Some(frame) = tree.animators[i].frame {

@@ -27,6 +27,8 @@ pub mod testing;
 mod tree;
 mod types;
 mod ui;
+#[cfg(test)]
+mod leak_tests;
 mod waker;
 
 pub use animated_frames::{FramePlayer, FramesBuild, FramesSet};
