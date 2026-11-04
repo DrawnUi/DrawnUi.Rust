@@ -797,6 +797,9 @@ pub struct Tree {
     /// cell shown or released): what follows visibility looks again only after one, never on
     /// every frame.
     pub(crate) visibility_epoch: u64,
+    /// A live region (`accessibility_live`) changed: the accessibility snapshot is rebuilt at the
+    /// end of this frame, so a screen reader reads it at once, not after the snapshot interval.
+    pub(crate) live_changed: bool,
     /// `visibility_epoch` as the animators last followed it.
     pub(crate) animators_visibility: u64,
     /// The popup windows open (`Cx::open_popup_window`), the last one on top; their roots are

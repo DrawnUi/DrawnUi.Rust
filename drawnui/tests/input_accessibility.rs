@@ -318,3 +318,38 @@ fn a_role_and_live_region_can_come_from_data() {
     host.settle();
     assert_eq!(&*node(&host, "Card").role, Aria::SWITCH);
 }
+
+#[derive(Default)]
+struct Status {
+    live: Handle<SkiaLabel>,
+    plain: Handle<SkiaLabel>,
+}
+
+/// A live region that changes is in the snapshot of the next frame, so a screen reader reads it at
+/// once; other changes still wait for the snapshot interval.
+#[test]
+fn a_live_region_reaches_the_snapshot_on_the_next_frame() {
+    let ui = Ui::new(Status::default(), |app| {
+        SkiaStack::new().children((
+            SkiaLabel::new("Saved").accessibility_live(Aria::LIVE_POLITE).assign(&mut app.live),
+            SkiaLabel::new("Plain").assign(&mut app.plain),
+        ))
+    })
+    .font_bytes("Default", FONT)
+    .default_accessibility_role::<SkiaLabel>(Aria::TEXT);
+    let mut host = enabled(ui, 400, 300, 1.0);
+    let set = |host: &mut Headless<Status>, which: fn(&Status) -> Handle<SkiaLabel>, text: &str| {
+        let handle = which(&host.ui.state);
+        if let Some(mut label) = host.ui.tree.cx().get_mut(handle) {
+            label.set_text(text);
+        }
+    };
+    host.frame_after(INTERVAL);
+    set(&mut host, |s| s.plain, "Plain changed");
+    host.frame_after(16.0);
+    assert!(host.ui.accessibility_nodes().iter().any(|n| n.label == "Plain"), "a plain change waits for the interval");
+    set(&mut host, |s| s.live, "Sent");
+    host.frame_after(16.0);
+    let labels: Vec<&str> = host.ui.accessibility_nodes().iter().map(|n| n.label.as_str()).collect();
+    assert_eq!(labels, ["Sent", "Plain changed"]);
+}

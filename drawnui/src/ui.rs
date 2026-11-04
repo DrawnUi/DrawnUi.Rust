@@ -2191,7 +2191,8 @@ impl<S: 'static> Ui<S> {
         if self.accessibility_on {
             // A modal that came or went: the snapshot follows in this frame.
             let modal = self.update_modal();
-            if modal.is_some() {
+            // A live region that changed is read in this frame (as after a screen reader's action).
+            if modal.is_some() || std::mem::take(&mut self.tree.live_changed) {
                 self.accessibility_built_ms = f64::NEG_INFINITY;
             }
             let rebuilt = time_ms - self.accessibility_built_ms >= ACCESSIBILITY_INTERVAL_MS;

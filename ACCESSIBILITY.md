@@ -14,7 +14,7 @@ of selectable text, the nearest node above it and its arrow-key group. Nodes are
 order: by top, and nodes whose tops are within half the smaller height form a row, read left to
 right. The snapshot is rebuilt at the end of a frame, at most once per `ACCESSIBILITY_INTERVAL_MS`
 (1 s), and on the very next frame after a screen reader acts (a click, Increment / Decrement,
-SetValue), so the reader reads the new value or state back at once. It is built only while a host
+SetValue) or a live region changes, so the reader reads the new value, state or status at once. It is built only while a host
 renders it (a screen reader is connected, or the browser overlay is on).
 
 **Hosts.**
@@ -132,7 +132,6 @@ Ctrl / Cmd+A; touch long press and a Copy button).
 - iOS: UI-test "scroll to visible" (kAXScrollToVisibleAction) is not mapped by accesskit_ios 0.2.1;
   VoiceOver focus moves scroll through Focus instead. accesskit_ios maps a horizontal three-finger
   swipe the opposite way to Android's forward.
-- Items of a recycled list that are not realized yet cannot be focused by the keyboard; live
-  regions wait for the snapshot interval.
+- Items of a recycled list that are not realized yet cannot be focused by the keyboard.
 - Browser: no screen reader heard on the web build yet (NVDA, JAWS or VoiceOver in a browser).
 - Linux: Orca not heard by ear on a real desktop yet.

@@ -24,6 +24,11 @@ version before it. Commits in parentheses.
   `Ui::snapshot_popup(id, gpu)`, `Ui::render_offscreen(gpu, w, h, scale, time)`,
   `Waker::request_hidden_frame()` (a frame off screen while the window is minimized),
   `Host::request_window_focus()`, and the case names of a choice in `PropInfo::choices`.
+- `Ui::arrows_start_keyboard_navigation(true)`: while nothing has the keyboard, the first arrow key
+  starts keyboard navigation (Down / Right as Tab, Up / Left as Shift+Tab); off by default.
+  `Ui::has_no_keyboard_focus()` tells whether nothing has the keyboard.
+- `Ui::set_screen_reader_running` (and `App::screen_reader_running` for hosts): whether a screen
+  reader reads the app; the desktop host follows AccessKit.
 
 ### Changed
 
@@ -32,6 +37,14 @@ version before it. Commits in parentheses.
 
 - SkiaShell popups and modals are accessibility modals: while one is open, the page under it is not
   read and Tab stays in it.
+- A live region (`accessibility_live`) is read by screen readers on the next frame after it changes.
+- When the control the keyboard is on leaves the screen, the keyboard follows the screen reader if
+  one runs, else it goes to nothing and the keys are the app's again.
+- A control behind an open dialog that still holds the keyboard is no focus: Enter does not press it
+  and the first arrow key starts inside the dialog.
+- Browser: while a dialog is open, the accessibility overlay itself is the dialog around its controls.
+- A looped carousel: a finger release moves one slide at most from the slide the gesture started on,
+  also across the wrap.
 
 ### Breaks
 

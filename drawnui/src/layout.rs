@@ -386,7 +386,9 @@ pub(crate) fn flush(tree: &mut Tree, within: Option<ControlId>) {
         for id in batch.drain(..) {
             let Some(node) = tree.node_mut(id) else { continue };
             let dirty = std::mem::take(&mut node.base.dirty);
+            let live = !node.base.p.accessibility_live.is_empty() && !dirty.is_empty();
             let kind = if dirty.contains(Dirty::APPLY) { node.kind.take() } else { None };
+            tree.live_changed |= live;
             if dirty.contains(Dirty::VISIBILITY) {
                 tree.visibility_epoch += 1;
             }
