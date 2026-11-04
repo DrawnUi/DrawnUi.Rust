@@ -130,6 +130,8 @@ fn configure(ui: Ui<App>) -> Ui<App> {
         .on_key_down(pages::key)
         .on_key_up(pages::key)
         .on_key_char(pages::key)
+        // With nothing on the keyboard, the first arrow key starts keyboard navigation (as Tab).
+        .arrows_start_keyboard_navigation(true)
         .default_accessibility_role::<SkiaLabel>(Aria::TEXT)
         .default_accessibility_role::<SkiaButton>(Aria::BUTTON)
         // Tooltips in the menus' palette, so they stand out on the cards (every hello app).
