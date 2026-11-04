@@ -61,8 +61,12 @@ browser overlay leaves it out too.
 
 **Focus.** When the node a screen reader was on disappears (its page closed), the host moves the
 AccessKit focus to the first node on screen, in reading order, that says something
-(`host_access::refocus`); otherwise VoiceOver kept its cursor on the empty spot. On the desktop the
-screen reader follows the keyboard focus.
+(`host_access::refocus`), so the reader's cursor never stays on an empty spot. On the desktop the
+screen reader follows the keyboard focus. When the control the keyboard is on leaves the screen
+(hidden, scrolled off, its page closed): with a screen reader running, the keyboard goes where the
+reader goes; without one, the keyboard is on nothing and its ring hides, so the keys are the app's
+again (a game). The desktop host knows whether a reader runs from AccessKit (a client connected or
+left); an app or host can say it with `Ui::set_screen_reader_running`.
 
 **Keyboard (desktop hosts, DrawnUI's own navigation).** Tab / Shift+Tab walk the tab stops in
 reading order; an arrow-key group (list, listbox, grid, toolbar, radiogroup, tablist, menu,
@@ -76,6 +80,25 @@ reading order. A popup with such a group in it (a menu, a dropdown list) takes t
 opens, on its current choice (a checked radio, option or tab item; a switched-on checkbox does not
 count), else its first item, however it was opened; the ring shows only when the keyboard was in
 use. While a popup is open, Tab goes round its stops instead of leaving it.
+
+With `Ui::arrows_start_keyboard_navigation(true)` (off by default), while nothing has the keyboard
+the first arrow key starts navigation: Down / Right as Tab, Up / Left as Shift+Tab. A control that
+uses the arrows itself (a game, a menu) gets them first. `Ui::has_no_keyboard_focus` tells whether
+nothing has the keyboard (a control behind an open dialog counts as nothing).
+
+**Dialogs.** `accessibility_modal(true)` marks a control as a dialog; the shell's popups and modals
+are marked already. While such a control is drawn on top, it is the active modal:
+
+- Screen readers get only the dialog: its node is the snapshot's root, role dialog unless the app set
+  one, named by its label even when a title inside says the same. AccessKit marks it modal; in the
+  browser the overlay itself becomes the dialog (role, name, aria-modal) around the dialog's
+  controls.
+- Tab and the arrow keys stay inside it; Tab goes round. The dialog itself is not a Tab stop unless
+  the app made it take input.
+- When it opens while the keyboard is in use, the keyboard goes to its first item; when it closes,
+  back to where it was, unless the keyboard went elsewhere meanwhile. A control behind the dialog
+  that still holds the keyboard (taken with the mouse just before) is no focus: Enter does not press
+  it, the first arrow key starts inside the dialog.
 
 **Selectable text.** `accessibility_text_selectable` on a label: the browser overlay renders its
 lines as real selectable text; the desktop hosts draw the selection (drag, double click, Ctrl / Cmd+C,
@@ -95,11 +118,11 @@ Ctrl / Cmd+A; touch long press and a Copy button).
 
 | Platform | How | Result |
 |---|---|---|
-| Windows | UI Automation client (names, roles, bounds, Invoke, RangeValue, SetValue, ScrollItem), posted keys | names and values read; SetValue 30 moves the slider; the last slider scrolled into view in one call; Tab walks the cards |
-| Browser | Chrome AX tree and DOM (aria-label, aria-value*, aria-checked), real keys | values present, ArrowUp 65 to 66, groups as one Tab stop |
-| macOS | AX API dump and VoiceOver's speech log | cards and controls named once; sliders "65 % Volume slider"; Increment / Decrement step; Back lands on the catalog's first node |
+| Windows | a screen reader by ear; UI Automation client (names, roles, bounds, Invoke, RangeValue, SetValue, ScrollItem), posted keys | names and values read; SetValue 30 moves the slider; the last slider scrolled into view in one call; Tab walks the cards |
+| Browser | Chrome AX tree and DOM (aria-label, aria-value*, aria-checked, the overlay as dialog), real keys | values present, ArrowUp 65 to 66, groups as one Tab stop; an open popup or modal is the dialog with only its controls |
+| macOS | VoiceOver by ear, AX API dump and VoiceOver's speech log | cards and controls named once; sliders "65 % Volume slider"; Increment / Decrement step; Back lands on the catalog's first node |
 | iPhone | XCUITest tree (names, values), VoiceOver by hand | names and values read; the stale cursor after Back (fix e800611) is fixed on macOS, its iPhone retry and the slider adjust are pending |
-| Android | TalkBack on an emulator and a phone (BV8800), uiautomator tree | explore by touch, swipes in reading order, double tap opens a card |
+| Android | TalkBack by ear on an emulator and a phone (BV8800), uiautomator tree | explore by touch, swipes in reading order, double tap opens a card |
 | Linux | Orca 42 in WSL, its speech log; AT-SPI tree and actions | Orca reads the catalog and pages |
 
 ## Not yet
@@ -111,3 +134,5 @@ Ctrl / Cmd+A; touch long press and a Copy button).
   swipe the opposite way to Android's forward.
 - Items of a recycled list that are not realized yet cannot be focused by the keyboard; live
   regions wait for the snapshot interval.
+- Browser: no screen reader heard on the web build yet (NVDA, JAWS or VoiceOver in a browser).
+- Linux: Orca not heard by ear on a real desktop yet.

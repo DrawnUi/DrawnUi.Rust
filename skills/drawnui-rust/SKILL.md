@@ -710,6 +710,18 @@ menu, a dropdown list) takes the keyboard as it opens, on its current choice (a 
 item with `accessibility_is_pressed(Some(true))`; a checkbox item that is on does not count), else
 its first item; while it is open, Tab goes round it.
 
+Dialogs: `.accessibility_modal(true)` on the control that is a dialog (the shell's popups and modals
+have it already). While it is drawn on top, screen readers get only the dialog (role dialog unless
+you set one, named by its `accessibility_label`), Tab goes round inside it, the keyboard goes to its
+first item when it opens (if the keyboard was in use) and back to where it was when it closes. A
+control behind it that still holds the keyboard counts as no focus: Enter does not press it.
+
+`Ui::arrows_start_keyboard_navigation(true)` (off by default): while nothing has the keyboard, the
+first arrow key starts navigation, Down / Right as Tab, Up / Left as Shift+Tab; a control that
+handles the arrows itself (a game) keeps them. When the control the keyboard is on leaves the
+screen, the keyboard follows the screen reader if one runs, else it goes to nothing and the keys are
+the app's again. `Ui::has_no_keyboard_focus()` tells whether nothing has the keyboard.
+
 ## Rendering mode (GPU or CPU)
 
 `Ui::rendering_mode(RenderingModeType)`, DrawnUI's `Canvas.RenderingMode`, read once before the
