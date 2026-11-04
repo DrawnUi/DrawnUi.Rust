@@ -70,7 +70,9 @@ left); an app or host can say it with `Ui::set_screen_reader_running`.
 
 **Keyboard (desktop hosts, DrawnUI's own navigation).** Tab / Shift+Tab walk the tab stops in
 reading order; an arrow-key group (list, listbox, grid, toolbar, radiogroup, tablist, menu,
-menubar) is one stop that remembers its item and moves by index; Home / End, PageUp / PageDown;
+menubar) is one stop that remembers its item and moves by index; Home / End, PageUp / PageDown; in a
+recycled list or layout every item counts, drawn or not: the scroll brings the item in, then it
+gets the keyboard;
 Enter / Space activate; Escape leaves; a focus ring after keyboard use. The browser keeps its own
 Tab order and ring through the overlay (roving tabindex for groups). The group role may sit on a
 wrapper: the items are the children of the layout it holds (a menu shape around a column of items),
@@ -132,6 +134,5 @@ Ctrl / Cmd+A; touch long press and a Copy button).
 - iOS: UI-test "scroll to visible" (kAXScrollToVisibleAction) is not mapped by accesskit_ios 0.2.1;
   VoiceOver focus moves scroll through Focus instead. accesskit_ios maps a horizontal three-finger
   swipe the opposite way to Android's forward.
-- Items of a recycled list that are not realized yet cannot be focused by the keyboard.
 - Browser: no screen reader heard on the web build yet (NVDA, JAWS or VoiceOver in a browser).
 - Linux: Orca not heard by ear on a real desktop yet.
