@@ -149,6 +149,9 @@ app gave, such as `assets/logo.png`. Return a string to load from there; a `blob
 Pass `fonts: [{ alias, url, weight }]` to add fonts from the page. Each is registered as if the app
 had called `Ui::font`, and the first frame waits for it. A page font never becomes the default font:
 only labels that name it with `.font_family("alias")` use it. Its url goes through `resolveAsset`.
+Call `DrawnUi.start` once per page: the app lives as long as the page. To run an app again from a
+fresh start (an editor's Run button, a page that swaps apps), give it its own iframe and replace the
+frame; the old app, its wasm memory and its listeners go with the old frame.
 `create` can wrap the module options: `create: () => createDrawnUi({ onAbort, print, printErr })`
 to show panics and engine warnings. Canvas CSS: `width: 100vw; height: 100vh; height: 100dvh`
 (dvh: the height Safari's toolbars leave free; with 100vh alone the bottom of the canvas sits under
