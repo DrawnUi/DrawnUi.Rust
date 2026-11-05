@@ -703,6 +703,10 @@ above 0) it fills the background and the glyphs keep `text_color`; without one i
 (`gradient_by_lines` spans each line or the whole text box). For gradient glyphs on a colored card,
 put the color on the card, not on the label.
 
+A gradient's `light`: below 1 multiplies every channel (darker); above 1 multiplies each color's
+HSL lightness, up to full lightness, with hue and saturation kept, so `light = 1.4` gives a brighter
+color of the same tone.
+
 ## Screen readers: name every control
 
 Screen readers (Narrator, VoiceOver, TalkBack, Orca, browsers) read the controls' roles, names and

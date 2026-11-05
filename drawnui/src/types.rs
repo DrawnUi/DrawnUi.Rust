@@ -328,7 +328,8 @@ pub struct SkiaGradient {
     pub end_x_ratio: f32,
     pub end_y_ratio: f32,
     pub tile_mode: TileMode,
-    /// Below 1 darkens the colors, above 1 lightens them.
+    /// Below 1 every channel is multiplied by it (darker); above 1 each color's HSL lightness is
+    /// multiplied by it, up to full lightness, with hue and saturation kept (the .NET MAUI rule).
     pub light: f32,
     /// Multiplies the alpha of every color.
     pub opacity: f32,

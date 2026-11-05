@@ -38,6 +38,8 @@ version before it. Commits in parentheses.
 - SkiaShell popups and modals are accessibility modals: while one is open, the page under it is not
   read and Tab stays in it.
 - A live region (`accessibility_live`) is read by screen readers on the next frame after it changes.
+- A gradient's `light` above 1 multiplies each color's HSL lightness and keeps its hue and saturation,
+  as .NET MAUI does: lighter colors stay vivid.
 - A label's `fill_gradient` goes to one place: the background when the label has a background color
   with alpha above 0 (the glyphs keep `text_color`), else the glyphs.
 - The arrow keys, Home, End, PageUp and PageDown in a recycled list or layout reach every item: the

@@ -470,13 +470,14 @@ fn color_positions_opacity_and_light() {
     );
     let mut light = SkiaGradient::new(GradientType::Linear, [Color::from_rgb(200, 50, 50), Color::from_rgb(50, 50, 200)]);
     light.light = 1.5;
+    // HSL lightness x 1.5 (C# f77136c4, the .NET MAUI rule): #C83232 -> #E49393 at the top.
     assert_gradient(
         "light 1.5",
         filled(light, 100, 100),
         100,
         100,
-        "FFE49898 FFDC98A0 FFD498A8 FFCD98AF FFC598B7 FFBE98BE FFB698C6 FFAE98CE FFA798D5 FF9F98DD",
-        "FFBE98BE FFBE98BE FFBE98BE FFBE98BE FFBE98BE FFBE98BE FFBE98BE FFBE98BE FFBE98BE FFBE98BE",
+        "FFE49393 FFDB939C FFD393A4 FFCB93AC FFC393B4 FFBB93BC FFB393C4 FFAB93CC FFA393D4 FF9B93DC",
+        "FFBB93BC FFBB93BC FFBB93BC FFBB93BC FFBB93BC FFBB93BC FFBB93BC FFBB93BC FFBB93BC FFBB93BC",
     );
 }
 
@@ -716,5 +717,36 @@ fn one_pixel_strokes_cover_the_same_pixels_as_upstream() {
         assert_pixels(&format!("{what}, top"), column(&mut host, m, l - 1, l + 4, 1), top);
         assert_pixels(&format!("{what}, right"), row(&mut host, m, r - 5, r, 1), right);
         assert_pixels(&format!("{what}, bottom"), column(&mut host, m, r - 5, r, 1), bottom);
+    }
+}
+
+/// HSL of a color: hue in degrees, saturation and lightness in percent.
+fn hsl(c: Color) -> (f32, f32, f32) {
+    let [r, g, b] = [c.r(), c.g(), c.b()].map(|v| v as f32 / 255.0);
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    let (l, d) = ((max + min) / 2.0, max - min);
+    let s = if d == 0.0 { 0.0 } else { d / (1.0 - (2.0 * l - 1.0).abs()) };
+    let h = match d {
+        0.0 => 0.0,
+        _ if max == r => ((g - b) / d).rem_euclid(6.0),
+        _ if max == g => (b - r) / d + 2.0,
+        _ => (r - g) / d + 4.0,
+    };
+    (h * 60.0, s * 100.0, l * 100.0)
+}
+
+/// Light above 1 multiplies the HSL lightness, hue and saturation kept: the .NET MAUI rule
+/// (Color.AddLuminosity), the same in every engine (C# GradientLightTests).
+#[test]
+fn light_above_one_raises_the_lightness_and_keeps_hue_and_saturation() {
+    for (hex, light) in [(0x20C997u32, 1.4f32), (0x0F3460, 1.4), (0xE94560, 1.25)] {
+        let color = Color::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8);
+        let mut g = SkiaGradient::new(GradientType::Linear, [color, color]);
+        g.light = light;
+        let mut host = shot(1.0, 200, filled(g, 100, 100));
+        let (h, s, l) = hsl(color);
+        let (h2, s2, l2) = hsl(host.pixel(100, 100));
+        assert!((l2 - l * light).abs() <= 1.5, "#{hex:06X} lightness {l2} for {}", l * light);
+        assert!((s2 - s).abs() <= 3.0 && (h2 - h).abs() <= 3.0, "#{hex:06X} hue {h} -> {h2}, saturation {s} -> {s2}");
     }
 }

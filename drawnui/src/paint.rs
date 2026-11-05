@@ -1114,6 +1114,32 @@ pub(crate) fn gradient_shader(
     cache.as_ref()?.shader.clone()
 }
 
+/// `rgb` (0..1) with its HSL lightness multiplied by `light`, up to 1; hue and saturation kept.
+fn lighter([r, g, b]: [f32; 3], light: f32) -> [f32; 3] {
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    let (l, d) = ((max + min) / 2.0, max - min);
+    let s = if d == 0.0 { 0.0 } else { d / (1.0 - (2.0 * l - 1.0).abs()) };
+    let h = match d {
+        0.0 => 0.0,
+        _ if max == r => ((g - b) / d).rem_euclid(6.0),
+        _ if max == g => (b - r) / d + 2.0,
+        _ => (r - g) / d + 4.0,
+    };
+    let l = (l * light).min(1.0);
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let x = c * (1.0 - (h.rem_euclid(2.0) - 1.0).abs());
+    let (r1, g1, b1) = match h as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let m = l - c / 2.0;
+    [r1 + m, g1 + m, b1 + m]
+}
+
 /// DrawnUI CreateGradient: the shader of a gradient over `rect`, pixels. `angles` are the start
 /// and the sweep of a Sweep gradient in degrees (the control's Value1 and Value2); a zero sweep
 /// is the full circle.
@@ -1121,12 +1147,17 @@ pub(crate) fn create_gradient(g: &SkiaGradient, rect: Rect, angles: (f32, f32)) 
     if g.gradient_type == GradientType::None || g.colors.is_empty() {
         return None;
     }
-    // Below 1 every channel is scaled down, above 1 it moves toward white (DrawnUi.Net MakeDarker / MakeLighter).
-    let lit = |channel: u8| {
-        let c = channel as f32 / 255.0;
-        if g.light < 1.0 { c * g.light.max(0.0) } else { c + (1.0 - c) * (g.light - 1.0).min(1.0) }
+    // Below 1 every channel is scaled down (DrawnUI MakeDarker); above 1 the HSL lightness is
+    // multiplied by it, up to 1, hue and saturation kept (.NET MAUI Color.AddLuminosity).
+    let color = |c: &Color| {
+        let rgb = [c.r(), c.g(), c.b()].map(|v| v as f32 / 255.0);
+        let [r, g2, b] = match g.light {
+            l if l < 1.0 => rgb.map(|v| v * l.max(0.0)),
+            l if l > 1.0 => lighter(rgb, l),
+            _ => rgb,
+        };
+        Color4f::new(r, g2, b, c.a() as f32 / 255.0 * g.opacity)
     };
-    let color = |c: &Color| Color4f::new(lit(c.r()), lit(c.g()), lit(c.b()), c.a() as f32 / 255.0 * g.opacity);
     let colors: Vec<Color4f> = g.colors.iter().map(color).collect();
     let positions = (g.color_positions.len() == colors.len()).then_some(&g.color_positions[..]);
     let colors = gradient::Colors::new(&colors, positions, g.tile_mode, None);
