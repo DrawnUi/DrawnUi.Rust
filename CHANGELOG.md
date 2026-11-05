@@ -38,6 +38,8 @@ version before it. Commits in parentheses.
 - SkiaShell popups and modals are accessibility modals: while one is open, the page under it is not
   read and Tab stays in it.
 - A live region (`accessibility_live`) is read by screen readers on the next frame after it changes.
+- A label's `fill_gradient` goes to one place: the background when the label has a background color
+  with alpha above 0 (the glyphs keep `text_color`), else the glyphs.
 - The arrow keys, Home, End, PageUp and PageDown in a recycled list or layout reach every item: the
   scroll brings an item that is not drawn yet into view, then it gets the keyboard.
 - When the control the keyboard is on leaves the screen, the keyboard follows the screen reader if

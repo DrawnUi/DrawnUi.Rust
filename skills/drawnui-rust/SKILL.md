@@ -696,6 +696,13 @@ the touch's moves while it decides whether it is a system swipe (home, Control C
 apps see the same; it is not an engine bug. Do not smooth or drop the first move that arrives after
 the stall: it is where the finger really is.
 
+## Label gradients
+
+A SkiaLabel's `fill_gradient` goes to one place. With a background (`background_color` with alpha
+above 0) it fills the background and the glyphs keep `text_color`; without one it colors the glyphs
+(`gradient_by_lines` spans each line or the whole text box). For gradient glyphs on a colored card,
+put the color on the card, not on the label.
+
 ## Screen readers: name every control
 
 Screen readers (Narrator, VoiceOver, TalkBack, Orca, browsers) read the controls' roles, names and

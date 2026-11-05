@@ -1945,9 +1945,10 @@ impl Control for SkiaLabel {
         Thickness::new(left, top, right, bottom)
     }
 
-    /// The gradient goes on the glyphs unless there is a background color (C# SetupBackgroundPaint).
+    /// `fill_gradient` goes to one place: the background when the label has one (a background color
+    /// with alpha above 0), where the glyphs keep `text_color`; else the glyphs.
     fn paint_background(&self, cx: &mut PaintCx) {
-        if cx.base().p.background_color.is_some() {
+        if has_background(cx) {
             crate::paint::paint_background_rect(cx);
         }
     }
@@ -1960,7 +1961,7 @@ impl Control for SkiaLabel {
         let p = &self.p;
         let inner = self.text_area(cx.rect, cx.base().p.padding, scale);
         let by_lines = p.gradient_by_lines;
-        let fill_gradient = if cx.base().p.background_color.is_none() { &cx.base().p.fill_gradient } else { &None };
+        let fill_gradient = if has_background(cx) { &None } else { &cx.base().p.fill_gradient };
         let stroke_gradient = &p.stroke_gradient;
 
         // Shaders are built at the origin of the rect they fill; the canvas is moved there.
@@ -2109,4 +2110,9 @@ impl Control for SkiaLabel {
         animators::start_frame(cx.tree, id, fire_span_tap);
         Handled::Yes
     }
+}
+
+/// The label has a background: a background color with alpha above 0.
+fn has_background(cx: &PaintCx) -> bool {
+    cx.base().p.background_color.is_some_and(|c| c.a() > 0)
 }

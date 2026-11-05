@@ -367,7 +367,9 @@ base_props! {
     /// that realizes only what is visible.
     virtualisation_inflated / set_virtualisation_inflated: f32 = 0.0, MEASURE;
     background_color / set_background_color: Option<Color> = None, DRAW;
-    /// Painted instead of the plain background color (DrawnUI FillGradient).
+    /// Painted instead of the plain background color (DrawnUI FillGradient). On a SkiaLabel it goes
+    /// to one place: the background when the label has one (a background color with alpha above 0),
+    /// where the glyphs keep `text_color`; else the glyphs.
     fill_gradient / set_fill_gradient: Option<Box<SkiaGradient>> = None, DRAW;
     use_cache / set_use_cache: CacheType = CacheType::None, DRAW;
     is_clipped_to_bounds / set_is_clipped_to_bounds: bool = false, REPAINT;

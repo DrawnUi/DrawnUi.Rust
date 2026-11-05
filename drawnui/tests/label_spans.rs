@@ -289,12 +289,18 @@ fn the_gradient_goes_on_the_glyphs_unless_there_is_a_background() {
     let (left, right) = (host.pixel(first.0 + 1, first.1), host.pixel(last.0 - 1, last.1));
     assert!(left.r() > left.b() && right.b() > right.r(), "{left:?} {right:?}");
     assert_eq!(host.pixel(first.0 + 1, 55), Color::BLACK, "no background");
+    let white = |host: &mut Host| self::ink(host, Rect::from_wh(300.0, 60.0), |c| c == Color::WHITE).len();
+    assert_eq!(white(&mut host), 0, "no background: the gradient colors the glyphs, no white left");
+    // A transparent background is no background (alpha 0).
+    let mut clear = self::host(text().background_color(Color::TRANSPARENT), 300.0, 1.0);
+    assert_eq!(white(&mut clear), 0, "transparent background: the gradient still colors the glyphs");
 
     // A background color takes the gradient (C# SetupBackgroundPaint); the glyphs keep their color.
     let mut host = self::host(text().background_color(Color::from_rgb(0, 80, 0)), 300.0, 1.0);
     let (bg_left, bg_right) = (host.pixel(1, 2), host.pixel(290, 2));
     assert!(bg_left.r() > bg_left.b() && bg_right.b() > bg_right.r(), "{bg_left:?} {bg_right:?}");
     assert_eq!(host.pixel(first.0 + 3, first.1 + 10), Color::WHITE);
+    assert!(white(&mut host) > 100, "with a background the glyphs keep their white TextColor");
 }
 
 #[test]
