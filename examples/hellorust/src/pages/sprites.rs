@@ -75,7 +75,7 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
     // Sprites play all the time: nothing above them is cached, and neither are they (a stepped
     // frame draws faster than it records).
     scrolling(SkiaStack::new().spacing(16).padding(16).horizontal_options(LayoutOptions::Center).maximum_width_request(720).children((
-        page_title("Sprites"),
+        page_title("Sprites").accessibility_role(Aria::PRESENTATION),
         card(
             card_title("").observe(|me, app: &App| {
                 me.set_text(format!("SkiaSprite — Source=\"anims/BlueWarrior/Warrior_Idle.png\" Columns={{8}} Rows={{1}} · {}", app.sprites.info))

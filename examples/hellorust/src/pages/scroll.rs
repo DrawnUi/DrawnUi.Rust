@@ -27,7 +27,7 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
     // The content holds scrolls that move by themselves, so neither it nor their cards are
     // cached; the rows keep the Operations cache every shape has.
     scrolling(column().children((
-        SkiaLabel::new("SkiaScroll").font_size(24).text_color(Color::WHITE).horizontal_options(LayoutOptions::Center),
+        SkiaLabel::new("SkiaScroll").font_size(24).text_color(Color::WHITE).horizontal_options(LayoutOptions::Center).accessibility_role(Aria::PRESENTATION),
         card(
             title("Header + Footer in the flow · Tag=\"Header\" / Tag=\"Footer\" children scroll with the content"),
             SkiaScroll::new()

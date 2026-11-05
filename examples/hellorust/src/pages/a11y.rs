@@ -45,7 +45,7 @@ fn refresh(app: &mut App, cx: &mut Cx) {
 /// Builds the page.
 pub fn build(app: &mut App) -> Build<SkiaLayout> {
     scrolling(SkiaStack::new().spacing(16).padding(16).horizontal_options(LayoutOptions::Center).maximum_width_request(720).children((
-        page_title("Accessibility").accessibility_role(Aria::HEADING),
+        page_title("Accessibility").accessibility_role(Aria::PRESENTATION),
         SkiaLabel::new("Press Tab to move between the drawn controls, Enter or Space to activate. Screen readers see the same overlay: roles, labels, hints, pressed state, live regions.")
             .font_size(14)
             .text_color(hex(0xD3D3D3))

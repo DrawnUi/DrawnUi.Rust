@@ -35,7 +35,7 @@ impl Default for State {
 pub fn build(_app: &mut App) -> Build<SkiaLayout> {
     // The probe card changes on every key; the rest is static.
     scrolling(SkiaStack::new().spacing(16).padding(16).horizontal_options(LayoutOptions::Center).maximum_width_request(720).children((
-        SkiaLabel::new("Keyboard Input").font_size(24).text_color(Color::WHITE).horizontal_options(LayoutOptions::Center),
+        SkiaLabel::new("Keyboard Input").font_size(24).text_color(Color::WHITE).horizontal_options(LayoutOptions::Center).accessibility_role(Aria::PRESENTATION),
         SkiaLabel::new("The window-level key handlers (Ui::on_key_down / on_key_up / on_key_char, React KeyboardManager): shortcuts, game input, drawn editors. Click the page, then press letters, arrows, modifiers or function keys.")
             .font_size(13)
             .text_color(hex(0xADB5BD))

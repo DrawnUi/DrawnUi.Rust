@@ -128,6 +128,8 @@ pub fn card_title(text: &str) -> Build<SkiaLabel> {
 }
 
 /// A page heading.
+/// A page heading. When it says the shell bar's title, make it `Aria::PRESENTATION`: the bar
+/// already reads the page name (hello rule: the page name is read once).
 pub fn page_title(text: &str) -> Build<SkiaLabel> {
     SkiaLabel::new(text).font_size(24).text_color(Color::WHITE).horizontal_options(LayoutOptions::Center)
 }
@@ -1238,6 +1240,35 @@ mod tests {
         missing.dedup();
         assert!(checked > 500, "{checked} controls checked");
         assert!(missing.is_empty(), "{}", missing.join("
+"));
+    }
+
+    /// The page name is read once: a heading on the page that says the shell bar's title is
+    /// presentation (hello rule), so every page has exactly one node with its catalog title.
+    #[test]
+    fn the_page_name_is_read_once() {
+        let mut host = host(700);
+        host.ui.set_accessibility_enabled(true);
+        let mut twice = Vec::new();
+        for sample in &SAMPLES {
+            open_page(&mut host, sample.title);
+            host.frame_after(1100.0);
+            let said: Vec<String> = host.ui.accessibility_nodes().iter().filter(|n| n.label == sample.title).map(|n| n.role.to_string()).collect();
+            if said.len() != 1 {
+                twice.push(format!("{}: {said:?}", sample.title));
+            }
+            let home = all(&host)
+                .into_iter()
+                .filter(|id| host.ui.tree.find::<SkiaButton>(*id).is_some_and(|b| b.p.text == "Home"))
+                .last()
+                .expect("the Home button");
+            let rect = on_screen(&host, home);
+            let now = host.time_ms();
+            host.ui.pointer(drawnui::PointerKind::Down, rect.center_x(), rect.center_y(), now);
+            host.ui.pointer(drawnui::PointerKind::Up, rect.center_x(), rect.center_y(), now);
+            host.settle();
+        }
+        assert!(twice.is_empty(), "{}", twice.join("
 "));
     }
 

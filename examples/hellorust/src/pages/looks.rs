@@ -31,7 +31,7 @@ impl Default for State {
 /// Builds the page.
 pub fn build(_app: &mut App) -> Build<SkiaLayout> {
     scrolling(SkiaStack::new().spacing(16).padding(16).horizontal_options(LayoutOptions::Center).maximum_width_request(720).children((
-        SkiaLabel::new("Common Controls").font_size(24).text_color(Color::WHITE).horizontal_options(LayoutOptions::Center),
+        SkiaLabel::new("Common Controls").font_size(24).text_color(Color::WHITE).horizontal_options(LayoutOptions::Center).accessibility_role(Aria::PRESENTATION),
         SkiaLabel::new("SkiaSwitch, SkiaCheckbox, SkiaRadioButton, SkiaButton, SkiaProgress, SkiaSlider — the same tree per card, only ControlStyle changes (the Fiddle 'Looks' snippet).")
             .font_size(13)
             .text_color(hex(0xADB5BD))

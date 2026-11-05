@@ -45,7 +45,7 @@ pub struct Card3d {
 pub fn build(app: &mut App) -> Build<SkiaLayout> {
     // The content is not cached as a whole: two of its cards change while the page is open.
     scrolling(column().children((
-        SkiaLabel::new("Transforms").font_size(24).text_color(Color::WHITE).horizontal_options(LayoutOptions::Center),
+        SkiaLabel::new("Transforms").font_size(24).text_color(Color::WHITE).horizontal_options(LayoutOptions::Center).accessibility_role(Aria::PRESENTATION),
         SkiaLabel::new("Applied at render around the arranged box, so layout is untouched and caches stay valid. Same names as MAUI: TranslationX/Y, Rotation, RotationX/Y, ScaleX/Y, SkewX/Y, AnchorX/Y, Opacity, plus TranslationZ for 3D depth.")
             .font_size(13)
             .text_color(hex(0xD3D3D3))

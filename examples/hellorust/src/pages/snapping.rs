@@ -71,7 +71,7 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
                 .horizontal_options(LayoutOptions::Center)
                 .maximum_width_request(720)
                 .children((
-                    page_title("Carousel & Drawer"),
+                    page_title("Carousel & Drawer").accessibility_role(Aria::PRESENTATION),
                     playground(page),
                     card(
                         card_title("").observe(|me, app: &App| {

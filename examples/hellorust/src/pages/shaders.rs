@@ -85,7 +85,7 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
     // The shaders animate: nothing above them is cached; each image caches its own picture,
     // which the effect samples.
     scrolling(SkiaStack::new().spacing(16).padding(16).horizontal_options(LayoutOptions::Center).maximum_width_request(720).children((
-        page_title("Shaders"),
+        page_title("Shaders").accessibility_role(Aria::PRESENTATION),
         SkiaLabel::new("")
             .font_size(12)
             .text_color(hex(0xFF6B6B))

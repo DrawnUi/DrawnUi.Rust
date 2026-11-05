@@ -36,7 +36,7 @@ impl Default for State {
 pub fn build(app: &mut App) -> Build<SkiaLayout> {
     // The GIFs play all the time: nothing above them is cached.
     scrolling(SkiaStack::new().spacing(16).padding(16).horizontal_options(LayoutOptions::Center).maximum_width_request(720).children((
-        page_title("Lottie & GIF"),
+        page_title("Lottie & GIF").accessibility_role(Aria::PRESENTATION),
         card(
             card_title("").observe(|me, app: &App| {
                 me.set_text(format!("SkiaLottie — Source=\"lottie/shield.json\" Repeat={{-1}} · {}", app.animations.status))

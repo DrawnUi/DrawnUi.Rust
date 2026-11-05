@@ -135,7 +135,7 @@ impl State {
 /// Builds the page.
 pub fn build(app: &mut App) -> Build<SkiaLayout> {
     scrolling(column().children((
-        page_title("Tooltips & Menus").accessibility_role(Aria::HEADING),
+        page_title("Tooltips & Menus").accessibility_role(Aria::PRESENTATION),
         SkiaLabel::new(
             "A desktop menu bar, a context menu (right-click anywhere on the page) and a dropdown, then tooltips: rest the mouse on a control, move along a row and the next one shows at once; a click, the wheel or a key closes it.",
         )
