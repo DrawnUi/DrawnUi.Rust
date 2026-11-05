@@ -13,11 +13,12 @@ const BUTTON: Color = hex(0x373B3E);
 const BUTTON_HOVER: Color = hex(0x495057);
 const MUTED: Color = hex(0xADB5BD);
 const ACCENT: Color = hex(0x6EA8FE);
-/// The menus' panel, edge, highlighted line and the title of the open menu.
+/// The menus' panel, edge and the line under the mouse.
 const PANEL: Color = hex(0x262B3B);
 const EDGE: Color = hex(0x3B4256);
 const HIGHLIGHT: Color = hex(0x343B52);
-const TITLE_OPEN: Color = hex(0x5A6270);
+/// Selected: the open menu's title and the keyboard's place, edged in the accent.
+pub(crate) const SELECTED: Color = hex(0x1E3A66);
 
 /// Every mouse button taps (DrawnUI); what opens or picks here acts on the primary one only, so a
 /// right click on a button opens the page's context menu alone. Keyboard and touch are primary.
@@ -109,8 +110,23 @@ pub struct State {
     bar_popup: Option<PopupId>,
     /// The highlighted line of the open menu (its index among the lines).
     highlighted: Option<usize>,
+    /// The open menu's lines, for the screen readers' focus.
+    items: Vec<Handle<SkiaShape>>,
     /// Enter or Space on a title: the menu it opens has its first line highlighted.
     keyboard_open: bool,
+    /// The title the keyboard is on with no menu open (Alt alone put it on the bar).
+    bar_title: Option<usize>,
+    /// The keyboard drives the menus: its place reads selected and a resting mouse moves nothing.
+    keys: bool,
+    /// Mouse moves seen (a hover without one is a menu opening under a resting mouse), and their
+    /// count when the keyboard took the menus: a real move gives them back to the mouse.
+    pointer_at: Option<(f32, f32)>,
+    pointer_moves: u32,
+    keys_moves: u32,
+    /// Where the keyboard was before the bar took it.
+    bar_return: Option<Option<ControlId>>,
+    /// Alt is down with nothing else.
+    alt_alone: bool,
     command: String,
     /// The context menu or the dropdown open.
     menu: Option<PopupId>,
@@ -130,6 +146,36 @@ impl State {
     pub(crate) fn title(&self, index: usize) -> ControlId {
         self.titles[index].into()
     }
+
+    pub(crate) fn bar_title(&self) -> Option<usize> {
+        self.bar_title
+    }
+
+    pub(crate) fn keys(&self) -> bool {
+        self.keys
+    }
+}
+
+impl State {
+    /// The mouse has the menus: the keyboard does not drive them, or the mouse moved since it did.
+    fn mouse_takes_over(&self) -> bool {
+        !self.keys || self.pointer_moves != self.keys_moves
+    }
+
+    /// The keyboard takes the menus.
+    fn keys_on(&mut self) {
+        (self.keys, self.keys_moves) = (true, self.pointer_moves);
+    }
+}
+
+/// Counts real mouse moves (the page's and the menus'); it uses nothing.
+fn note_pointer(app: &mut App, g: &Gesture) -> bool {
+    let state = &mut app.menus;
+    if g.kind == GestureKind::Pointer && state.pointer_at != Some((g.location.x, g.location.y)) {
+        state.pointer_at = Some((g.location.x, g.location.y));
+        state.pointer_moves = state.pointer_moves.wrapping_add(1);
+    }
+    false
 }
 
 /// Builds the page.
@@ -145,7 +191,7 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
         .horizontal_text_alignment(TextAlignment::Center),
         card(
             "Menu bar",
-            "Click a menu, or press Alt with its first letter (Alt+F, Alt+E, Alt+V, Alt+H). Left and Right open the next menu, Up and Down move through it, Enter picks, Escape closes. The shortcuts (Ctrl+N, Ctrl+S, F1...) work with the menus closed too.",
+            "Click a menu, or press Alt with its first letter (Alt+F, Alt+E, Alt+V, Alt+H). Alt alone puts the keyboard on the bar: Left and Right go round the titles, Down, Enter or Space open one. In a menu, Up and Down go round its lines, Left and Right open the menu before or after, Enter picks, Escape closes one level and Alt leaves. The shortcuts (Ctrl+N, Ctrl+S, F1...) work with the menus closed too.",
             (
                 SkiaShape::new().fill_x().corner_radius(8).background_color(BUTTON).padding(4).children(
                     SkiaRow::new()
@@ -256,6 +302,8 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
             ),
         ),
     )))
+    // Real mouse moves over the page: the mouse takes the menus back from the keyboard.
+    .consume_gestures(|_me, app: &mut App, _cx, g| note_pointer(app, g))
     // Right-click anywhere on the page: the Edit menu where it was.
     .on_context_menu(|_me, app: &mut App, cx, at| {
         let items = ["Cut", "Copy", "Paste", "Select all", "Settings…"];
@@ -279,39 +327,50 @@ pub fn opened(_app: &mut App, cx: &mut Cx) {
     cx.set_tooltips_from_accessibility(true);
 }
 
-/// A popup closed, for any reason: the menu bar unselects its title.
-pub fn popup_closed(app: &mut App, id: PopupId) {
-    let state = &mut app.menus;
-    if state.bar_popup == Some(id) {
-        (state.bar_popup, state.open, state.highlighted) = (None, None, None);
+/// A popup closed, for any reason (a click outside, the window losing the keyboard): the menu bar
+/// lets go.
+pub fn popup_closed(app: &mut App, id: PopupId, cx: &mut Cx) {
+    if app.menus.bar_popup == Some(id) {
+        app.menus.bar_popup = None;
+        leave_bar(app, cx);
     }
-    if state.menu == Some(id) {
-        state.menu = None;
+    if app.menus.menu == Some(id) {
+        app.menus.menu = None;
     }
 }
 
 /// A menu bar title: a click opens its menu; while a menu is open, the mouse over another title
-/// opens that one. Its first letter is underlined: Alt + it opens the menu.
+/// opens that one. Its first letter is underlined: Alt + it opens the menu. Open, or the keyboard
+/// on it: the selected look edged in the accent; the mouse over it: the hover look.
 fn title(index: usize, handle: &mut Handle<SkiaShape>) -> Build<SkiaShape> {
     let text = MENUS[index].title;
     SkiaShape::new()
         .corner_radius(6)
         .padding((12, 6))
+        .stroke_width(1)
         .accessibility_role(Aria::MENU_ITEM)
         .accessibility_can_interact(Some(true))
         .accessibility_label(text)
         .observe(move |me, app: &App| {
             let state = &app.menus;
+            let open = state.open == Some(index);
+            let selected = open || state.bar_title == Some(index);
+            let hover = !selected && !state.keys && state.hovered == Some(index);
             me.set_background_color(match () {
-                _ if state.open == Some(index) => TITLE_OPEN,
-                _ if state.hovered == Some(index) => BUTTON_HOVER,
+                _ if selected => SELECTED,
+                _ if hover => BUTTON_HOVER,
                 _ => Color::TRANSPARENT,
             });
+            me.set_stroke_color(if selected { ACCENT } else { Color::TRANSPARENT });
+            me.set_accessibility_is_expanded(Some(open));
         })
         .on_hovered(move |_me, app: &mut App, cx, on| {
             if on {
                 app.menus.hovered = Some(index);
-                if app.menus.open.is_some_and(|open| open != index) {
+                // While the keyboard drives the bar, a mouse resting on a title moves nothing (a menu
+                // opening or closing near it is no move); a real move takes over.
+                if app.menus.mouse_takes_over() && app.menus.open.is_some_and(|open| open != index) {
+                    app.menus.keys = false;
                     open_menu(app, cx, index, false);
                 }
             } else if app.menus.hovered == Some(index) {
@@ -322,11 +381,12 @@ fn title(index: usize, handle: &mut Handle<SkiaShape>) -> Build<SkiaShape> {
             if !primary(cx) {
                 return;
             }
+            // Opened from the keyboard: its first line highlighted, as with Alt + its letter.
+            let keyboard = std::mem::take(&mut app.menus.keyboard_open) || cx.gesture().is_none();
+            app.menus.keys = keyboard;
             if app.menus.open == Some(index) {
-                close_menu(app, cx);
+                leave_bar(app, cx);
             } else {
-                // Opened from the keyboard: its first line highlighted, as with Alt + its letter.
-                let keyboard = std::mem::take(&mut app.menus.keyboard_open) || cx.gesture().is_none();
                 open_menu(app, cx, index, keyboard);
             }
         })
@@ -346,11 +406,14 @@ fn title(index: usize, handle: &mut Handle<SkiaShape>) -> Build<SkiaShape> {
         )
 }
 
+/// Opens menu `index` under its title; `keyboard`: its first line is lit and has the screen
+/// readers' focus.
 fn open_menu(app: &mut App, cx: &mut Cx, index: usize, keyboard: bool) {
     if let Some(popup) = app.menus.bar_popup.take() {
         cx.close_popup_window(popup);
     }
     let menu = &MENUS[index];
+    let mut items = Vec::new();
     let content = SkiaShape::new()
         .corner_radius(8)
         .background_color(PANEL)
@@ -360,22 +423,53 @@ fn open_menu(app: &mut App, cx: &mut Cx, index: usize, keyboard: bool) {
         .padding(4)
         .accessibility_role(Aria::MENU)
         .accessibility_label(menu.title)
+        .consume_gestures(|_me, app: &mut App, _cx, g| note_pointer(app, g))
         .children(SkiaStack::new().spacing(0).children(
             menu.entries
                 .iter()
                 .enumerate()
                 .map(|(entry, it)| match it.text {
                     None => Detached::from(SkiaShape::new().height_request(1).fill_x().background_color(EDGE).margin((8, 4))),
-                    Some(_) => Detached::from(bar_item(index, entry)),
+                    Some(_) => {
+                        let mut handle = Handle::default();
+                        let item = bar_item(index, entry).assign(&mut handle);
+                        items.push(handle);
+                        Detached::from(item)
+                    }
                 })
                 .collect::<Vec<_>>(),
         ));
     app.menus.bar_popup = Some(cx.open_popup_window(content, app.menus.titles[index], menu_window()));
-    app.menus.open = Some(index);
-    app.menus.highlighted = keyboard.then_some(0);
+    (app.menus.open, app.menus.bar_title, app.menus.items) = (Some(index), None, items);
+    (app.menus.highlighted, app.menus.keyboard_open) = (None, false);
+    if keyboard {
+        light(app, cx, Some(0));
+    }
 }
 
-/// One line of a menu bar menu: its text, its shortcut at the right.
+/// The keyboard lights line `line` of the open menu; screen readers follow it.
+fn light(app: &mut App, cx: &mut Cx, line: Option<usize>) {
+    app.menus.highlighted = line;
+    if let Some(item) = line.and_then(|l| app.menus.items.get(l).copied()) {
+        cx.set_accessibility_focus(item);
+    }
+}
+
+/// The line the arrow `key` moves to from `from`, round past either end; Home and End the first
+/// and the last (every line of these menus can act).
+fn step(count: usize, from: Option<usize>, key: &str) -> Option<usize> {
+    let last = count.checked_sub(1)?;
+    Some(match (key, from) {
+        ("Home", _) | ("ArrowDown", None) => 0,
+        ("End", _) | ("ArrowUp", None) => last,
+        ("ArrowDown", Some(f)) => if f >= last { 0 } else { f + 1 },
+        (_, Some(f)) => if f == 0 { last } else { f - 1 },
+        _ => 0,
+    })
+}
+
+/// One line of a menu bar menu: its text, its shortcut at the right. Lit by the keyboard: the
+/// selected look edged in the accent; under the mouse: the hover look.
 fn bar_item(menu: usize, entry: usize) -> Build<SkiaShape> {
     let it = &MENUS[menu].entries[entry];
     let line = lines(menu).position(|(e, _)| e == entry).unwrap_or(0);
@@ -383,28 +477,26 @@ fn bar_item(menu: usize, entry: usize) -> Build<SkiaShape> {
         .corner_radius(6)
         .fill_x()
         .padding((12, 7))
+        .stroke_width(1)
         .accessibility_role(Aria::MENU_ITEM)
         .accessibility_can_interact(Some(true))
         .accessibility_label(it.text.unwrap_or_default())
-        .observe(move |me, app: &App| me.set_background_color(if app.menus.highlighted == Some(line) { HIGHLIGHT } else { Color::TRANSPARENT }))
+        .observe(move |me, app: &App| {
+            let lit = app.menus.highlighted == Some(line);
+            let selected = lit && app.menus.keys;
+            me.set_background_color(match () {
+                _ if selected => SELECTED,
+                _ if lit => HIGHLIGHT,
+                _ => Color::TRANSPARENT,
+            });
+            me.set_stroke_color(if selected { ACCENT } else { Color::TRANSPARENT });
+        })
         .on_hovered(move |_me, app: &mut App, _cx, on| {
-            if on {
+            // A menu opening under a resting mouse leaves the keyboard's line lit.
+            if on && app.menus.mouse_takes_over() {
+                app.menus.keys = false;
                 app.menus.highlighted = Some(line);
             }
-        })
-        // The keyboard is on this line (opening a menu puts it on the first one): the engine moves
-        // it up and down the menu, the highlight goes along. Enter, Space and Escape are the
-        // engine's too (Enter activates the line, Escape closes the menu).
-        .on_key_down(move |_me, app: &mut App, _cx, event| {
-            let last = lines(menu).count() - 1;
-            match event.key {
-                "ArrowDown" => app.menus.highlighted = Some((line + 1).min(last)),
-                "ArrowUp" => app.menus.highlighted = Some(line.saturating_sub(1)),
-                "Home" => app.menus.highlighted = Some(0),
-                "End" => app.menus.highlighted = Some(last),
-                _ => {}
-            }
-            false
         })
         .on_tapped(move |_me, app: &mut App, cx| {
             if primary(cx) {
@@ -421,11 +513,38 @@ fn bar_item(menu: usize, entry: usize) -> Build<SkiaShape> {
         ))
 }
 
+/// Closes the open menu; the keyboard stays where it is.
 fn close_menu(app: &mut App, cx: &mut Cx) {
     if let Some(popup) = app.menus.bar_popup.take() {
         cx.close_popup_window(popup);
     }
     (app.menus.open, app.menus.highlighted) = (None, None);
+    app.menus.items.clear();
+}
+
+/// The keyboard comes to the menu bar: it takes the keys from a text field and remembers where they
+/// were, to give them back.
+fn enter_bar(app: &mut App, cx: &mut Cx) {
+    if app.menus.bar_return.is_none() {
+        app.menus.bar_return = Some(cx.focused());
+        cx.focus(Some(app.menus.titles[0]));
+    }
+    app.menus.keys_on();
+}
+
+/// The menu bar lets go: the menu closed, the keyboard back where it was.
+fn leave_bar(app: &mut App, cx: &mut Cx) {
+    close_menu(app, cx);
+    (app.menus.bar_title, app.menus.keys, app.menus.keyboard_open) = (None, false, false);
+    if let Some(back) = app.menus.bar_return.take() {
+        cx.focus(back);
+    }
+}
+
+/// The keyboard on title `index` of the bar, no menu open; screen readers follow it.
+fn light_title(app: &mut App, cx: &mut Cx, index: usize) {
+    app.menus.bar_title = Some(index);
+    cx.set_accessibility_focus(app.menus.titles[index]);
 }
 
 fn run(app: &mut App, cx: &mut Cx, menu: usize, entry: usize) {
@@ -435,39 +554,90 @@ fn run(app: &mut App, cx: &mut Cx, menu: usize, entry: usize) {
         Some(shortcut) => format!("Last command: {title} › {text} ({shortcut})"),
         None => format!("Last command: {title} › {text}"),
     };
-    close_menu(app, cx);
+    leave_bar(app, cx);
 }
 
-/// The menu bar's keys: Alt + a first letter opens a menu, Left and Right open the next one; the
-/// shortcuts work with the menus closed. Up, Down, Enter, Space and Escape in an open menu are the
-/// engine's keyboard focus (`bar_item`). True = used.
+/// The menu bar's keys, before the page's others, as in Windows menus. Alt alone puts the keyboard
+/// on the bar (or gives it back); Alt + a first letter opens that menu. On the bar: Left and Right
+/// go round the titles, Down, Enter or Space open one. In a menu: Up, Down, Home and End move round
+/// its lines, Left and Right open the menu before or after, Enter or Space run the line, Escape
+/// closes the menu and leaves the keyboard on its title. The shortcuts work with the menus closed.
+/// True = used.
 pub fn key(app: &mut App, event: &KeyEvent, cx: &mut Cx) -> bool {
+    let modifiers = event.modifiers();
+    let alt = matches!(event.key, "AltLeft" | "AltRight");
+    if event.kind == KeyKind::Up {
+        // Alt let go with nothing pressed with it: onto the bar, or back from it.
+        if !alt || !std::mem::take(&mut app.menus.alt_alone) {
+            return false;
+        }
+        if app.menus.open.is_some() || app.menus.bar_title.is_some() {
+            leave_bar(app, cx);
+        } else {
+            enter_bar(app, cx);
+            light_title(app, cx, 0);
+        }
+        return true;
+    }
     if event.kind != KeyKind::Down {
         return false;
     }
-    let modifiers = event.modifiers();
-    if modifiers.alt {
+    app.menus.alt_alone = alt && !modifiers.ctrl && !modifiers.shift && !modifiers.meta;
+    if modifiers.alt && !modifiers.ctrl {
         let Some(index) = MENUS.iter().position(|m| m.accelerator == event.key) else { return false };
+        enter_bar(app, cx);
         open_menu(app, cx, index, true);
         return true;
     }
+    if modifiers.ctrl || modifiers.meta {
+        return run_shortcut(app, cx, event.key, modifiers.ctrl);
+    }
+    let n = MENUS.len();
     let open = app.menus.open.filter(|_| app.menus.bar_popup.is_some_and(|p| cx.is_popup_window_open(p)));
     let Some(open) = open else {
-        // The shortcuts work with the menus closed.
-        for (menu, it) in MENUS.iter().enumerate() {
-            if let Some(entry) = it.entries.iter().position(|e| e.text.is_some() && !e.key.is_empty() && e.key == event.key && e.ctrl == modifiers.ctrl) {
-                run(app, cx, menu, entry);
-                return true;
-            }
+        let Some(t) = app.menus.bar_title else { return run_shortcut(app, cx, event.key, false) };
+        match event.key {
+            "ArrowLeft" => light_title(app, cx, (t + n - 1) % n),
+            "ArrowRight" => light_title(app, cx, (t + 1) % n),
+            "ArrowDown" | "Enter" | "NumpadEnter" | "Space" => open_menu(app, cx, t, true),
+            "Escape" => leave_bar(app, cx),
+            _ => return false,
         }
-        return false;
+        return true;
     };
+    if !matches!(event.key, "ArrowDown" | "ArrowUp" | "Home" | "End" | "ArrowLeft" | "ArrowRight" | "Enter" | "NumpadEnter" | "Space" | "Escape") {
+        return run_shortcut(app, cx, event.key, false);
+    }
+    // A menu the mouse opened: the keyboard comes along.
+    enter_bar(app, cx);
     match event.key {
-        "ArrowLeft" => open_menu(app, cx, (open + MENUS.len() - 1) % MENUS.len(), true),
-        "ArrowRight" => open_menu(app, cx, (open + 1) % MENUS.len(), true),
-        _ => return false,
+        "ArrowRight" => open_menu(app, cx, (open + 1) % n, true),
+        "ArrowLeft" => open_menu(app, cx, (open + n - 1) % n, true),
+        "Enter" | "NumpadEnter" | "Space" => match app.menus.highlighted.and_then(|l| lines(open).nth(l)) {
+            Some((entry, _)) => run(app, cx, open, entry),
+            None => {}
+        },
+        "Escape" => {
+            close_menu(app, cx);
+            light_title(app, cx, open);
+        }
+        key => {
+            let to = step(lines(open).count(), app.menus.highlighted, key);
+            light(app, cx, to);
+        }
     }
     true
+}
+
+/// A line's shortcut (Ctrl+N, F1...) runs it with the menus closed or open.
+fn run_shortcut(app: &mut App, cx: &mut Cx, key: &str, ctrl: bool) -> bool {
+    for (menu, it) in MENUS.iter().enumerate() {
+        if let Some(entry) = it.entries.iter().position(|e| e.text.is_some() && !e.key.is_empty() && e.key == key && e.ctrl == ctrl) {
+            run(app, cx, menu, entry);
+            return true;
+        }
+    }
+    false
 }
 
 /// A menu as in the popups example: a rounded panel of lines; picking one closes it.

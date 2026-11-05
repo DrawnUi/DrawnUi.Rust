@@ -86,6 +86,20 @@ stops instead of leaving it. `keyboard_wrap(true)` on a group makes the arrow ke
 to the first and back, as native menus do. `Cx::set_accessibility_focus(control)` moves the keyboard and
 screen-reader focus from app code (a custom menu that moves its own highlight).
 
+**Desktop menu bar.** A row of titles (`Aria::MENU_BAR`, each title `Aria::MENU_ITEM` with
+`accessibility_is_expanded` while its menu is open), each opening its menu (`Aria::MENU`, lines
+`Aria::MENU_ITEM`, checkbox or radio items for toggles) in a popup window below it. It works from the mouse
+and from the keyboard alone: Alt alone puts the keyboard on the bar (first title lit, no menu open, a text
+field gives up the keyboard), Alt with the underlined letter opens that menu; on the bar Left and Right go
+round all titles and Down, Enter or Space open the lit one on its first usable line; in a menu Up, Down,
+Home and End move through the usable lines and go round, Right opens a submenu or the next menu, Left
+closes the submenu or opens the previous menu, Enter or Space run the line, Escape closes one level and Alt
+leaves, and leaving gives the keyboard back. The keyboard's place shows the menus' selected look in the
+accent color, the mouse hover its lighter look, and a resting mouse never takes the highlight back while
+the keyboard drives. Screen readers read the bar, the menus and their lines with their expanded and checked
+states, and follow the lit line (`Cx::set_accessibility_focus`). The demo's Tooltips & Menus page is built
+this way; test such keys with popup windows on, not only with menus on the canvas.
+
 With `Ui::arrows_start_keyboard_navigation(true)` (off by default), while nothing has the keyboard
 the first arrow key starts navigation: Down / Right as Tab, Up / Left as Shift+Tab. A control that
 uses the arrows itself (a game, a menu) gets them first. `Ui::has_no_keyboard_focus` tells whether

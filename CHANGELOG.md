@@ -29,6 +29,8 @@ version before it. Commits in parentheses.
   `Ui::has_no_keyboard_focus()` tells whether nothing has the keyboard.
 - `.keyboard_wrap(true)` on an arrow-key group (a menu, a list): the arrow keys go round, from the
   last item to the first and back.
+- `accessibility_is_expanded` (`set_accessibility_is_expanded`): a control that opens a menu or a list
+  reads expanded or collapsed to screen readers (aria-expanded; AccessKit expanded).
 - `Cx::set_accessibility_focus(control)`: app code moves the keyboard and screen-reader focus to a
   control (a custom menu that moves its own highlight).
 - `Ui::set_screen_reader_running` (and `App::screen_reader_running` for hosts): whether a screen
@@ -42,6 +44,7 @@ version before it. Commits in parentheses.
 - SkiaShell popups and modals are accessibility modals: while one is open, the page under it is not
   read and Tab stays in it.
 - A live region (`accessibility_live`) is read by screen readers on the next frame after it changes.
+- Browser: menu items with a checkbox or radio role read checked or not checked.
 - A menu or dropdown in a popup window of its own takes the keyboard on its checked (else first) item
   once its window shows, as on the canvas.
 - A gradient's `light` above 1 multiplies each color's HSL lightness and keeps its hue and saturation,
@@ -60,7 +63,7 @@ version before it. Commits in parentheses.
 
 ### Breaks
 
-- `AccessibilityNode` (custom hosts) has a new field, `modal`.
+- `AccessibilityNode` (custom hosts) has new fields, `modal` and `is_expanded`.
 
 ## 0.1.0-preview.30 (crates.io, 2026-11-02)
 

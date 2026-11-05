@@ -142,7 +142,7 @@ fn configure(ui: Ui<App>) -> Ui<App> {
             ..TooltipStyle::default()
         })
         // A menu closed from outside (a press elsewhere, the wheel, the window losing the keyboard).
-        .on_popup_window_closed(|app: &mut App, id, _cx| pages::menus::popup_closed(app, id))
+        .on_popup_window_closed(|app: &mut App, id, cx| pages::menus::popup_closed(app, id, cx))
         // A right click, long press or Menu key that no control took: the versions in a toast.
         .on_context_menu(|app: &mut App, _menu, cx| {
             let text = format!("drawnui {} · Skia m{}", drawnui::VERSION, drawnui::skia::MILESTONE);

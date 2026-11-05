@@ -500,6 +500,170 @@ mod tests {
         }
     }
 
+    /// The Tooltips & Menus page with popup windows on, as on a desktop: the host shows every menu
+    /// in a window of its own under its title.
+    fn menus_in_windows() -> Headless<App> {
+        let mut host = host(900);
+        host.ui.set_accessibility_enabled(true);
+        host.ui.set_keyboard_navigation(true);
+        open_page(&mut host, "Tooltips & Menus");
+        host.popup_windows(true);
+        host
+    }
+
+    /// Frames, the host placing the menu windows it was asked for.
+    fn bar_frames(host: &mut Headless<App>) {
+        for _ in 0..4 {
+            for r in host.popup_window_requests() {
+                host.place_popup_window(r.id, r.size.width, r.size.height, 1.0, Point::new(r.anchor.left, r.anchor.bottom));
+            }
+            host.frame_after(16.0);
+        }
+    }
+
+    fn bar_press(host: &mut Headless<App>, key: &'static str) {
+        host.ui.key(KeyKind::Down, key, "", Modifiers::default(), false);
+        host.ui.key(KeyKind::Up, key, "", Modifiers::default(), false);
+        bar_frames(host);
+    }
+
+    fn alt_alone(host: &mut Headless<App>) {
+        host.ui.key(KeyKind::Down, "AltLeft", "", Modifiers { alt: true, ..Modifiers::default() }, false);
+        host.ui.key(KeyKind::Up, "AltLeft", "", Modifiers::default(), false);
+        bar_frames(host);
+    }
+
+    /// The bar's place: the title the keyboard is on, the open menu, its lit line.
+    fn bar_at(host: &Headless<App>) -> (Option<usize>, Option<usize>, Option<usize>) {
+        (host.ui.state.menus.bar_title(), host.ui.state.menus_open(), host.ui.state.menus_highlighted())
+    }
+
+    /// The menu bar works from the keyboard alone, as Windows menus (the designer's menu bar).
+    #[test]
+    fn menus_page_menu_bar_from_the_keyboard_alone() {
+        let mut host = menus_in_windows();
+        let reader_on = |host: &Headless<App>| host.ui.accessibility_focused().and_then(|f| host.ui.tree.base(f)).map(|b| b.p.accessibility_label.to_string());
+        // Alt alone: the keyboard on the bar, on File, nothing open.
+        alt_alone(&mut host);
+        assert_eq!(bar_at(&host), (Some(0), None, None));
+        assert_eq!(reader_on(&host).as_deref(), Some("File"));
+        // Left and Right go round the titles.
+        bar_press(&mut host, "ArrowRight");
+        assert_eq!(host.ui.state.menus.bar_title(), Some(1));
+        bar_press(&mut host, "ArrowLeft");
+        bar_press(&mut host, "ArrowLeft");
+        assert_eq!(host.ui.state.menus.bar_title(), Some(3));
+        bar_press(&mut host, "ArrowRight");
+        // Down opens File on its first line; Down goes round its four lines, Up back round, Home.
+        bar_press(&mut host, "ArrowDown");
+        assert_eq!(bar_at(&host), (None, Some(0), Some(0)));
+        for want in [1, 2, 3, 0] {
+            bar_press(&mut host, "ArrowDown");
+            assert_eq!(host.ui.state.menus_highlighted(), Some(want));
+        }
+        bar_press(&mut host, "ArrowUp");
+        assert_eq!(host.ui.state.menus_highlighted(), Some(3));
+        bar_press(&mut host, "Home");
+        assert_eq!(host.ui.state.menus_highlighted(), Some(0));
+        // Right: the next menu on its first line; Left: the one before.
+        bar_press(&mut host, "ArrowRight");
+        assert_eq!(bar_at(&host), (None, Some(1), Some(0)));
+        bar_press(&mut host, "ArrowLeft");
+        assert_eq!(bar_at(&host), (None, Some(0), Some(0)));
+        // Escape closes the menu, the keyboard stays on its title; Escape again leaves the bar.
+        bar_press(&mut host, "Escape");
+        assert_eq!(bar_at(&host), (Some(0), None, None));
+        bar_press(&mut host, "Escape");
+        assert_eq!(bar_at(&host), (None, None, None));
+        // Alt+V opens View on its first line; Enter runs it and everything closes.
+        host.ui.key(KeyKind::Down, "KeyV", "", Modifiers { alt: true, ..Modifiers::default() }, false);
+        host.ui.key(KeyKind::Up, "KeyV", "", Modifiers::default(), false);
+        bar_frames(&mut host);
+        assert_eq!(bar_at(&host), (None, Some(2), Some(0)));
+        bar_press(&mut host, "Enter");
+        assert_eq!(bar_at(&host), (None, None, None));
+        showing(&host, "Last command: View › Zoom in (Ctrl+=)");
+        // A menu the mouse opened walks with the keys too; Alt leaves the bar.
+        let help = on_screen(&host, host.ui.state.menus.title(3));
+        tap_at(&mut host, help.center_x(), help.center_y());
+        bar_frames(&mut host);
+        assert_eq!(bar_at(&host), (None, Some(3), None));
+        bar_press(&mut host, "ArrowDown");
+        assert_eq!(host.ui.state.menus_highlighted(), Some(0));
+        alt_alone(&mut host);
+        assert_eq!(bar_at(&host), (None, None, None));
+        // Screen readers: the bar, its titles (View reads expanded) and the reader on the lit line.
+        alt_alone(&mut host);
+        bar_press(&mut host, "ArrowRight");
+        bar_press(&mut host, "ArrowRight");
+        bar_press(&mut host, "Enter");
+        host.frame_after(drawnui::ACCESSIBILITY_INTERVAL_MS);
+        let nodes = host.ui.accessibility_nodes().to_vec();
+        assert!(nodes.iter().any(|n| n.role == Aria::MENU_BAR && n.label == "Menu bar"));
+        assert!(nodes.iter().any(|n| n.role == Aria::MENU_ITEM && n.label == "View" && n.is_expanded == Some(true)), "View reads expanded");
+        assert!(nodes.iter().any(|n| n.role == Aria::MENU_ITEM && n.label == "File" && n.is_expanded == Some(false)));
+        assert_eq!(reader_on(&host).as_deref(), Some("Zoom in"));
+        bar_press(&mut host, "ArrowDown");
+        assert_eq!(reader_on(&host).as_deref(), Some("Zoom out"), "the reader follows the lit line");
+        bar_press(&mut host, "Escape");
+        bar_press(&mut host, "Escape");
+    }
+
+    /// The keyboard's place reads selected; a mouse resting on the bar moves nothing; a real move of
+    /// the mouse takes over again.
+    #[test]
+    fn menus_page_keyboard_place_reads_selected_and_a_resting_mouse_moves_nothing() {
+        let mut host = menus_in_windows();
+        let edit = on_screen(&host, host.ui.state.menus.title(1));
+        host.hover(edit.center_x(), edit.center_y());
+        bar_frames(&mut host);
+        alt_alone(&mut host);
+        let mut seen = vec![host.ui.state.menus.bar_title()];
+        for _ in 0..4 {
+            bar_press(&mut host, "ArrowRight");
+            seen.push(host.ui.state.menus.bar_title());
+        }
+        assert_eq!(seen, [Some(0), Some(1), Some(2), Some(3), Some(0)], "Right goes round all four");
+        let mut seen = vec![];
+        for _ in 0..4 {
+            bar_press(&mut host, "ArrowLeft");
+            seen.push(host.ui.state.menus.bar_title());
+        }
+        assert_eq!(seen, [Some(3), Some(2), Some(1), Some(0)], "Left too");
+        // File reads selected; Edit under the resting mouse is not lit.
+        let fill = |host: &mut Headless<App>, menu: usize| {
+            let r = on_screen(host, host.ui.state.menus.title(menu));
+            host.pixel((r.left + 4.0) as i32, r.center_y() as i32)
+        };
+        let near = |a: Color, b: Color| (a.r() as i32 - b.r() as i32).abs() + (a.g() as i32 - b.g() as i32).abs() + (a.b() as i32 - b.b() as i32).abs() < 12;
+        let selected = menus::SELECTED;
+        assert!(near(fill(&mut host, 0), selected), "File reads selected: {:?}", fill(&mut host, 0));
+        assert!(!near(fill(&mut host, 1), selected), "Edit under the resting mouse: {:?}", fill(&mut host, 1));
+        assert!(host.ui.state.menus.keys());
+        // With a menu open, Right and Left go round all four, the mouse resting on Edit.
+        bar_press(&mut host, "ArrowDown");
+        let mut seen = vec![host.ui.state.menus_open()];
+        for _ in 0..4 {
+            bar_press(&mut host, "ArrowRight");
+            seen.push(host.ui.state.menus_open());
+        }
+        assert_eq!(seen, [Some(0), Some(1), Some(2), Some(3), Some(0)], "with a menu open too");
+        for want in [3, 2, 1, 0] {
+            bar_press(&mut host, "ArrowLeft");
+            assert_eq!(host.ui.state.menus_open(), Some(want), "Left with a menu open");
+        }
+        assert!(near(fill(&mut host, 0), selected), "the open menu's title");
+        assert_eq!(host.ui.state.menus_highlighted(), Some(0));
+        // A real move of the mouse onto View takes over: View opens, the keyboard lets go.
+        let view = on_screen(&host, host.ui.state.menus.title(2));
+        host.hover(view.center_x(), view.center_y());
+        bar_frames(&mut host);
+        assert_eq!(host.ui.state.menus_open(), Some(2), "a real move over View opens it");
+        assert!(!host.ui.state.menus.keys());
+        bar_press(&mut host, "Escape");
+        bar_press(&mut host, "Escape");
+    }
+
     /// A tap at a canvas point, with frames after it.
     fn tap_at(host: &mut Headless<App>, x: f32, y: f32) {
         let t = host.time_ms();

@@ -630,6 +630,37 @@ SkiaButton::new("Fruit").assign(&mut app.fruit).on_tapped(|_me, app: &mut App, c
   `popup_tap(id, x, y)` and `popup_hover(id, at)` drive the popup's window. Without that call, popups
   are on the canvas, as in the browser.
 
+### Desktop menu bar
+
+A row of titles with `Aria::MENU_BAR`, each title an `Aria::MENU_ITEM` that opens its menu below it
+with `cx.open_popup_window(menu, title, options)`; the menu has `Aria::MENU` and its lines
+`Aria::MENU_ITEM` (`MENU_ITEM_CHECKBOX` / `MENU_ITEM_RADIO` with `accessibility_is_pressed` for
+toggles). Desktop users expect this, from the mouse and from the keyboard alone:
+
+- **Mouse:** a click opens a menu; while one is open, the mouse over another title opens that one.
+- **Alt alone** puts the keyboard on the bar: the first title lit, no menu open; a text field that had
+  the keyboard gives it up (remember `cx.focused()`, give it back with `cx.focus(...)` on leaving). Alt
+  with the underlined letter opens that menu.
+- **On the bar:** Left and Right go round all titles; Down, Enter or Space open the lit title's menu on
+  its first usable line.
+- **In a menu:** Up, Down, Home and End move through the usable lines only (dimmed lines and separators
+  skipped) and go round at the ends. Right opens a submenu, or the next menu; Left closes the submenu,
+  or opens the previous menu. Enter or Space run the line. Escape closes one level (submenu, menu, then
+  the bar); Alt also leaves. Leaving gives the keyboard back to where it was.
+- **Look:** the keyboard's place (a title, the open menu's title, the lit line) uses the menus'
+  selected look in the accent color, clearly visible; the mouse hover keeps its lighter look. A resting
+  mouse never takes the highlight back while the keyboard drives (a menu opening under it is no move:
+  count real `GestureKind::Pointer` moves with `consume_gestures`), a real move does.
+- **Shortcuts** at the right of each line, working with the menus closed too.
+- **Screen readers:** `set_accessibility_is_expanded(Some(open))` on each title, and the reader follows
+  the lit line: `cx.set_accessibility_focus(line)` whenever the keys move it.
+
+Handle the bar's keys in the app's key handler (`Ui::on_key_down` / `on_key_up`, Alt alone on the key
+up) and return true for the keys it uses, so the engine's own keyboard navigation leaves them. For a
+plain menu or list that the engine walks itself, `.keyboard_wrap(true)` on the group makes the arrows
+go round. Test the menu keys with popup windows on (`Headless::popup_windows(true)` and the host's
+`place_popup_window`), not only with menus on the canvas.
+
 ## Editor caret from code
 
 `set_text`, then `set_cursor_position(usize::MAX)` (after the text) and `cx.focus(Some(editor))`,
