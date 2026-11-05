@@ -5,7 +5,7 @@ engine: layouts, controls you can subclass and paint, gestures, animations, cach
 accessibility, on Windows, macOS, Linux, iOS, Android and in the browser. It shares its controls and
 rules with DrawnUI for .NET and DrawnUI for React, so one design runs the same in all three.
 
-- **Try it in your browser:** https://hellorust.drawnui.net (the DrawnUI Hello app, 20 pages)
+- **Try it in your browser:** https://hellorust.drawnui.net (the DrawnUI Hello app)
 - **Play a game made with it:** https://run.drawnui.net (Dungeon Run, a 3D runner drawn with SkMesh)
 - **Build with AI:** a ready AI skill teaches your coding agent DrawnUI for Rust, see [AI skills](#ai-skills)
 - Crate: [`drawnui`](https://crates.io/crates/drawnui) · API docs: https://docs.rs/drawnui
@@ -30,6 +30,12 @@ fn main() {
     drawnui::run("Counter", || Box::new(Ui::new(App::default(), build).font("Default", "assets/OpenSans-Regular.ttf")));
 }
 ```
+
+## One family
+
+DrawnUI for Rust is the same engine as [DrawnUI for .NET](https://github.com/DrawnUi/DrawnUi.Net) (MAUI, Blazor,
+WPF, OpenTK, WebAssembly) and [DrawnUI for React](https://github.com/DrawnUi/DrawnUi.React): the same controls,
+property names, layout and drawing rules. What you learn here works there, and screens move between them.
 
 ## MIT, everywhere
 
