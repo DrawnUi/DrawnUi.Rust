@@ -194,6 +194,8 @@ pub struct AccessibilityNode {
     /// A tab stop that Enter, Space or a click activates.
     pub can_interact: bool,
     pub is_pressed: Option<bool>,
+    /// aria-expanded (`accessibility_is_expanded`).
+    pub is_expanded: Option<bool>,
     /// A range control's value.
     pub value: Option<AccessibilityValue>,
     /// A scroll's node: the axes its content can move along (horizontal, vertical).
@@ -2386,6 +2388,7 @@ impl<S: 'static> Ui<S> {
                         rect: Rect::new(rect.left / s, rect.top / s, rect.right / s, rect.bottom / s),
                         can_interact: can_interact.unwrap_or(node.handlers.tapped.is_some()),
                         is_pressed: p.accessibility_is_pressed.or_else(|| kind.and_then(|k| k.accessibility_is_pressed())),
+                        is_expanded: p.accessibility_is_expanded,
                         value: kind.and_then(|k| k.accessibility_value()),
                         scrolls: self.tree.find::<crate::controls::scroll::SkiaScroll>(id).map_or((false, false), |s| s.scroll_axes()),
                         live: p.accessibility_live.clone(),
@@ -2441,6 +2444,7 @@ impl<S: 'static> Ui<S> {
                     && a.hint == b.hint
                     && a.can_interact == b.can_interact
                     && a.is_pressed == b.is_pressed
+                    && a.is_expanded == b.is_expanded
                     && a.value == b.value
                     && a.scrolls == b.scrolls
                     && a.live == b.live

@@ -707,7 +707,7 @@ window.DrawnUi = {
           a11yNodes.delete(id);
         }
       }
-      nodes.forEach(([id, role, label, hint, left, top, width, height, interactive, pressed, live, group, value, lines], i) => {
+      nodes.forEach(([id, role, label, hint, left, top, width, height, interactive, pressed, live, group, value, expanded, lines], i) => {
         const canInteract = interactive === "1";
         const kind = canInteract ? "i" : lines ? "t" : "p";
         let el = a11yNodes.get(id);
@@ -724,9 +724,11 @@ window.DrawnUi = {
         setAttribute(el, "title", hint);
         const state = pressed === "-1" ? null : pressed === "1" ? "true" : "false";
         setAttribute(el, "aria-pressed", role === "button" ? state : null);
-        setAttribute(el, "aria-checked", role === "switch" || role === "checkbox" || role === "radio" ? state : null);
+        const checkable = ["switch", "checkbox", "radio", "menuitemcheckbox", "menuitemradio", "option"].includes(role);
+        setAttribute(el, "aria-checked", checkable ? state : null);
         setAttribute(el, "aria-live", live);
         setAttribute(el, "aria-disabled", interactive === "-" ? "true" : null);
+        setAttribute(el, "aria-expanded", expanded === "-1" ? null : expanded === "1" ? "true" : "false");
         const [now, min, max, valueText] = value ? value.split("\x1f") : [];
         setAttribute(el, "aria-valuenow", now);
         setAttribute(el, "aria-valuemin", min);

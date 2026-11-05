@@ -109,6 +109,9 @@ pub(crate) fn tree(title: &str, nodes: &[AccessibilityNode], scale: f64, focus: 
         if let Some(pressed) = n.is_pressed {
             node.set_toggled(if pressed { Toggled::True } else { Toggled::False });
         }
+        if let Some(expanded) = n.is_expanded {
+            node.set_expanded(expanded);
+        }
         match &*n.live {
             Aria::LIVE_POLITE => node.set_live(Live::Polite),
             Aria::LIVE_ASSERTIVE => node.set_live(Live::Assertive),
@@ -188,6 +191,7 @@ mod tests {
             rect: skia_safe::Rect::from_xywh(0.0, id as f32 * 10.0, 100.0, 10.0),
             can_interact,
             is_pressed: None,
+            is_expanded: None,
             value: None,
             scrolls: (false, false),
             live: "".into(),

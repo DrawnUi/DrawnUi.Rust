@@ -432,7 +432,8 @@ pub extern "C" fn dui_poll_output(s: *mut WebState) -> *const c_char {
             let group = n.group.map_or(String::new(), |(g, i)| format!("{g}:{i}"));
             // A range control's value: now, min, max and the text read instead of the number.
             let value = n.value.as_ref().map_or(String::new(), |v| format!("{}\u{1f}{}\u{1f}{}\u{1f}{}", v.now, v.min, v.max, clean(&v.text)));
-            let _ = write!(out, "\n{id}\t{role}\t{label}\t{hint}\t{left}\t{top}\t{width}\t{height}\t{interactive}\t{pressed}\t{live}\t{group}\t{value}\t");
+            let expanded = n.is_expanded.map_or(-1, |e| e as i32);
+            let _ = write!(out, "\n{id}\t{role}\t{label}\t{hint}\t{left}\t{top}\t{width}\t{height}\t{interactive}\t{pressed}\t{live}\t{group}\t{value}\t{expanded}\t");
             for (i, l) in n.text_lines.iter().enumerate() {
                 let (text, family) = (clean(&l.text), clean(&l.font_family));
                 let separator = if i > 0 { "\u{1e}" } else { "" };

@@ -436,6 +436,9 @@ base_props! {
     accessibility_can_interact / set_accessibility_can_interact: Option<bool> = None, NONE;
     /// aria-pressed / aria-checked for toggles; `None` = not a toggle.
     accessibility_is_pressed / set_accessibility_is_pressed: Option<bool> = None, NONE;
+    /// aria-expanded: the menu or list this control opens is open (`Some(true)`) or closed
+    /// (`Some(false)`), as a menu bar title or a dropdown button; `None` = it opens nothing.
+    accessibility_is_expanded / set_accessibility_is_expanded: Option<bool> = None, NONE;
     /// The overlay carries the control's text as real, invisible text in its lines (React
     /// AccessibilityTextSelectable, off by default): the browser selects and copies it, a screen
     /// reader reads it word by word. Pointer input over that text goes to the selection, not to
