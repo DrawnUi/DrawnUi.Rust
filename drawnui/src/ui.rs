@@ -414,6 +414,8 @@ pub struct Ui<S: 'static> {
     active_modal: Option<ControlId>,
     /// An item of a recycled group a key asked for, not drawn yet: scrolled in, then focused.
     group_request: Option<GroupRequest>,
+    /// `mark_key_handled`: the key a host used itself, for its next Down.
+    key_marked: Option<InputKey>,
     /// `arrows_start_keyboard_navigation`.
     arrows_start: bool,
     /// A screen reader reads the app (`set_screen_reader_running`): true until a host says.
@@ -546,6 +548,7 @@ impl<S: 'static> Ui<S> {
             after_frame: None,
             active_modal: None,
             group_request: None,
+            key_marked: None,
             arrows_start: false,
             screen_reader: true,
             modal_stack: Vec::new(),
@@ -962,8 +965,9 @@ impl<S: 'static> Ui<S> {
             self.close_tooltip(true);
         }
         self.keyboard.apply(kind, key, modifiers);
-        let Ui { tree, state, keyboard, key_down, key_up, key_char, state_dirty, .. } = self;
-        let event = KeyEvent { kind, key, text, repeat, keyboard };
+        let marked = self.key_marked.take().is_some_and(|k| k == key) && kind == KeyKind::Down;
+        let Ui { tree, state, keyboard, state_dirty, .. } = self;
+        let event = KeyEvent { kind, key, text, repeat, keyboard, handled: false };
         let focused = tree.focused.filter(|f| tree.node(*f).is_some());
         let mut handled = focused.is_some_and(|f| key_to_control(tree, state, state_dirty, f, &event));
         // A key the focused control left goes to the control the accessibility overlay's focus
@@ -981,6 +985,32 @@ impl<S: 'static> Ui<S> {
                 handled |= key_to_control(tree, state, state_dirty, id, &event);
             }
         }
+        self.apply_focus_request();
+        // The canvas's keyboard navigation, before the window-level handlers (DrawnUI: the canvas
+        // first, then KeyboardManager with IsKeyHandled). A host that used the key itself (the
+        // browser overlay activating its element) marked it.
+        let mut navigated = marked;
+        let top_popup = self.tree.popups.iter().rev().find(|p| !p.options.passive).map(|p| p.id);
+        if !handled && !marked && kind == KeyKind::Down && key == "Escape" && top_popup.is_some() {
+            // Escape closes the top popup window (native menus).
+            if let Some(top) = top_popup {
+                self.tree.close_popup(top);
+            }
+            navigated = true;
+        } else if !handled && !marked && kind == KeyKind::Down {
+            if self.keyboard_navigation {
+                navigated = self.navigate(key, modifiers.shift);
+            } else if self.accessibility_on && GROUP_KEYS.contains(&key) {
+                // The browser's overlay keeps Tab, Enter and Escape; the groups are the engine's.
+                navigated = match self.arrow_starts_navigation(key) {
+                    true => self.tab(matches!(key, "ArrowUp" | "ArrowLeft")),
+                    false => self.move_in_group(key),
+                };
+            }
+        }
+        handled |= navigated;
+        let Ui { tree, state, keyboard, key_down, key_up, key_char, state_dirty, .. } = self;
+        let event = KeyEvent { kind, key, text, repeat, keyboard, handled: navigated };
         let handlers = match kind {
             KeyKind::Down => key_down,
             KeyKind::Up => key_up,
@@ -991,27 +1021,15 @@ impl<S: 'static> Ui<S> {
             *state_dirty = true;
         }
         self.apply_focus_request();
-        // Escape that nothing used closes the top popup window (native menus).
-        if !handled
-            && kind == KeyKind::Down
-            && key == "Escape"
-            && let Some(top) = self.tree.popups.iter().rev().find(|p| !p.options.passive).map(|p| p.id)
-        {
-            self.tree.close_popup(top);
-            return true;
-        }
-        if !handled && kind == KeyKind::Down {
-            if self.keyboard_navigation {
-                handled = self.navigate(key, modifiers.shift);
-            } else if self.accessibility_on && GROUP_KEYS.contains(&key) {
-                // The browser's overlay keeps Tab, Enter and Escape; the groups are the engine's.
-                handled = match self.arrow_starts_navigation(key) {
-                    true => self.tab(matches!(key, "ArrowUp" | "ArrowLeft")),
-                    false => self.move_in_group(key),
-                };
-            }
-        }
         handled
+    }
+
+    /// A host used this key itself before handing it over (the browser overlay activated its
+    /// element on Enter or Space): the next Down of it reaches the window-level handlers with
+    /// `KeyEvent::handled` set, and the canvas's keyboard navigation leaves it (DrawnUI
+    /// `KeyboardManager.MarkKeyHandled`).
+    pub fn mark_key_handled(&mut self, key: InputKey) {
+        self.key_marked = Some(key);
     }
 
     /// Keyboard navigation for a host with none of its own (C# DrawnView.Windows OnCanvasKeyDown):
@@ -1595,7 +1613,7 @@ impl<S: 'static> Ui<S> {
         let Some(control) = self.tree.nodes.get(id as usize).and_then(|n| n.as_ref()).map(|n| n.id) else { return };
         let Ui { tree, state, keyboard, state_dirty, .. } = self;
         let key = if up { "ArrowUp" } else { "ArrowDown" };
-        let event = KeyEvent { kind: KeyKind::Down, key, text: "", repeat: false, keyboard };
+        let event = KeyEvent { kind: KeyKind::Down, key, text: "", repeat: false, keyboard, handled: false };
         key_to_control(tree, state, state_dirty, control, &event);
         self.accessibility_now();
     }
@@ -2251,7 +2269,12 @@ impl<S: 'static> Ui<S> {
         if self.group_request.is_some() {
             self.process_group_request();
         }
-        if let Some((control, deadline)) = self.tree.accessibility_focus_request.take()
+        // A "keep" waits for the popup that closed to be reported (next frame), then goes.
+        if matches!(self.tree.accessibility_focus_request, Some((None, _))) && self.tree.popups_closed.is_empty() {
+            self.tree.accessibility_focus_request = None;
+        }
+        if matches!(self.tree.accessibility_focus_request, Some((Some(_), _)))
+            && let Some((Some(control), deadline)) = self.tree.accessibility_focus_request.take()
             && self.tree.node(control).is_some()
             && self.tree.time_ms <= deadline
         {
@@ -2262,7 +2285,7 @@ impl<S: 'static> Ui<S> {
                 self.keyboard_focus(control);
                 self.focus_ring = ring;
             } else {
-                self.tree.accessibility_focus_request = Some((control, deadline));
+                self.tree.accessibility_focus_request = Some((Some(control), deadline));
                 self.tree.needs_frame = true;
             }
         }
@@ -3351,9 +3374,17 @@ impl Cx<'_> {
     /// Moves the keyboard and screen-reader focus to a control with an accessibility node, at the
     /// end of the next frame (a custom menu that moves its highlight tells screen readers where it
     /// is). A control not drawn yet gets it once it is, within 3 s. The focus ring keeps its state.
+    /// It also wins over the library giving the keyboard back to a closed popup's opener in the
+    /// same frame.
     pub fn set_accessibility_focus(&mut self, id: impl Into<ControlId>) {
-        self.tree.accessibility_focus_request = Some((id.into(), self.tree.time_ms + 3000.0));
+        self.tree.accessibility_focus_request = Some((Some(id.into()), self.tree.time_ms + 3000.0));
         self.tree.needs_frame = true;
+    }
+
+    /// The keyboard and screen-reader focus stays where it is this frame: a popup closing does not
+    /// give it back to its opener (DrawnUI `SetAccessibilityFocus(null)`).
+    pub fn keep_accessibility_focus(&mut self) {
+        self.tree.accessibility_focus_request = Some((None, self.tree.time_ms));
     }
 }
 
@@ -3463,6 +3494,10 @@ impl<S: 'static> App for Ui<S> {
 
     fn key(&mut self, kind: KeyKind, key: InputKey, text: &str, modifiers: Modifiers, repeat: bool) -> bool {
         Ui::key(self, kind, key, text, modifiers, repeat)
+    }
+
+    fn mark_key_handled(&mut self, key: InputKey) {
+        Ui::mark_key_handled(self, key);
     }
 
     fn focus_out(&mut self) {
@@ -3789,6 +3824,20 @@ impl<S: 'static> Ui<S> {
         }
         let closed = std::mem::take(&mut self.tree.popups_closed);
         self.accessibility_now();
+        if let Some(handler) = self.popup_closed.as_mut() {
+            for popup in &closed {
+                handler(&mut self.state, popup.id, &mut Cx { tree: &mut self.tree });
+            }
+            self.state_dirty = true;
+            self.apply_focus_request();
+        }
+        // The app put the focus somewhere (or kept it) in this frame: that wins.
+        if let Some((control, _)) = self.tree.accessibility_focus_request {
+            if control.is_none() {
+                self.tree.accessibility_focus_request = None;
+            }
+            return;
+        }
         for popup in &closed {
             let inside = |tree: &Tree, control: ControlId| std::iter::successors(Some(control), |c| tree.parent(*c)).any(|c| c == popup.root);
             let keyboard = self.tree.accessibility_focused;
@@ -3804,14 +3853,6 @@ impl<S: 'static> Ui<S> {
                 self.keyboard_focus(opener);
                 self.focus_ring = ring;
             }
-        }
-        let closed: Vec<PopupId> = closed.into_iter().map(|c| c.id).collect();
-        if let Some(handler) = self.popup_closed.as_mut() {
-            for id in closed {
-                handler(&mut self.state, id, &mut Cx { tree: &mut self.tree });
-            }
-            self.state_dirty = true;
-            self.apply_focus_request();
         }
     }
 }

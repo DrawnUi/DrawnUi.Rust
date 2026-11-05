@@ -27,6 +27,10 @@ version before it. Commits in parentheses.
 - `Ui::arrows_start_keyboard_navigation(true)`: while nothing has the keyboard, the first arrow key
   starts keyboard navigation (Down / Right as Tab, Up / Left as Shift+Tab); off by default.
   `Ui::has_no_keyboard_focus()` tells whether nothing has the keyboard.
+- `KeyEvent::handled`: the window-level key handlers learn whether the canvas's keyboard navigation
+  used the key (DrawnUI `KeyboardManager.IsKeyHandled`); `Ui::mark_key_handled` (`App::mark_key_handled`)
+  for a host that used a key itself; `Cx::keep_accessibility_focus()` keeps the focus where it is as a
+  popup closes.
 - `.keyboard_wrap(true)` on an arrow-key group (a menu, a list): the arrow keys go round, from the
   last item to the first and back.
 - `accessibility_is_expanded` (`set_accessibility_is_expanded`): a control that opens a menu or a list
@@ -44,6 +48,13 @@ version before it. Commits in parentheses.
 - SkiaShell popups and modals are accessibility modals: while one is open, the page under it is not
   read and Tab stays in it.
 - A live region (`accessibility_live`) is read by screen readers on the next frame after it changes.
+- One key order on every host, as DrawnUI .NET: the controls' own key handlers, then the canvas's
+  keyboard navigation (Tab, Enter / Space, group arrows, sliders, Escape closing the top popup), then
+  the window-level handlers with `KeyEvent::handled`. A game that takes the arrows or Space handles them
+  on its own control (`.listen_keys()`, as `DrawnGame` does). In the browser, Enter or Space on an
+  overlay element presses it first and reaches the app as handled.
+- When a popup window closes, an app's `set_accessibility_focus` in that frame wins over the return of
+  the keyboard to the popup's opener.
 - Browser: menu items with a checkbox or radio role read checked or not checked.
 - A menu or dropdown in a popup window of its own takes the keyboard on its checked (else first) item
   once its window shows, as on the canvas.
@@ -63,7 +74,8 @@ version before it. Commits in parentheses.
 
 ### Breaks
 
-- `AccessibilityNode` (custom hosts) has new fields, `modal` and `is_expanded`.
+- `AccessibilityNode` (custom hosts) has new fields, `modal` and `is_expanded`; `KeyEvent` has a new
+  field, `handled`.
 
 ## 0.1.0-preview.30 (crates.io, 2026-11-02)
 

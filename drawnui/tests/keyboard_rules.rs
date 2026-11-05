@@ -146,3 +146,47 @@ fn app_code_moves_the_accessibility_focus() {
     frames(&mut host);
     assert_eq!(keyboard_on(&host).as_deref(), Some("OK"));
 }
+
+#[derive(Default)]
+struct Heard {
+    /// (key, handled) as the window-level handler heard them, and what the buttons saw by then.
+    keys: Vec<(String, bool, Vec<&'static str>)>,
+    pressed: Vec<&'static str>,
+}
+
+fn heard_button(name: &'static str) -> Build<SkiaShape> {
+    SkiaShape::new().width_request(80).height_request(30).accessibility_role(Aria::BUTTON).accessibility_label(name).on_tapped(move |_me, app: &mut Heard, _cx| app.pressed.push(name))
+}
+
+/// The canvas's keyboard navigation runs before the window-level key handlers, which learn
+/// whether it used the key (`KeyEvent::handled`, DrawnUI KeyboardManager.IsKeyHandled); a host can
+/// mark a key it used itself (`mark_key_handled`, the browser overlay).
+#[test]
+fn window_handlers_hear_whether_navigation_used_the_key() {
+    let ui = Ui::new(Heard::default(), |_| {
+        SkiaLayout::new().fill().children((SkiaLayout::row().spacing(10).padding(10).accessibility_role(Aria::TOOLBAR).children((heard_button("One"), heard_button("Two"))),))
+    })
+    .on_key_down(|app: &mut Heard, event, _cx| {
+        app.keys.push((event.key.to_owned(), event.handled, app.pressed.clone()));
+        false
+    });
+    let mut host = Headless::new(ui, 400, 300, 1.0);
+    host.ui.set_accessibility_enabled(true);
+    host.ui.set_keyboard_navigation(true);
+    host.settle();
+    host.press_key("Tab");
+    host.press_key("ArrowRight");
+    host.press_key("Enter");
+    host.press_key("KeyQ");
+    host.settle();
+    let keys: Vec<(&str, bool)> = host.ui.state.keys.iter().map(|(k, h, _)| (k.as_str(), *h)).collect();
+    assert_eq!(keys, [("Tab", true), ("ArrowRight", true), ("Enter", true), ("KeyQ", false)]);
+    // Enter reached the app after it pressed Two.
+    assert_eq!(host.ui.state.keys[2].2, ["Two"]);
+    // A key the host used itself: handled for the app, and navigation leaves it.
+    host.ui.mark_key_handled("Enter");
+    host.press_key("Enter");
+    host.settle();
+    assert_eq!(host.ui.state.keys.last().map(|(k, h, _)| (k.as_str(), *h)), Some(("Enter", true)));
+    assert_eq!(host.ui.state.pressed, ["Two"], "the marked Enter pressed nothing more");
+}

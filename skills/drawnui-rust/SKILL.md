@@ -656,9 +656,9 @@ toggles). Desktop users expect this, from the mouse and from the keyboard alone:
   the lit line: `cx.set_accessibility_focus(line)` whenever the keys move it.
 
 Handle the bar's keys in the app's key handler (`Ui::on_key_down` / `on_key_up`, Alt alone on the key
-up) and return true for the keys it uses, so the engine's own keyboard navigation leaves them. For a
-plain menu or list that the engine walks itself, `.keyboard_wrap(true)` on the group makes the arrows
-go round. Test the menu keys with popup windows on (`Headless::popup_windows(true)` and the host's
+up). The canvas's keyboard navigation runs first: when it already pressed the control the keyboard is
+on, the handler sees `event.handled` and skips that Enter or Space. For a plain menu or list that the
+engine walks itself, `.keyboard_wrap(true)` on the group makes the arrows go round. Test the menu keys with popup windows on (`Headless::popup_windows(true)` and the host's
 `place_popup_window`), not only with menus on the canvas.
 
 ## Editor caret from code
@@ -694,6 +694,18 @@ the I-beam over editable or selectable text. A control of your own picks its cur
 `Text`, `ResizeLeftRight` (a splitter between columns), `ResizeUpDown` (between rows) or `Default`;
 `None` leaves it to the engine. A control that is only dragged (a splitter grip) gets no hand from
 the engine: return its resize cursor from `cursor`.
+
+## Key order
+
+Every host hands a key to the controls first (the focused control, then controls with
+`.listen_keys()`, as a game does), then to the canvas's keyboard navigation (Tab stops, Enter / Space
+on the control the keyboard is on, the arrows in a group, slider steps, Escape closing a popup), then
+to the window-level handlers (`Ui::on_key_down` / `on_key_up` / `on_key_char`). Those learn whether
+navigation used the key: `event.handled` (in the browser Tab is the page's, so it covers Enter, Space
+and the arrows). A game that takes the arrows or Space listens on its own control (`.listen_keys()` +
+`.on_key_down`, as a `DrawnGame` does), so navigation never presses a focused button with them. When a
+popup window closes with the keyboard in it, the keyboard goes back to its opener, unless the app put it
+somewhere in that frame (`cx.set_accessibility_focus(control)`) or kept it (`cx.keep_accessibility_focus()`).
 
 ## Window focus (the app in front or not)
 

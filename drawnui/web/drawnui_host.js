@@ -367,7 +367,7 @@ window.DrawnUi = {
       }
       module.HEAPU8.set(codeBytes, scratch);
       module.HEAPU8.set(textBytes, scratch + codeBytes.length);
-      const modifiers = (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
+      const modifiers = (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0) | (e.drawnuiHandled ? 16 : 0);
       const used = module._dui_key(app, kind, scratch, codeBytes.length, scratch + codeBytes.length, textBytes.length, modifiers, e.repeat ? 1 : 0);
       requestFrame();
       return used !== 0;
@@ -399,6 +399,14 @@ window.DrawnUi = {
         if (e.key === "Tab" && textOpen && e.target === textInput && a11yNodes.has(String(textNode))) {
           tabbingOut = String(textNode);
           a11yNodes.get(tabbingOut).focus({ preventScroll: true });
+        }
+        // Enter or Space on an overlay element activates it first; the app's key handlers then
+        // hear the key as handled (KeyEvent::handled), as after the engine's own navigation.
+        const node = overlay.contains(e.target) && e.target.dataset && e.target.dataset.kind === "i" ? e.target : null;
+        if (node && (e.key === "Enter" || e.key === " ") && !e.repeat) {
+          e.preventDefault();
+          e.drawnuiHandled = true;
+          activate(node.dataset.id);
         }
         let used = false;
         if (!viaTextInput(e)) used = sendKey(0, e.code || "", "", e);
@@ -619,13 +627,8 @@ window.DrawnUi = {
       if (kind === "i") {
         el.tabIndex = 0;
         el.style.fontSize = "0";
+        el.dataset.id = id;
         el.addEventListener("click", () => activate(id));
-        el.addEventListener("keydown", (e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            activate(id);
-          }
-        });
         el.addEventListener("focus", () => {
           overlay.scrollTop = 0;
           overlay.scrollLeft = 0;

@@ -756,8 +756,9 @@ pub struct Tree {
     /// A control asked for the focus (`Some(id)`) or gave it up (`None`) while a gesture or key
     /// was routed; applied right after.
     pub(crate) focus_request: Option<Option<ControlId>>,
-    /// `Cx::set_accessibility_focus`: the control and until when it may wait to be drawn.
-    pub(crate) accessibility_focus_request: Option<(ControlId, f64)>,
+    /// `Cx::set_accessibility_focus`: the control (`None`: keep it where it is) and until when it may
+    /// wait to be drawn.
+    pub(crate) accessibility_focus_request: Option<(Option<ControlId>, f64)>,
     /// The gesture being routed, for handlers (`Cx::gesture`), and where it is, points from the
     /// top-left of the control whose handler runs (`Cx::gesture_point`).
     pub(crate) gesture: Option<crate::gestures::Gesture>,

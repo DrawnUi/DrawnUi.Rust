@@ -125,6 +125,12 @@ pub struct KeyEvent<'a> {
     pub repeat: bool,
     /// The modifiers and the held keys as of this event.
     pub keyboard: &'a Keyboard,
+    /// For the window-level handlers (`Ui::on_key_down` / `on_key_up` / `on_key_char`): the
+    /// canvas's keyboard navigation already used this key (Tab, Enter or Space on a control, an
+    /// arrow in a group, a slider step, Escape), as DrawnUI `KeyboardManager.IsKeyHandled`. A custom
+    /// menu skips a handled Enter or Space. In the browser Tab is the page's: the flag covers Enter,
+    /// Space and the arrows. Always false for the controls' own key handlers.
+    pub handled: bool,
 }
 
 impl KeyEvent<'_> {

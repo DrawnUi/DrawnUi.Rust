@@ -329,3 +329,69 @@ fn the_keyboard_stays_where_it_went_when_it_left_the_menu_before_it_closed() {
     host.settle();
     assert_eq!(keyboard_on(&host).as_deref(), Some("Other"));
 }
+
+#[derive(Default)]
+struct Picker {
+    menu: Option<PopupId>,
+    other: Handle<SkiaShape>,
+    /// What an item does with the focus as it closes the menu: 0 nothing, 1 focus Other, 2 keep it.
+    after: u8,
+}
+
+/// `page`, with items that close the menu and then move or keep the focus as `after` says.
+fn picker(after: u8) -> Headless<Picker> {
+    let item = |name: &'static str| {
+        SkiaShape::new().width_request(120).height_request(30).accessibility_role(Aria::MENU_ITEM).accessibility_label(name).on_tapped(|_me, p: &mut Picker, cx| {
+            if let Some(menu) = p.menu.take() {
+                cx.close_popup_window(menu);
+            }
+            match p.after {
+                1 => cx.set_accessibility_focus(p.other),
+                2 => cx.keep_accessibility_focus(),
+                _ => {}
+            }
+        })
+    };
+    let ui = Ui::new(Picker { after, ..Picker::default() }, move |p: &mut Picker| {
+        SkiaLayout::row().spacing(10.0).padding(10.0).children((
+            SkiaShape::new().width_request(100).height_request(30).accessibility_role(Aria::BUTTON).accessibility_label("Other").assign(&mut p.other).on_tapped(|_me, _p: &mut Picker, _cx| {}),
+            SkiaShape::new().width_request(100).height_request(30).accessibility_role(Aria::BUTTON).accessibility_label("Open menu").on_tapped(move |me, p: &mut Picker, cx| {
+                let menu = SkiaShape::new().accessibility_role(Aria::MENU).children((SkiaLayout::column().spacing(0.0).children((item("one"), item("two"))),));
+                p.menu = Some(cx.open_popup_window(menu, me.id(), PopupWindowOptions::default()));
+            }),
+        ))
+    })
+    .background(Color::WHITE);
+    let mut host = Headless::new(ui, 600, 400, 1.0);
+    host.ui.set_keyboard_navigation(true);
+    host.ui.set_accessibility_enabled(true);
+    host.settle();
+    host
+}
+
+/// An app's `set_accessibility_focus` as a menu closes wins over the return to the opener;
+/// `keep_accessibility_focus` keeps the focus from moving there (DrawnUI drawnui-cross 6az).
+#[test]
+fn the_apps_focus_wins_over_the_return_to_the_opener() {
+    let on = |host: &Headless<Picker>| host.ui.accessibility_focused().and_then(|f| host.ui.tree.base(f)).map(|b| b.p.accessibility_label.to_string());
+    // Other comes first: where the focus goes when nothing places it, not the opener.
+    for (after, want) in [(0, Some("Open menu")), (1, Some("Other"))] {
+        let mut host = picker(after);
+        host.press_key("Tab");
+        host.press_key("Tab");
+        host.press_key("Enter");
+        host.settle();
+        assert_eq!(on(&host).as_deref(), Some("one"));
+        host.press_key("Enter");
+        host.settle();
+        assert_eq!(on(&host).as_deref(), want, "after {after}");
+    }
+    let mut host = picker(2);
+    host.press_key("Tab");
+    host.press_key("Tab");
+    host.press_key("Enter");
+    host.settle();
+    host.press_key("Enter");
+    host.settle();
+    assert_ne!(on(&host).as_deref(), Some("Open menu"), "kept: no return to the opener");
+}

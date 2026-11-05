@@ -283,6 +283,10 @@ pub extern "C" fn dui_key(
         _ => KeyKind::Char,
     };
     let key = if kind == KeyKind::Char { "" } else { key_name(read(code, code_len)) };
+    // Bit 16: the page used the key already (the overlay activated its element on Enter or Space).
+    if modifiers & 16 != 0 && kind == KeyKind::Down {
+        state(s).app.mark_key_handled(key);
+    }
     state(s).app.key(kind, key, read(text, text_len), Modifiers::from_bits(modifiers), repeat != 0) as i32
 }
 

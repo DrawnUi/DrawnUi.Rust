@@ -345,6 +345,9 @@ pub trait App {
     fn key(&mut self, _kind: KeyKind, _key: InputKey, _text: &str, _modifiers: Modifiers, _repeat: bool) -> bool {
         false
     }
+    /// The host used the key it is about to hand over (the browser overlay activated its element):
+    /// `Ui::mark_key_handled`.
+    fn mark_key_handled(&mut self, _key: InputKey) {}
     /// The window lost the keyboard: no key counts as held anymore.
     fn blur(&mut self) {}
     /// The app's window got the keyboard (`true`) or lost it to another app (`false`); moving to a
