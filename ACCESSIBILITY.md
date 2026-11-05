@@ -81,7 +81,10 @@ several layouts (a panel with a title, a divider and columns of items) moves thr
 reading order. A popup with such a group in it (a menu, a dropdown list) takes the keyboard as it
 opens, on its current choice (a checked radio, option or tab item; a switched-on checkbox does not
 count), else its first item, however it was opened; the ring shows only when the keyboard was in
-use. While a popup is open, Tab goes round its stops instead of leaving it.
+use. A popup in a window of its own does the same once its window shows. While a popup is open, Tab goes round its
+stops instead of leaving it. `keyboard_wrap(true)` on a group makes the arrow keys go round, from the last item
+to the first and back, as native menus do. `Cx::set_accessibility_focus(control)` moves the keyboard and
+screen-reader focus from app code (a custom menu that moves its own highlight).
 
 With `Ui::arrows_start_keyboard_navigation(true)` (off by default), while nothing has the keyboard
 the first arrow key starts navigation: Down / Right as Tab, Up / Left as Shift+Tab. A control that

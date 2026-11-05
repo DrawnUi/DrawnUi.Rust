@@ -14,6 +14,11 @@ struct App {
 
 /// A rounded shape with the menu role around a column of three radio menu items.
 fn menu(checked: usize) -> Build<SkiaShape> {
+    menu_wrapping(checked, false)
+}
+
+/// `menu`, with `keyboard_wrap` on its menu shape when `wrap`.
+fn menu_wrapping(checked: usize, wrap: bool) -> Build<SkiaShape> {
     let item = |index: usize| {
         SkiaShape::new()
             .width_request(120)
@@ -32,6 +37,7 @@ fn menu(checked: usize) -> Build<SkiaShape> {
         .corner_radius(8)
         .padding(4)
         .accessibility_role(Aria::MENU)
+        .keyboard_wrap(wrap)
         .children((SkiaLayout::column().spacing(0.0).children((item(0), item(1), item(2))),))
 }
 
@@ -71,6 +77,56 @@ fn opening_focuses_the_checked_item_and_the_arrows_move_inside_the_wrapped_colum
     host.press_key("Enter");
     host.settle();
     assert_eq!(host.ui.state.log, ["item 1", "item 2", "item 1"], "Up from the checked last item");
+}
+
+/// Opens the menu in a window of its own, as a desktop host shows it: the window is placed a
+/// moment after the popup opened.
+fn open_in_window(host: &mut Headless<App>, checked: usize, wrap: bool) {
+    host.ui.state.checked = checked;
+    let id = host.ui.tree.cx().open_popup_window(menu_wrapping(checked, wrap), Point::new(20.0, 20.0), PopupWindowOptions::default());
+    host.ui.state.menu = Some(id);
+    host.settle();
+    let request = host.popup_window_requests().into_iter().find(|r| r.id == id.get()).expect("a window request");
+    host.place_popup_window(request.id, request.size.width, request.size.height, 1.0, Point::new(20.0, 20.0));
+    host.settle();
+}
+
+#[test]
+fn in_a_window_of_its_own_the_checked_item_takes_the_keyboard_once_the_window_shows() {
+    let mut host = host();
+    host.popup_windows(true);
+    open_in_window(&mut host, 1, false);
+    host.press_key("Enter");
+    host.settle();
+    assert_eq!(host.ui.state.log, ["item 1"], "the checked item had the focus");
+    open_in_window(&mut host, 0, false);
+    host.press_key("ArrowDown");
+    host.press_key("ArrowDown");
+    host.press_key("Enter");
+    host.settle();
+    assert_eq!(host.ui.state.log, ["item 1", "item 2"], "Down twice from the first item");
+}
+
+#[test]
+fn keyboard_wrap_makes_the_arrows_go_round() {
+    let mut host = host();
+    host.popup_windows(true);
+    open_in_window(&mut host, 2, true);
+    host.press_key("ArrowDown");
+    host.press_key("Enter");
+    host.settle();
+    assert_eq!(host.ui.state.log, ["item 0"], "Down from the last item: the first");
+    open_in_window(&mut host, 0, true);
+    host.press_key("ArrowUp");
+    host.press_key("Enter");
+    host.settle();
+    assert_eq!(host.ui.state.log, ["item 0", "item 2"], "Up from the first item: the last");
+    // Without it the arrows stop at the ends.
+    open_in_window(&mut host, 2, false);
+    host.press_key("ArrowDown");
+    host.press_key("Enter");
+    host.settle();
+    assert_eq!(host.ui.state.log, ["item 0", "item 2", "item 2"]);
 }
 
 #[test]

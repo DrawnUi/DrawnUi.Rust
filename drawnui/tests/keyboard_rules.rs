@@ -124,3 +124,25 @@ fn with_a_screen_reader_the_focus_follows_where_the_reader_moves() {
     host.frame_after(16.0);
     assert_eq!(keyboard_on(&host).as_deref(), Some("Two"), "the first node on screen");
 }
+
+/// `Cx::set_accessibility_focus`: app code moves the keyboard and screen-reader focus (a custom
+/// menu tells readers where its highlight is); a control not drawn yet gets it once it is.
+#[test]
+fn app_code_moves_the_accessibility_focus() {
+    let mut host = host(false);
+    let two = host.ui.accessibility_nodes().iter().find(|n| n.label == "Two").map(|n| n.control).expect("Two");
+    host.ui.tree.cx().set_accessibility_focus(two);
+    host.frame_after(16.0);
+    assert_eq!(keyboard_on(&host).as_deref(), Some("Two"));
+    // The dialog's OK is not drawn yet: it gets the focus once the dialog shows.
+    let ok: ControlId = host.ui.state.dialog.into();
+    let ok = host.ui.tree.children(ok)[0];
+    host.ui.tree.cx().set_accessibility_focus(ok);
+    host.frame_after(16.0);
+    assert_eq!(keyboard_on(&host).as_deref(), Some("Two"), "OK is hidden");
+    if let Some(mut d) = host.ui.tree.cx().get_mut(host.ui.state.dialog) {
+        d.set_is_visible(true);
+    }
+    frames(&mut host);
+    assert_eq!(keyboard_on(&host).as_deref(), Some("OK"));
+}

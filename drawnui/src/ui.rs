@@ -1178,6 +1178,8 @@ impl<S: 'static> Ui<S> {
         // A menu, list or radio group whose items are not the children of one layout (a panel with
         // a title, a divider and columns of items): its items in reading order, one after another.
         let role = self.tree.accessibility.iter().find(|n| n.control == role_holder).map(|n| n.role.clone()).unwrap_or_default();
+        // `keyboard_wrap` on the group: the arrows go round.
+        let wrap = [role_holder, group].iter().any(|g| tree.base(*g).is_some_and(|b| b.p.keyboard_wrap));
         let linear = [Aria::MENU, Aria::MENU_BAR, Aria::LIST, Aria::LIST_BOX, Aria::RADIO_GROUP].contains(&&*role);
         let inside = |control: ControlId, ancestor: ControlId| std::iter::successors(Some(control), |c| tree.parent(*c)).any(|c| c == ancestor);
         let holds_many = |child: &ControlId| self.tree.accessibility.iter().filter(|n| n.can_interact && inside(n.control, *child)).count() > 1;
@@ -1185,8 +1187,11 @@ impl<S: 'static> Ui<S> {
             let items: Vec<ControlId> =
                 self.tree.accessibility.iter().filter(|n| n.can_interact && self.group_of(n.control) == Some(role_holder)).map(|n| n.control).collect();
             let Some(current) = items.iter().position(|c| *c == focused) else { return false };
+            let last = items.len() - 1;
             let target = match key {
-                "ArrowDown" | "ArrowRight" => (current + 1).min(items.len() - 1),
+                "ArrowDown" | "ArrowRight" if wrap && current == last => 0,
+                "ArrowUp" | "ArrowLeft" if wrap && current == 0 => last,
+                "ArrowDown" | "ArrowRight" => (current + 1).min(last),
                 "ArrowUp" | "ArrowLeft" => current.saturating_sub(1),
                 "Home" => 0,
                 "End" => items.len() - 1,
@@ -1272,6 +1277,12 @@ impl<S: 'static> Ui<S> {
                 None => return false,
             },
             _ => return false,
+        };
+        let arrow = matches!(key, "ArrowDown" | "ArrowUp" | "ArrowLeft" | "ArrowRight");
+        let target = match (wrap && arrow && masonry.is_none() && target >= count, step) {
+            (true, 1) => 0,
+            (true, _) => last,
+            _ => target,
         };
         if target >= count || target == current {
             return true;
@@ -2130,7 +2141,12 @@ impl<S: 'static> Ui<S> {
             layout::measure(&mut self.tree, &self.fonts, &self.state, root, content.width(), content.height(), scale);
             layout::arrange(&mut self.tree, &self.fonts, &self.state, root, content, scale);
             self.layout_popups(content, scale);
-            if let Some(newest) = self.tree.popups.iter().rev().find(|p| !p.options.passive).filter(|p| p.id > self.popups_focused).map(|p| (p.id, p.root)) {
+            // A popup in a window of its own takes the keyboard once its window is shown: before,
+            // it has no place on the screen, so no node to focus.
+            let shown = |p: &crate::popups::Popup| p.window.is_some() || !p.in_window(self.popup_windows_on);
+            if let Some(newest) =
+                self.tree.popups.iter().rev().find(|p| !p.options.passive).filter(|p| p.id > self.popups_focused && shown(p)).map(|p| (p.id, p.root))
+            {
                 self.popups_focused = newest.0;
                 self.focus_opened_popup(newest.1);
             }
@@ -2232,6 +2248,21 @@ impl<S: 'static> Ui<S> {
         }
         if self.group_request.is_some() {
             self.process_group_request();
+        }
+        if let Some((control, deadline)) = self.tree.accessibility_focus_request.take()
+            && self.tree.node(control).is_some()
+            && self.tree.time_ms <= deadline
+        {
+            self.accessibility_stale = true;
+            self.fresh_accessibility();
+            if self.tree.accessibility.iter().any(|n| n.control == control) {
+                let ring = self.focus_ring;
+                self.keyboard_focus(control);
+                self.focus_ring = ring;
+            } else {
+                self.tree.accessibility_focus_request = Some((control, deadline));
+                self.tree.needs_frame = true;
+            }
         }
     }
 
@@ -3311,6 +3342,14 @@ impl Cx<'_> {
     /// The control keys go to (DrawnUI FocusedChild).
     pub fn focused(&self) -> Option<ControlId> {
         self.tree.focused.filter(|f| self.tree.node(*f).is_some())
+    }
+
+    /// Moves the keyboard and screen-reader focus to a control with an accessibility node, at the
+    /// end of the next frame (a custom menu that moves its highlight tells screen readers where it
+    /// is). A control not drawn yet gets it once it is, within 3 s. The focus ring keeps its state.
+    pub fn set_accessibility_focus(&mut self, id: impl Into<ControlId>) {
+        self.tree.accessibility_focus_request = Some((id.into(), self.tree.time_ms + 3000.0));
+        self.tree.needs_frame = true;
     }
 }
 

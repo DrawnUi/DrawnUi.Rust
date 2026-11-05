@@ -27,6 +27,10 @@ version before it. Commits in parentheses.
 - `Ui::arrows_start_keyboard_navigation(true)`: while nothing has the keyboard, the first arrow key
   starts keyboard navigation (Down / Right as Tab, Up / Left as Shift+Tab); off by default.
   `Ui::has_no_keyboard_focus()` tells whether nothing has the keyboard.
+- `.keyboard_wrap(true)` on an arrow-key group (a menu, a list): the arrow keys go round, from the
+  last item to the first and back.
+- `Cx::set_accessibility_focus(control)`: app code moves the keyboard and screen-reader focus to a
+  control (a custom menu that moves its own highlight).
 - `Ui::set_screen_reader_running` (and `App::screen_reader_running` for hosts): whether a screen
   reader reads the app; the desktop host follows AccessKit.
 
@@ -38,6 +42,8 @@ version before it. Commits in parentheses.
 - SkiaShell popups and modals are accessibility modals: while one is open, the page under it is not
   read and Tab stays in it.
 - A live region (`accessibility_live`) is read by screen readers on the next frame after it changes.
+- A menu or dropdown in a popup window of its own takes the keyboard on its checked (else first) item
+  once its window shows, as on the canvas.
 - A gradient's `light` above 1 multiplies each color's HSL lightness and keeps its hue and saturation,
   as .NET MAUI does: lighter colors stay vivid.
 - A label's `fill_gradient` goes to one place: the background when the label has a background color

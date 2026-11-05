@@ -443,6 +443,9 @@ base_props! {
     accessibility_text_selectable / set_accessibility_text_selectable: bool = false, NONE;
     /// aria-live: `Aria::LIVE_POLITE` or `Aria::LIVE_ASSERTIVE`; changes are announced.
     accessibility_live / set_accessibility_live: std::borrow::Cow<'static, str> = std::borrow::Cow::Borrowed(""), NONE;
+    /// On an arrow-key group (a menu, a list): the arrow keys go round, from the last item to the
+    /// first and back, as native menus do. Off: they stop at the ends.
+    keyboard_wrap / set_keyboard_wrap: bool = false, NONE;
 }
 
 impl<T: Control> Build<T> {
@@ -750,6 +753,8 @@ pub struct Tree {
     /// A control asked for the focus (`Some(id)`) or gave it up (`None`) while a gesture or key
     /// was routed; applied right after.
     pub(crate) focus_request: Option<Option<ControlId>>,
+    /// `Cx::set_accessibility_focus`: the control and until when it may wait to be drawn.
+    pub(crate) accessibility_focus_request: Option<(ControlId, f64)>,
     /// The gesture being routed, for handlers (`Cx::gesture`), and where it is, points from the
     /// top-left of the control whose handler runs (`Cx::gesture_point`).
     pub(crate) gesture: Option<crate::gestures::Gesture>,

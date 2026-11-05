@@ -722,7 +722,11 @@ layout that holds the items (a menu panel shape around a column); a menu or list
 several columns, after a title, moves through them in reading order. A popup with a group in it (a
 menu, a dropdown list) takes the keyboard as it opens, on its current choice (a radio, option or tab
 item with `accessibility_is_pressed(Some(true))`; a checkbox item that is on does not count), else
-its first item; while it is open, Tab goes round it.
+its first item (in a window of its own: once its window shows); while it is open, Tab goes round it.
+`.keyboard_wrap(true)` on the group (the menu) makes the arrow keys go round, last item to first and
+back. `cx.set_accessibility_focus(control)` moves the keyboard and screen-reader focus to a control
+from app code, for a custom menu that moves its own highlight; a control not drawn yet gets it once
+it is.
 
 Dialogs: `.accessibility_modal(true)` on the control that is a dialog (the shell's popups and modals
 have it already). While it is drawn on top, screen readers get only the dialog (role dialog unless
