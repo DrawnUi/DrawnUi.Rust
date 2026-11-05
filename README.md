@@ -1,9 +1,11 @@
 # DrawnUI for Rust
 
-**Draw your whole UI with Skia, from one Rust source, on every screen.** DrawnUI for Rust is a UI
-engine: layouts, controls you can subclass and paint, gestures, animations, caching, shaders and
-accessibility, on Windows, macOS, Linux, iOS, Android and in the browser. It shares its controls and
-rules with DrawnUI for .NET and DrawnUI for React, so one design runs the same in all three.
+![DrawnUI for Rust: the Hello app on a desktop window, in a browser and on phones, and Dungeon Run](.github/images/banner.png)
+
+**Build rich, fluid UI by drawing it, from one Rust source, on every screen.** Every control is painted by Skia on
+one hardware-accelerated canvas: layouts, smooth lists, animations, shaders, 3D transforms, gestures, keyboard and
+screen readers, on Windows, macOS, Linux, iOS, Android and in the browser. No garbage collector, no native widgets
+to fight: the same pixels everywhere, from a few lines of fluent Rust.
 
 - **Try it in your browser:** https://hellorust.drawnui.net (the DrawnUI Hello app)
 - **Play a game made with it:** https://run.drawnui.net (Dungeon Run, a 3D runner drawn with SkMesh)
@@ -73,26 +75,24 @@ DrawnUI is MIT licensed in every language and on every platform: desktop, mobile
 | Android | Vulkan, with OpenGL ES as the fallback | arm64, armv7, x86_64, x86 |
 | Browser | WebGL2 (`wasm32-unknown-emscripten`) | all browsers with WebGL2 |
 
-## What's inside
+## What you get, all drawn on one canvas
 
-- **Layout:** Absolute, Column, Row, Wrap, Masonry, Grid and decorated grids; templated lists with recycling
-  and virtualization; measure / arrange / paint, render transforms (3D turns with perspective and depth included),
-  opacity, clipping, z-index.
-- **Controls:** shapes, labels and rich text (shaped right-to-left and complex scripts, emoji sequences), buttons, an editor with IME, scroll with scroll bars
-  and pull to refresh, carousels (also with shader transitions), drawer, shell (pages, tabs, popups,
-  modals, toasts), toggles, switch, checkbox, radio buttons, slider, progress, backdrop blur.
-- **Media:** images (decoded off the frame thread), image tiles, SVG, GIF, Lottie, sprites, SkSL
-  shader effects and transitions, SkMesh (your own vertex and fragment programs).
-- **Caching:** every DrawnUI cache type: Operations, OperationsFull, Image, GPU, ImageDoubleBuffered
-  (bitmaps made on background threads on the desktop), ImageComposite. A lost GPU context comes back
-  on its own.
-- **Input:** tap, pan, fling, long press, hover, context menu, mouse wheel and touchpad, keyboard
-  and focus.
-- **Accessibility:** UI Automation on Windows, VoiceOver on macOS and iOS, TalkBack on Android,
-  AT-SPI / Orca on Linux, an ARIA overlay in the browser; selectable text.
-- **Animation:** value, range, spring, ping-pong, pendulum and ripple animators, timers.
-- **Tested:** about 700 headless tests, many of them ports of DrawnUI for .NET's tests with the same
-  numbers.
+- **Layouts:** absolute, column, row, wrap, masonry and grids; layers with any alignment, z-index, clipping.
+- **Lists that stay smooth:** recycled and virtualized templated lists, items of different heights, load more.
+- **Controls:** labels and rich text (right-to-left and complex scripts, emoji), buttons, an editor with IME,
+  toggles, switch, checkbox, radio buttons, slider, progress, scroll with pull to refresh.
+- **Navigation:** shell with pages, tabs, popups, modals and toasts, carousels and drawer.
+- **Animations:** value, range, spring, ping-pong and ripple animators, Lottie, GIF and sprites.
+- **Transforms in 2D and 3D:** rotate, scale, skew, perspective and depth; taps still land on the right control.
+- **Effects:** SkSL shaders on any control, shader transitions, backdrop blur, SkMesh with your own vertex and
+  fragment programs.
+- **Gestures:** tap, pan, fling, long press, hover, context menu, mouse wheel and touchpad.
+- **Keyboard:** Tab, arrows, Enter and Escape move through every control, list, menu and dialog.
+- **Accessibility:** UI Automation on Windows, VoiceOver on macOS and iOS, TalkBack on Android, Orca on Linux,
+  an ARIA layer in the browser.
+- **Fast:** every DrawnUI cache type, images decoded off the frame thread, bitmaps made on background threads, a
+  lost GPU context that comes back on its own.
+- **Tested:** about 900 headless tests, many of them ports of DrawnUI for .NET's tests with the same numbers.
 
 Please star ⭐ if you like it!
 
