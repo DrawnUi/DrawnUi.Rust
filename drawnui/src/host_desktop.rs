@@ -1747,6 +1747,12 @@ impl ApplicationHandler<Arrived> for Desktop {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // `Cx::close_app`: the app ends itself.
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        if std::mem::take(&mut self.host.close_app) {
+            event_loop.exit();
+            return;
+        }
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
         {
             // The keyboard went to another app (not from one of our windows to another): popup
@@ -1853,7 +1859,15 @@ impl ApplicationHandler<Arrived> for Desktop {
             access.process_event(&self.window, &event);
         }
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            // The app's closing step (`Ui::on_app_closing`): it may keep its window open, then end
+            // itself (`Cx::close_app`).
+            WindowEvent::CloseRequested => {
+                if self.app.app_closing() {
+                    event_loop.exit();
+                } else {
+                    self.window.request_redraw();
+                }
+            }
             // The app window moved: popup windows close, as native menus do (they would stay where
             // they were).
             WindowEvent::Moved(_) => self.close_popups(),

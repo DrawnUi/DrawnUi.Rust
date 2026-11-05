@@ -141,6 +141,20 @@ impl<S: 'static> Headless<S> {
         self.ui.tree.clipboard.take()
     }
 
+    /// The app ended itself since the last call (`Cx::close_app`): the desktop host would close its
+    /// window now.
+    pub fn take_close_app(&mut self) -> bool {
+        std::mem::take(&mut self.ui.tree.close_app)
+    }
+
+    /// The user asks to close the app's window, as the desktop host does: true = it closes
+    /// (`Ui::on_app_closing`).
+    pub fn request_close(&mut self) -> bool {
+        let close = crate::App::app_closing(&mut self.ui);
+        self.frame_after(16.0);
+        close
+    }
+
     /// Pointer down and up at a pixel position, one frame after each.
     pub fn tap(&mut self, x: f32, y: f32) {
         self.press(PointerKind::Down, x, y);

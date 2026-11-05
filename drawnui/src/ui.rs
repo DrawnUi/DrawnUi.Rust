@@ -407,6 +407,8 @@ pub struct Ui<S: 'static> {
     window_focus: Option<Box<dyn FnMut(&mut S, bool, &mut Cx<'_>)>>,
     /// Runs for each popup window that closed (`on_popup_window_closed`).
     popup_closed: Option<Box<dyn FnMut(&mut S, PopupId, &mut Cx<'_>)>>,
+    /// `on_app_closing`.
+    app_closing: Option<Box<dyn FnMut(&mut S, &mut Cx<'_>) -> bool>>,
     /// Runs after each frame of the app's window (`on_after_frame`).
     #[cfg(feature = "designer")]
     after_frame: Option<Box<dyn FnMut(&mut Ui<S>, &mut Frame)>>,
@@ -542,6 +544,7 @@ impl<S: 'static> Ui<S> {
             left_all_at: None,
             window_focus: None,
             popup_closed: None,
+            app_closing: None,
             #[cfg(feature = "designer")]
             after_frame: None,
             active_modal: None,
@@ -708,6 +711,16 @@ impl<S: 'static> Ui<S> {
     /// Escape, the wheel, the window losing the keyboard, `Cx::close_popup_window`), before the
     /// next frame's observers: a menu bar unselects its title (DrawnUI `PopupWindowClosed`).
     /// Tooltips are not reported.
+    /// The app's closing step (desktop: Windows, macOS, Linux), before its window goes: the user
+    /// clicked its close button, pressed Alt+F4 or Cmd+Q. Return true to let it close, false to keep
+    /// it open: the app can ask "save first?" and end later with `Cx::close_app`. Without it the
+    /// window closes at once. Phones and the browser have no such step: the system pauses or ends
+    /// those apps (DrawnUI .NET `Super.OnNativeAppPaused` / `Destroyed`).
+    pub fn on_app_closing(mut self, f: impl FnMut(&mut S, &mut Cx<'_>) -> bool + 'static) -> Self {
+        self.app_closing = Some(Box::new(f));
+        self
+    }
+
     pub fn on_popup_window_closed(mut self, f: impl FnMut(&mut S, PopupId, &mut Cx<'_>) + 'static) -> Self {
         self.popup_closed = Some(Box::new(f));
         self
@@ -3387,6 +3400,14 @@ impl Cx<'_> {
         self.tree.arrows_start = on;
     }
 
+    /// Desktop: ends the app (its window closes) after this frame, without asking
+    /// `Ui::on_app_closing` again: the app's own "close" after it saved. Phones and the browser keep
+    /// running: the system pauses or ends those apps.
+    pub fn close_app(&mut self) {
+        self.tree.close_app = true;
+        self.tree.needs_frame = true;
+    }
+
     /// The keyboard and screen-reader focus stays where it is this frame: a popup closing does not
     /// give it back to its opener (DrawnUI `SetAccessibilityFocus(null)`).
     pub fn keep_accessibility_focus(&mut self) {
@@ -3512,6 +3533,15 @@ impl<S: 'static> App for Ui<S> {
 
     fn back(&mut self) -> bool {
         Ui::system_back(self)
+    }
+
+    fn app_closing(&mut self) -> bool {
+        let Some(handler) = self.app_closing.as_mut() else { return true };
+        let close = handler(&mut self.state, &mut Cx { tree: &mut self.tree });
+        self.state_dirty = true;
+        self.tree.needs_frame = true;
+        self.apply_focus_request();
+        close
     }
 
     fn blur(&mut self) {
@@ -3664,6 +3694,7 @@ impl<S: 'static> App for Ui<S> {
         for url in self.tree.open_urls.drain(..) {
             frame.host.open_url(&url);
         }
+        frame.host.close_app |= std::mem::take(&mut self.tree.close_app);
         frame.host.history.append(&mut self.tree.history_ops);
         if std::mem::take(&mut self.tree.paste_requested) {
             frame.host.request_paste();

@@ -737,6 +737,16 @@ first arrow is the game's. When a
 popup window closes with the keyboard in it, the keyboard goes back to its opener, unless the app put it
 somewhere in that frame (`cx.set_accessibility_focus(control)`) or kept it (`cx.keep_accessibility_focus()`).
 
+## Closing the app (desktop)
+
+`Ui::on_app_closing(|app, cx| -> bool)` is the app's closing step on Windows, macOS and Linux: it runs
+when the user clicks the window's close button, presses Alt+F4 or Cmd+Q. Return true to let the window
+close, false to keep it open, for example to ask "save first?" in the app's own dialog, and end the app
+later with `cx.close_app()` (it closes without asking again). Without a handler the window closes at
+once. Phones and the browser have no closing step: the system pauses or ends those apps, and
+`close_app` does nothing there. Tests: `Headless::request_close()` plays the close button,
+`take_close_app()` tells whether the app ended itself.
+
 ## Window focus (the app in front or not)
 
 `Ui::on_window_focus(|app: &mut App, focused, cx| ...)` runs when the app's window gets the keyboard

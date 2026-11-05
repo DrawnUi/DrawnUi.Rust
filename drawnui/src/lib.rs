@@ -197,6 +197,8 @@ pub struct Host {
     /// `Host::request_window_focus`.
     #[cfg(feature = "designer")]
     pub(crate) window_focus_requested: bool,
+    /// `Cx::close_app`: the app ends itself (the desktop host closes its window after the frame).
+    pub(crate) close_app: bool,
     /// Set by a host that shows popup windows in windows of their own (the desktop, not Wayland):
     /// without it the app draws them on its canvas.
     pub(crate) popup_windows_on: bool,
@@ -365,6 +367,12 @@ pub trait App {
     /// the app went back (a shell closed a popup, a modal or a page); false lets the system have it.
     fn back(&mut self) -> bool {
         false
+    }
+    /// Desktop: the user asked to close the app's window (its close button, Alt+F4, Cmd+Q). True: it
+    /// closes; false: it stays open (the app asks "save first?" and ends later with `Cx::close_app`).
+    /// Phones and the browser never ask: the system pauses or ends those apps.
+    fn app_closing(&mut self) -> bool {
+        true
     }
     /// The accessibility overlay activated a control (a click on its node, Enter or Space on it):
     /// the control gets a Tapped at its center. `id` is `AccessibilityNode::id`.

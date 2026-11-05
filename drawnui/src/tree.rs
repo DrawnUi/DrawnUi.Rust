@@ -756,6 +756,8 @@ pub struct Tree {
     /// A control asked for the focus (`Some(id)`) or gave it up (`None`) while a gesture or key
     /// was routed; applied right after.
     pub(crate) focus_request: Option<Option<ControlId>>,
+    /// `Cx::close_app`, for the host after the frame.
+    pub(crate) close_app: bool,
     /// `Ui::arrows_start_keyboard_navigation` / `Cx::set_arrows_start_keyboard_navigation`.
     pub(crate) arrows_start: bool,
     /// `Cx::set_accessibility_focus`: the control (`None`: keep it where it is) and until when it may
