@@ -4,7 +4,7 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.31 (crates.io, 2026-11-05)
 
 ### Added
 
@@ -30,6 +30,8 @@ version before it. Commits in parentheses.
   layout that makes its children from items).
 - `Ui::arrows_start_keyboard_navigation(true)`: while nothing has the keyboard, the first arrow key
   starts keyboard navigation (Down / Right as Tab, Up / Left as Shift+Tab); off by default.
+  `Cx::set_arrows_start_keyboard_navigation(on)` changes it at run time: a game screen turns it off
+  while it plays.
   `Ui::has_no_keyboard_focus()` tells whether nothing has the keyboard.
 - `KeyEvent::handled`: the window-level key handlers learn whether the canvas's keyboard navigation
   used the key (DrawnUI `KeyboardManager.IsKeyHandled`); `Ui::mark_key_handled` (`App::mark_key_handled`)
@@ -57,7 +59,6 @@ version before it. Commits in parentheses.
   popup), then the controls that listen to every key (`listen_keys`, `DrawnGame`) and the window-level
   handlers, all with `KeyEvent::handled`: a game skips the keys navigation used. In the browser, Enter or
   Space on an overlay element presses it first and reaches the app as handled.
-- `Cx::set_arrows_start_keyboard_navigation(on)`: a game screen turns it off while it plays.
 - When a popup window closes, an app's `set_accessibility_focus` in that frame wins over the return of
   the keyboard to the popup's opener.
 - Browser: menu items with a checkbox or radio role read checked or not checked.
@@ -81,6 +82,13 @@ version before it. Commits in parentheses.
 
 - `AccessibilityNode` (custom hosts) has new fields, `modal` and `is_expanded`; `KeyEvent` has a new
   field, `handled`.
+- A control that listens to every key (`listen_keys`, `DrawnGame`) hears a key after the canvas's
+  keyboard navigation: a game skips the keys it used (`!event.handled`), or a focused button's Space
+  reaches both.
+
+### Toolchain
+
+Skia crates unchanged (0.153.7).
 
 ## 0.1.0-preview.30 (crates.io, 2026-11-02)
 
