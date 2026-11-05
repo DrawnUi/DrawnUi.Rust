@@ -289,35 +289,35 @@ impl<T: std::fmt::Debug> PropText for Vec<T> {}
 macro_rules! controls {
     ($m:ident) => {
         $m! {
-            SkiaLabel => [LabelProps];
-            SkiaLabelFps => [LabelProps];
-            SkiaRichLabel => [LabelProps, RichLabelProps];
-            SkiaLayout => [LayoutProps];
-            DrawnGame => [LayoutProps];
-            SkiaShape => [LayoutProps, ShapeProps];
-            SkiaButton => [LayoutProps, ButtonProps];
-            SkiaImage => [ImageProps];
-            SkiaImageTiles => [ImageProps, TilesProps];
-            SkiaSvg => [SvgProps];
-            SkiaScroll => [ScrollProps];
-            SkiaScrollBar => [ScrollBarProps];
-            SkiaEditor => [LayoutProps, EditorProps];
-            SkiaCarousel => [LayoutProps, SnappingProps, CarouselProps];
-            SkiaShaderCarousel => [LayoutProps, SnappingProps, CarouselProps, ShaderCarouselProps];
-            SkiaDrawer => [LayoutProps, SnappingProps, DrawerProps];
-            SkiaDecoratedGrid => [LayoutProps, DecoratedGridProps];
-            RescalingLayout => [LayoutProps, RescalingProps];
-            SkiaCheckbox => [LayoutProps, ToggleProps, CheckboxProps];
-            SkiaRadioButton => [LayoutProps, ToggleProps, RadioProps];
-            SkiaSwitch => [LayoutProps, ToggleProps];
+            SkiaLabel = SkiaLabel::new("Label") => [LabelProps];
+            SkiaLabelFps = SkiaLabelFps::new() => [LabelProps];
+            SkiaRichLabel = SkiaRichLabel::new("Rich text") => [LabelProps, RichLabelProps];
+            SkiaLayout = SkiaLayout::new() => [LayoutProps];
+            DrawnGame = DrawnGame::new() => [LayoutProps];
+            SkiaShape = SkiaShape::new() => [LayoutProps, ShapeProps];
+            SkiaButton = SkiaButton::new("Button") => [LayoutProps, ButtonProps];
+            SkiaImage = SkiaImage::new("") => [ImageProps];
+            SkiaImageTiles = SkiaImageTiles::new("") => [ImageProps, TilesProps];
+            SkiaSvg = SkiaSvg::new("") => [SvgProps];
+            SkiaScroll = SkiaScroll::new() => [ScrollProps];
+            SkiaScrollBar = SkiaScrollBar::new() => [ScrollBarProps];
+            SkiaEditor = SkiaEditor::new() => [LayoutProps, EditorProps];
+            SkiaCarousel = SkiaCarousel::new() => [LayoutProps, SnappingProps, CarouselProps];
+            SkiaShaderCarousel = SkiaShaderCarousel::new() => [LayoutProps, SnappingProps, CarouselProps, ShaderCarouselProps];
+            SkiaDrawer = SkiaDrawer::new() => [LayoutProps, SnappingProps, DrawerProps];
+            SkiaDecoratedGrid = SkiaDecoratedGrid::new() => [LayoutProps, DecoratedGridProps];
+            RescalingLayout = RescalingLayout::new(320.0, 240.0) => [LayoutProps, RescalingProps];
+            SkiaCheckbox = SkiaCheckbox::new() => [LayoutProps, ToggleProps, CheckboxProps];
+            SkiaRadioButton = SkiaRadioButton::new("Option") => [LayoutProps, ToggleProps, RadioProps];
+            SkiaSwitch = SkiaSwitch::new() => [LayoutProps, ToggleProps];
             SkiaToggle => [LayoutProps, ToggleProps];
-            SkiaSlider => [SliderProps];
-            SkiaProgress => [ProgressProps];
-            SkiaLottie => [LottieProps];
-            SkiaGif => [FramesProps, GifProps];
-            SkiaSprite => [SpriteProps];
-            SkiaSpriteSet => [LayoutProps, SpriteSetProps];
-            SkiaShell => [ShellProps];
+            SkiaSlider = SkiaSlider::new() => [SliderProps];
+            SkiaProgress = SkiaProgress::new() => [ProgressProps];
+            SkiaLottie = SkiaLottie::new("") => [LottieProps];
+            SkiaGif = SkiaGif::new("") => [FramesProps, GifProps];
+            SkiaSprite = SkiaSprite::new("") => [SpriteProps];
+            SkiaSpriteSet = SkiaSpriteSet::new() => [LayoutProps, SpriteSetProps];
+            SkiaShell = SkiaShell::new() => [ShellProps];
         }
     };
 }
@@ -326,7 +326,7 @@ macro_rules! controls {
 pub(crate) fn own_props(control: &dyn Control) -> Vec<PropInfo> {
     let any = control as &dyn std::any::Any;
     macro_rules! parts {
-        ($($control:ty => [$($part:ty),*];)*) => {$(
+        ($($control:ty $(= $ctor:expr)? => [$($part:ty),*];)*) => {$(
             if let Some(c) = any.downcast_ref::<$control>() {
                 let mut out = Vec::new();
                 $(out.extend(Has::<$part>::part(c).props());)*
@@ -342,7 +342,7 @@ pub(crate) fn own_props(control: &dyn Control) -> Vec<PropInfo> {
 pub(crate) fn set_own_prop(control: &mut dyn Control, name: &str, text: &str) -> Option<Result<Dirty, String>> {
     let any = control as &mut dyn std::any::Any;
     macro_rules! parts {
-        ($($control:ty => [$($part:ty),*];)*) => {$(
+        ($($control:ty $(= $ctor:expr)? => [$($part:ty),*];)*) => {$(
             if let Some(c) = any.downcast_mut::<$control>() {
                 $(if let Some(done) = Has::<$part>::part_mut(c).set_prop(name, text) {
                     return Some(done);
@@ -355,7 +355,44 @@ pub(crate) fn set_own_prop(control: &mut dyn Control, name: &str, text: &str) ->
     None
 }
 
+/// The first token, for a list of the entries that have a second.
+macro_rules! first {
+    ($a:ty, $b:expr) => {
+        stringify!($a)
+    };
+}
+
+/// The type names `create` makes a control of, in the order of the controls list.
+pub fn control_types() -> &'static [&'static str] {
+    macro_rules! names {
+        ($($control:ty $(= $ctor:expr)? => [$($part:ty),*];)*) => {
+            &[$($(first!($control, $ctor),)?)*]
+        };
+    }
+    controls!(names)
+}
+
+/// A control of type `type_name` (`control_types`) with the defaults its own constructor gives, ready
+/// to be added anywhere (`Cx::add_child`, `insert_child`). `None` for an unknown name.
+pub fn create(type_name: &str) -> Option<crate::Detached> {
+    macro_rules! make {
+        ($($control:ty $(= $ctor:expr)? => [$($part:ty),*];)*) => {$($(
+            if type_name == stringify!($control) {
+                return Some(crate::Detached::from($ctor));
+            }
+        )?)*};
+    }
+    controls!(make);
+    None
+}
+
 impl crate::Tree {
+    /// True for a layout that makes its children from items and a template (`items`): its children
+    /// are the library's, not the app's to edit one by one.
+    pub fn is_templated(&self, id: impl Into<crate::ControlId>) -> bool {
+        self.find::<SkiaLayout>(id).is_some_and(|l| l.items.is_some())
+    }
+
     /// Every property of a control by name: the common ones (`ControlProps`), then those of its
     /// type. Empty for a control that is not there.
     pub fn props(&self, id: impl Into<crate::ControlId>) -> Vec<PropInfo> {

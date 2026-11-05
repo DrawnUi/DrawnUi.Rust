@@ -23,7 +23,11 @@ version before it. Commits in parentheses.
   `Tree::popup_rect(id)`,
   `Ui::snapshot_popup(id, gpu)`, `Ui::render_offscreen(gpu, w, h, scale, time)`,
   `Waker::request_hidden_frame()` (a frame off screen while the window is minimized),
-  `Host::request_window_focus()`, and the case names of a choice in `PropInfo::choices`.
+  `Host::request_window_focus()`, and the case names of a choice in `PropInfo::choices`. Also with
+  `designer`: `designer::control_types()` and `designer::create(type_name)` (a control of that type
+  with its constructor's defaults), `Cx::move_to(control, parent, index)` (a control with everything
+  inside it into another parent, its id, handlers and state kept) and `Tree::is_templated(id)` (a
+  layout that makes its children from items).
 - `Ui::arrows_start_keyboard_navigation(true)`: while nothing has the keyboard, the first arrow key
   starts keyboard navigation (Down / Right as Tab, Up / Left as Shift+Tab); off by default.
   `Ui::has_no_keyboard_focus()` tells whether nothing has the keyboard.

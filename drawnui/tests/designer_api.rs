@@ -398,3 +398,99 @@ fn an_optional_choice_takes_its_own_none_and_empty_clears_it() {
     assert_eq!(<Option<f32> as PropText>::to_text(&None), "none");
     assert_eq!(<Option<f32> as PropText>::from_text("x"), None);
 }
+
+#[cfg(feature = "designer")]
+#[test]
+fn a_control_is_made_by_its_type_name() {
+    let types = drawnui::designer::control_types();
+    assert!(types.contains(&"SkiaButton") && types.contains(&"SkiaLabel") && types.contains(&"SkiaShell"));
+    assert!(!types.contains(&"SkiaToggle"), "a base with no control of its own is not offered");
+    for name in types {
+        assert!(drawnui::designer::create(name).is_some(), "{name}");
+    }
+    assert!(drawnui::designer::create("NoSuchControl").is_none());
+    // A made button goes into a running tree and reads as a button.
+    let mut host = Headless::new(Ui::new((), |_| SkiaLayout::column().fill()), 300, 200, 1.0);
+    host.ui.set_accessibility_enabled(true);
+    host.settle();
+    let root = host.ui.tree.root().expect("a root");
+    let button = host.ui.tree.cx().add_child(root, drawnui::designer::create("SkiaButton").unwrap());
+    host.frame_after(drawnui::ACCESSIBILITY_INTERVAL_MS);
+    assert_eq!(host.ui.tree.type_name(button), Some("SkiaButton"));
+    assert!(host.rect(button).width() > 0.0, "laid out and drawn");
+    assert!(host.ui.tree.find::<SkiaButton>(button).is_some_and(|b| b.p.text == "Button"));
+}
+
+#[cfg(feature = "designer")]
+#[derive(Default)]
+struct Moving {
+    left: Handle<SkiaLayout>,
+    right: Handle<SkiaLayout>,
+    card: Handle<SkiaShape>,
+    switch: Handle<SkiaSwitch>,
+    taps: u32,
+}
+
+#[cfg(feature = "designer")]
+#[test]
+fn move_to_keeps_the_control_its_handlers_and_its_state() {
+    let ui = Ui::new(Moving::default(), |app: &mut Moving| {
+        SkiaLayout::row().fill().children((
+            SkiaLayout::column().width_request(150).assign(&mut app.left).children((
+                SkiaShape::new()
+                    .width_request(100)
+                    .height_request(40)
+                    .background_color(Color::RED)
+                    .assign(&mut app.card)
+                    .on_tapped(|_me, app: &mut Moving, _cx| app.taps += 1)
+                    .children((SkiaSwitch::new().assign(&mut app.switch),)),
+            )),
+            SkiaLayout::column().width_request(150).assign(&mut app.right).children((SkiaShape::new().width_request(100).height_request(40),)),
+        ))
+    });
+    let mut host = Headless::new(ui, 400, 300, 1.0);
+    host.settle();
+    let (left, right, card, switch) = (host.ui.state.left, host.ui.state.right, host.ui.state.card, host.ui.state.switch);
+    if let Some(mut s) = host.ui.tree.cx().get_mut(switch) {
+        s.set_is_toggled(true);
+    }
+    host.settle();
+    // Into the right column, first among its children.
+    assert!(host.ui.tree.cx().move_to(card, right, 0));
+    host.settle();
+    let card_id: ControlId = card.into();
+    assert_eq!(host.ui.tree.parent(card_id), Some(right.into()), "same id, new parent");
+    assert_eq!(host.ui.tree.children(right)[0], card_id);
+    assert!(host.ui.tree.children(left).is_empty());
+    let r = host.rect(card);
+    assert!(r.left >= 150.0, "drawn in the right column: {r:?}");
+    // On the card, beside the switch at its start.
+    host.tap(r.right - 5.0, r.center_y());
+    assert_eq!(host.ui.state.taps, 1, "its tap handler still runs");
+    assert!(host.ui.tree.find::<SkiaToggle>(switch).is_some_and(|t| t.p.is_toggled), "its state stays");
+    // Not into itself or below itself, not the root.
+    assert!(!host.ui.tree.cx().move_to(right, card, 0));
+    assert!(!host.ui.tree.cx().move_to(card, switch, 0));
+    let root = host.ui.tree.root().unwrap();
+    assert!(!host.ui.tree.cx().move_to(root, left, 0));
+}
+
+#[cfg(feature = "designer")]
+#[test]
+fn a_templated_layout_is_told_apart() {
+    #[derive(Default)]
+    struct Lists {
+        templated: Handle<SkiaLayout>,
+        plain: Handle<SkiaLayout>,
+    }
+    let ui = Ui::new(Lists::default(), |app: &mut Lists| {
+        SkiaLayout::column().fill().children((
+            SkiaLayout::column().assign(&mut app.templated).items(|_: &Lists| 3, || (SkiaLabel::new("row"), ()), |_: &(), _: &Lists, _, _| {}),
+            SkiaLayout::column().assign(&mut app.plain).children((SkiaLabel::new("a"),)),
+        ))
+    });
+    let mut host = Headless::new(ui, 300, 300, 1.0);
+    host.settle();
+    assert!(host.ui.tree.is_templated(host.ui.state.templated));
+    assert!(!host.ui.tree.is_templated(host.ui.state.plain));
+}

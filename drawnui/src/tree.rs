@@ -1208,6 +1208,38 @@ impl Cx<'_> {
         Some(id)
     }
 
+    /// Feature `designer`: moves a control with everything inside it to another parent, as the
+    /// app's child number `index` there (past the end: the last). Its id, handlers and state stay.
+    /// False when it cannot go there: no such control or parent, the root, a part a control made
+    /// itself, or into itself or one of its descendants.
+    #[cfg(feature = "designer")]
+    pub fn move_to(&mut self, id: impl Into<ControlId>, parent: impl Into<ControlId>, index: usize) -> bool {
+        let (id, parent) = (id.into(), parent.into());
+        let tree = &mut *self.tree;
+        let Some(old) = tree.node(id).filter(|n| !n.part).and_then(|n| n.parent) else { return false };
+        if tree.node(parent).is_none() || std::iter::successors(Some(parent), |c| tree.parent(*c)).any(|c| c == id) {
+            return false;
+        }
+        if let Some(node) = tree.node_mut(old) {
+            node.children.retain(|c| *c != id);
+        }
+        tree.invalidate(old, Dirty::MEASURE);
+        if let Some(node) = tree.node_mut(parent) {
+            node.children.push(id);
+        }
+        if let Some(node) = tree.node_mut(id) {
+            node.parent = Some(parent);
+        }
+        tree.invalidate(id, Dirty::MEASURE);
+        tree.visibility_epoch += 1;
+        tree.hover_check = true;
+        let mut order = self.app_children(parent);
+        order.retain(|c| *c != id);
+        order.insert(index.min(order.len()), id);
+        self.reorder(parent, &order);
+        true
+    }
+
     /// Moves the app's child number `from` of `parent` to number `to` (C# Move).
     pub fn move_child(&mut self, parent: impl Into<ControlId>, from: usize, to: usize) {
         let parent = parent.into();
