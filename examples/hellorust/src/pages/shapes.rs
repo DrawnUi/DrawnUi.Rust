@@ -134,7 +134,7 @@ pub fn build(_app: &mut App) -> Build<SkiaLayout> {
                         .fill_gradient(gradient(GradientType::Linear, &[0xFFC107, 0xD63384]).angle(90.0)),
                 ),
                 demo(
-                    "Label: BackgroundColor + FillGradient = both",
+                    "Label: BackgroundColor + FillGradient → background",
                     SkiaLabel::new("bg + text")
                         .font_size(16)
                         .text_color(Color::WHITE)
