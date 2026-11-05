@@ -4,7 +4,7 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.32 (crates.io, 2026-11-05)
 
 ### Added
 
@@ -12,6 +12,10 @@ version before it. Commits in parentheses.
   button, Alt+F4, Cmd+Q); false keeps the window open, and `Cx::close_app()` ends the app later
   without asking again. Without a handler the window closes as before. `App::app_closing` for hosts;
   `Headless::request_close` and `take_close_app` for tests.
+
+### Toolchain
+
+Skia crates unchanged (0.153.7).
 
 ## 0.1.0-preview.31 (crates.io, 2026-11-05)
 
