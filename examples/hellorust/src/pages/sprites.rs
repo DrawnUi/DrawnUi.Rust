@@ -149,6 +149,10 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
             ),
         ),
     )))
+    // The warrior takes the keys as a game does, before the canvas keyboard navigation: an arrow or
+    // Space never presses a focused button as well.
+    .listen_keys()
+    .on_key_down(|_me, app: &mut App, cx, event| key(app, event, cx))
 }
 
 /// A 160 x 160 sprite that plays forever.

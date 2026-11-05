@@ -582,6 +582,21 @@ pub fn key(app: &mut App, event: &KeyEvent, cx: &mut Cx) -> bool {
     if event.kind != KeyKind::Down {
         return false;
     }
+    // The canvas's keyboard navigation already pressed the control the keyboard is on (a title,
+    // a line): nothing more to do with this Enter or Space.
+    if event.handled && matches!(event.key, "Enter" | "NumpadEnter" | "Space") {
+        return false;
+    }
+    // Escape: the canvas closed the open menu already; the keyboard stays on its title.
+    if event.key == "Escape"
+        && event.handled
+        && let Some(open) = app.menus.open
+    {
+        enter_bar(app, cx);
+        close_menu(app, cx);
+        light_title(app, cx, open);
+        return true;
+    }
     app.menus.alt_alone = alt && !modifiers.ctrl && !modifiers.shift && !modifiers.meta;
     if modifiers.alt && !modifiers.ctrl {
         let Some(index) = MENUS.iter().position(|m| m.accelerator == event.key) else { return false };

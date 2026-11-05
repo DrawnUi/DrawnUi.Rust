@@ -85,7 +85,6 @@ fn opened(app: &mut App, cx: &mut Cx, route: &str) {
 pub fn key(app: &mut App, event: &KeyEvent, cx: &mut Cx) -> bool {
     match app.route {
         Some("keyboard") => keyboard::key(app, event),
-        Some("sprites") => sprites::key(app, event, cx),
         Some("menus") => menus::key(app, event, cx),
         _ => false,
     }
