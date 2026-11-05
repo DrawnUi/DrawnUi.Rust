@@ -227,7 +227,8 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
                 .assign(&mut page.game)
                 .start_loop(0.0)
                 .on_game_loop(|_me, app: &mut App, cx, delta| game_loop(app, cx, delta))
-                .on_key_down(|_me, app: &mut App, cx, event| key_down(app, cx, event.key))
+                // Keys the canvas's keyboard navigation used (a focused button's Space) are not the game's.
+                .on_key_down(|_me, app: &mut App, cx, event| !event.handled && key_down(app, cx, event.key))
                 .on_key_up(|_me, app: &mut App, _cx, event| key_up(app, event.key))
                 // The field takes its presses: a pan steers the paddle, a tap serves.
                 .consume_gestures(|me, app: &mut App, cx, gesture| match gesture.kind {

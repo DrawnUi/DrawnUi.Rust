@@ -219,12 +219,13 @@ fn toggle_dialog(app: &mut App, cx: &mut Cx, dialog: fn(&mut App) -> Build<SkiaL
 }
 
 fn key_down(app: &mut App, cx: &mut Cx, event: &KeyEvent) -> bool {
+    // The canvas's keyboard navigation used it (a button a keyboard user tabbed to took Enter or
+    // Space, an arrow moved in a group): not the game's.
+    if event.handled {
+        return false;
+    }
     if event.repeat {
         return true;
-    }
-    // A button a keyboard user tabbed to takes Enter and Space itself.
-    if matches!(event.key, "Enter" | "NumpadEnter" | "Space") && cx.accessibility_focused().is_some() {
-        return false;
     }
     // GAME OVER takes any key (F1 still opens the help).
     if app.phase == Phase::Over && !app.paused && event.key != "F1" {

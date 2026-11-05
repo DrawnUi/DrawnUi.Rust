@@ -149,8 +149,7 @@ pub fn build(app: &mut App) -> Build<SkiaLayout> {
             ),
         ),
     )))
-    // The warrior takes the keys as a game does, before the canvas keyboard navigation: an arrow or
-    // Space never presses a focused button as well.
+    // The warrior takes the keys as a game does, from a control that listens to every key.
     .listen_keys()
     .on_key_down(|_me, app: &mut App, cx, event| key(app, event, cx))
 }
@@ -279,7 +278,8 @@ fn attack(app: &mut App, cx: &mut Cx) {
 
 /// A key while the page is open: arrows and WASD walk, Space attacks.
 pub fn key(app: &mut App, event: &KeyEvent, cx: &mut Cx) -> bool {
-    if event.kind != KeyKind::Down {
+    // Keys the canvas's keyboard navigation used (a focused button's Space) are not the warrior's.
+    if event.kind != KeyKind::Down || event.handled {
         return false;
     }
     let (dx, dy) = match event.key {

@@ -80,6 +80,9 @@ fn build(app: &mut App) -> Build<SkiaLayout> {
         .on_route_changed(|_me, app: &mut App, cx, route| {
             let name = split_route(route).0;
             app.route = SAMPLES.iter().find(|sample| sample.route == name).map(|sample| sample.route);
+            // The arrows start keyboard navigation on menu screens, never while a game plays: its first
+            // arrow is the game's (DrawnUI ArrowsStartKeyboardNavigation).
+            cx.set_arrows_start_keyboard_navigation(!matches!(app.route, Some("pong" | "sprites")));
             // A page rebuilt from a link (the shell reports no navigation for it, as React's)
             // starts its work now. A pushed one waits for the end of its slide: its animations
             // running during the slide cost a dropped frame now and then (measured in Chrome).

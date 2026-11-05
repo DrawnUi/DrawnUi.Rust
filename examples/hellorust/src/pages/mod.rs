@@ -663,6 +663,31 @@ mod tests {
         bar_press(&mut host, "Escape");
     }
 
+    /// A game page turns arrows-start off: with the desktop's keyboard navigation on, the first arrow
+    /// only walks the warrior; back on the catalog the arrows start keyboard navigation again.
+    #[test]
+    fn a_game_page_owns_its_arrows_with_keyboard_navigation_on() {
+        let mut host = host(1400);
+        host.ui.set_accessibility_enabled(true);
+        host.ui.set_keyboard_navigation(true);
+        open_page(&mut host, "Sprites");
+        press(&mut host, "ArrowRight");
+        run(&mut host, 400.0);
+        assert_eq!(host.ui.state.sprites.col, 2, "the warrior walked");
+        assert!(host.ui.has_no_keyboard_focus(), "the arrow started no keyboard navigation");
+        // Home: the catalog's arrows start navigation.
+        let home = all(&host)
+            .into_iter()
+            .filter(|id| host.ui.tree.find::<SkiaButton>(*id).is_some_and(|b| b.p.text == "Home"))
+            .last()
+            .expect("the Home button");
+        let rect = on_screen(&host, home);
+        tap_at(&mut host, rect.center_x(), rect.center_y());
+        host.settle();
+        press(&mut host, "ArrowDown");
+        assert!(!host.ui.has_no_keyboard_focus(), "on the catalog the first arrow starts keyboard navigation");
+    }
+
     /// A tap at a canvas point, with frames after it.
     fn tap_at(host: &mut Headless<App>, x: f32, y: f32) {
         let t = host.time_ms();
