@@ -20,6 +20,7 @@ svg = ["skia-safe/svg"]
 full = ["skia-safe/textlayout", "svg"]
 # Hot reload in the browser: the app built as an emscripten side module is swapped into the
 # running engine (`dui_hot_swap`) and gets the state of the app it replaces (`hot_reload!`).
+# Link the side module with `-Bsymbolic`, see hotreload.md.
 hot-reload = ["dep:serde"]
 # Tools (DrawnUI Designer): the properties of every control by name (`Tree::props`, `Tree::set_prop`).
 designer = []

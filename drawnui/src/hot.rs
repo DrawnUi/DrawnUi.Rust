@@ -5,6 +5,10 @@
 //! loads a new module with `dui_hot_swap`. The state crosses as JSON, so the new code may add,
 //! remove or change fields: a field the saved state lacks takes its default (`#[serde(default)]` on
 //! the struct), and a state that no longer reads as the new type starts over from `Default`.
+//!
+//! Link the side module with `-Bsymbolic`: the previous module stays loaded and the loader keeps the
+//! first definition of each symbol, so without it the new module runs the previous module's code
+//! for every function with the same name (all generic code over `App`). See `hotreload.md`.
 
 use crate::{App, Ui};
 

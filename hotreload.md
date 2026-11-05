@@ -1,5 +1,27 @@
 # Hot reload for DrawnUI Rust apps
 
+## Linking a hot-reload module: always `-Bsymbolic`
+
+The `hot-reload` feature swaps an app built as an emscripten side module into the running engine
+(`dui_hot_swap`, state carried by `hot_reload!`). Link that side module with `-Bsymbolic` (a wasm-ld
+argument of the side-module link):
+
+- The engine keeps the previous module loaded, and emscripten's loader keeps the FIRST definition of
+  every symbol it sees.
+- Every build of the same app crate gives its generic code the same symbol names (`Ui<App>`,
+  `drop` of `App`, your `build` function...), and a side module calls its own functions through those
+  global names.
+- Without `-Bsymbolic` the new module therefore runs the previous module's code for every such
+  function. With an unchanged `App` nothing shows; when `App` changes shape (a field added or
+  removed), that old code reads the new state at the old offsets and the app fails.
+- `-Bsymbolic` binds the module's own definitions inside the module. Check: no `GOT.func` /
+  `GOT.mem` import of the linked module is also one of its exports.
+- Another way to the same result: a unique `-C metadata=<build id>` for every build, so no two builds
+  share symbol names.
+
+The rest of this page is the research from before the feature landed.
+
+
 What we learned (2026-10-01) when we planned Rust snippets for the DrawnUI Fiddle. There, "hot
 reload" means: you stop typing, the code compiles again and the canvas redraws. C# and TSX do this
 in the browser in under a second. Rust cannot.

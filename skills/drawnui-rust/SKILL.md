@@ -159,6 +159,34 @@ them on an iPhone), `display: block`,
 `touch-action: none`. Load large fallback fonts (emoji) through the font fallback so they never
 delay the first frame (see Emoji and symbols).
 
+## Hot reload in the browser (feature `hot-reload`)
+
+The app is built as an emscripten side module and swapped into the running engine (`dui_hot_swap`);
+`hot_reload!` carries the state across as JSON (`#[serde(default)]` on the state struct).
+
+- **Link the side module with `-Bsymbolic`** (a wasm-ld argument of the side-module link). The
+  engine keeps the previous module loaded and emscripten's loader keeps the first definition of each
+  symbol. Every build of the same crate gives its generic code (`Ui<App>`, `drop` of `App`, `build`)
+  the same symbol names, so without the flag the new module runs the previous module's code. It shows
+  only when `App` changes shape: old code reads the new state at old offsets, and the app fails
+  ("RefCell already borrowed", "memory access out of bounds", wrong values).
+- Check a linked module: none of its `GOT.func` / `GOT.mem` imports may also be one of its exports.
+- Same result another way: a unique `-C metadata=<build id>` per build.
+
+## Hot reload in the browser (feature `hot-reload`)
+
+The app is built as an emscripten side module and swapped into the running engine (`dui_hot_swap`);
+`hot_reload!` carries the state across as JSON (`#[serde(default)]` on the state struct).
+
+- **Link the side module with `-Bsymbolic`** (a wasm-ld argument of the side-module link). The
+  engine keeps the previous module loaded and emscripten's loader keeps the first definition of each
+  symbol. Every build of the same crate gives its generic code (`Ui<App>`, `drop` of `App`, `build`)
+  the same symbol names, so without the flag the new module runs the previous module's code. It shows
+  only when `App` changes shape: old code reads the new state at old offsets, and the app fails
+  ("RefCell already borrowed", "memory access out of bounds", wrong values).
+- Check a linked module: none of its `GOT.func` / `GOT.mem` imports may also be one of its exports.
+- Same result another way: a unique `-C metadata=<build id>` per build.
+
 ## Windows build
 
 `cargo run --release` from the app folder. Skia comes from the release archive. A source build

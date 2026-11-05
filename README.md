@@ -181,6 +181,9 @@ Per platform:
   ```
 - **iOS:** [`dev/ios`](dev/ios) builds an `.app` bundle for the simulator, or a signed one for a
   device.
+- **Hot reload in the browser** (feature `hot-reload`): the app is built as an emscripten side module
+  and swapped into the running engine with its state. Link that module with `-Bsymbolic`, so it runs
+  its own code and not the previous module's; see [`hotreload.md`](hotreload.md).
 
 ## AI skills
 
