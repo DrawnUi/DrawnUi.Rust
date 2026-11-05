@@ -190,3 +190,36 @@ fn window_handlers_hear_whether_navigation_used_the_key() {
     assert_eq!(host.ui.state.keys.last().map(|(k, h, _)| (k.as_str(), *h)), Some(("Enter", true)));
     assert_eq!(host.ui.state.pressed, ["Two"], "the marked Enter pressed nothing more");
 }
+
+#[derive(Default)]
+struct Game {
+    /// (key, handled) as a control listening to every key heard them.
+    heard: Vec<(String, bool)>,
+    pressed: Vec<&'static str>,
+}
+
+/// A control that listens to every key (a game) hears the key after the canvas's keyboard
+/// navigation and reads `KeyEvent::handled`; its return value claims nothing from navigation.
+#[test]
+fn a_key_listener_hears_after_navigation_with_handled() {
+    let button = |name: &'static str| {
+        SkiaShape::new().width_request(80).height_request(30).accessibility_role(Aria::BUTTON).accessibility_label(name).on_tapped(move |_me, app: &mut Game, _cx| app.pressed.push(name))
+    };
+    let ui = Ui::new(Game::default(), move |_| {
+        SkiaLayout::new().fill().listen_keys().on_key_down(|_me, app: &mut Game, _cx, event| {
+            app.heard.push((event.key.to_owned(), event.handled));
+            true
+        }).children((SkiaLayout::row().spacing(10).padding(10).children((button("One"), button("Two"))),))
+    });
+    let mut host = Headless::new(ui, 400, 300, 1.0);
+    host.ui.set_accessibility_enabled(true);
+    host.ui.set_keyboard_navigation(true);
+    host.settle();
+    host.press_key("Tab");
+    host.press_key("Space");
+    host.press_key("KeyQ");
+    host.settle();
+    let heard: Vec<(&str, bool)> = host.ui.state.heard.iter().map(|(k, h)| (k.as_str(), *h)).collect();
+    assert_eq!(heard, [("Tab", true), ("Space", true), ("KeyQ", false)]);
+    assert_eq!(host.ui.state.pressed, ["One"], "the listener's true did not keep Space from pressing One");
+}

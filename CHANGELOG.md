@@ -48,11 +48,12 @@ version before it. Commits in parentheses.
 - SkiaShell popups and modals are accessibility modals: while one is open, the page under it is not
   read and Tab stays in it.
 - A live region (`accessibility_live`) is read by screen readers on the next frame after it changes.
-- One key order on every host, as DrawnUI .NET: the controls' own key handlers, then the canvas's
-  keyboard navigation (Tab, Enter / Space, group arrows, sliders, Escape closing the top popup), then
-  the window-level handlers with `KeyEvent::handled`. A game that takes the arrows or Space handles them
-  on its own control (`.listen_keys()`, as `DrawnGame` does). In the browser, Enter or Space on an
-  overlay element presses it first and reaches the app as handled.
+- One key order on every host, as DrawnUI .NET: the focused control's own key handling, then the
+  canvas's keyboard navigation (Tab, Enter / Space, group arrows, sliders, Escape closing the top
+  popup), then the controls that listen to every key (`listen_keys`, `DrawnGame`) and the window-level
+  handlers, all with `KeyEvent::handled`: a game skips the keys navigation used. In the browser, Enter or
+  Space on an overlay element presses it first and reaches the app as handled.
+- `Cx::set_arrows_start_keyboard_navigation(on)`: a game screen turns it off while it plays.
 - When a popup window closes, an app's `set_accessibility_focus` in that frame wins over the return of
   the keyboard to the popup's opener.
 - Browser: menu items with a checkbox or radio role read checked or not checked.

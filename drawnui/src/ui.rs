@@ -416,8 +416,6 @@ pub struct Ui<S: 'static> {
     group_request: Option<GroupRequest>,
     /// `mark_key_handled`: the key a host used itself, for its next Down.
     key_marked: Option<InputKey>,
-    /// `arrows_start_keyboard_navigation`.
-    arrows_start: bool,
     /// A screen reader reads the app (`set_screen_reader_running`): true until a host says.
     screen_reader: bool,
     /// The modals that were active, oldest first, with where the keyboard was as each came.
@@ -549,7 +547,6 @@ impl<S: 'static> Ui<S> {
             active_modal: None,
             group_request: None,
             key_marked: None,
-            arrows_start: false,
             screen_reader: true,
             modal_stack: Vec::new(),
         }
@@ -732,7 +729,7 @@ impl<S: 'static> Ui<S> {
     /// behind the active modal), the first arrow key starts keyboard navigation, as Tab (Down,
     /// Right) or Shift+Tab (Up, Left) would. Off by default.
     pub fn arrows_start_keyboard_navigation(mut self, on: bool) -> Self {
-        self.arrows_start = on;
+        self.tree.arrows_start = on;
         self
     }
 
@@ -953,9 +950,10 @@ impl<S: 'static> Ui<S> {
     }
 
     /// Routes a key event now, after the queued pointer input: the focused control first
-    /// (`Control::on_key`, then its `on_key_down` / `on_key_up` / `on_key_char` handler), then the
-    /// controls that listen to every key (`Cx::listen_keys`, the same two), then the window-level
-    /// handlers. True when any of them used it.
+    /// (`Control::on_key`, then its `on_key_down` / `on_key_up` / `on_key_char` handler; true claims
+    /// the key), then the canvas's keyboard navigation, then the controls that listen to every key
+    /// (`Cx::listen_keys`, the same two) and the window-level handlers, which see
+    /// `KeyEvent::handled` (DrawnUI: the canvas, then KeyboardManager). True when any of them used it.
     pub fn key(&mut self, kind: KeyKind, key: InputKey, text: &str, modifiers: Modifiers, repeat: bool) -> bool {
         if self.fonts_pending > 0 {
             return false;
@@ -976,14 +974,6 @@ impl<S: 'static> Ui<S> {
         let overlay = tree.accessibility_focused.filter(|a| Some(*a) != focused && tree.node(*a).is_some());
         if let Some(overlay) = overlay.filter(|_| !handled) {
             handled = key_to_control(tree, state, state_dirty, overlay, &event);
-        }
-        // Listeners removed from the tree drop out here; one added by a handler waits for the next key.
-        tree.key_listeners.retain(|id| tree.nodes.get(id.index as usize).is_some_and(|n| n.as_ref().is_some_and(|n| n.id == *id)));
-        for i in 0..tree.key_listeners.len() {
-            let Some(&id) = tree.key_listeners.get(i) else { break };
-            if Some(id) != focused {
-                handled |= key_to_control(tree, state, state_dirty, id, &event);
-            }
         }
         self.apply_focus_request();
         // The canvas's keyboard navigation, before the window-level handlers (DrawnUI: the canvas
@@ -1011,6 +1001,15 @@ impl<S: 'static> Ui<S> {
         handled |= navigated;
         let Ui { tree, state, keyboard, key_down, key_up, key_char, state_dirty, .. } = self;
         let event = KeyEvent { kind, key, text, repeat, keyboard, handled: navigated };
+        // The controls that listen to every key (a game), after navigation: they read `handled`.
+        // Listeners removed from the tree drop out here; one added by a handler waits for the next key.
+        tree.key_listeners.retain(|id| tree.nodes.get(id.index as usize).is_some_and(|n| n.as_ref().is_some_and(|n| n.id == *id)));
+        for i in 0..tree.key_listeners.len() {
+            let Some(&id) = tree.key_listeners.get(i) else { break };
+            if Some(id) != focused {
+                handled |= key_to_control(tree, state, state_dirty, id, &event);
+            }
+        }
         let handlers = match kind {
             KeyKind::Down => key_down,
             KeyKind::Up => key_up,
@@ -1061,7 +1060,7 @@ impl<S: 'static> Ui<S> {
 
     /// `arrows_start_keyboard_navigation` is on, `key` is an arrow and nothing has the keyboard.
     fn arrow_starts_navigation(&self, key: InputKey) -> bool {
-        self.arrows_start && matches!(key, "ArrowDown" | "ArrowRight" | "ArrowUp" | "ArrowLeft") && self.has_no_keyboard_focus()
+        self.tree.arrows_start && matches!(key, "ArrowDown" | "ArrowRight" | "ArrowUp" | "ArrowLeft") && self.has_no_keyboard_focus()
     }
 
     /// Nothing has the keyboard (DrawnUI `HasNoKeyboardFocus`): no control, one that is gone, or
@@ -3379,6 +3378,13 @@ impl Cx<'_> {
     pub fn set_accessibility_focus(&mut self, id: impl Into<ControlId>) {
         self.tree.accessibility_focus_request = Some((Some(id.into()), self.tree.time_ms + 3000.0));
         self.tree.needs_frame = true;
+    }
+
+    /// `Ui::arrows_start_keyboard_navigation` at run time: menu screens turn it on, a game screen
+    /// turns it off while it plays, so its first arrow is only the game's (DrawnUI
+    /// `ArrowsStartKeyboardNavigation`).
+    pub fn set_arrows_start_keyboard_navigation(&mut self, on: bool) {
+        self.tree.arrows_start = on;
     }
 
     /// The keyboard and screen-reader focus stays where it is this frame: a popup closing does not

@@ -74,9 +74,9 @@ menubar) is one stop that remembers its item and moves by index; Home / End, Pag
 recycled list or layout every item counts, drawn or not: the scroll brings the item in, then it
 gets the keyboard;
 Enter / Space activate; Escape closes the top popup, else leaves; a focus ring after keyboard use.
-This navigation runs after the controls' own key handlers (the focused control, controls that listen
-to every key) and before the window-level handlers, which learn whether it used the key
-(`KeyEvent::handled`). The browser keeps its own
+This navigation runs after the focused control's own key handling and before the controls that listen
+to every key (games) and the window-level handlers, which learn whether it used the key
+(`KeyEvent::handled`); a game screen turns `set_arrows_start_keyboard_navigation` off while it plays. The browser keeps its own
 Tab order and ring through the overlay (roving tabindex for groups). The group role may sit on a
 wrapper: the items are the children of the layout it holds (a menu shape around a column of items),
 through any wrapper with one child. A menu, menubar, list, listbox or radio group whose items sit in

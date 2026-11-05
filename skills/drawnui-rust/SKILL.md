@@ -697,13 +697,15 @@ the engine: return its resize cursor from `cursor`.
 
 ## Key order
 
-Every host hands a key to the controls first (the focused control, then controls with
-`.listen_keys()`, as a game does), then to the canvas's keyboard navigation (Tab stops, Enter / Space
-on the control the keyboard is on, the arrows in a group, slider steps, Escape closing a popup), then
-to the window-level handlers (`Ui::on_key_down` / `on_key_up` / `on_key_char`). Those learn whether
-navigation used the key: `event.handled` (in the browser Tab is the page's, so it covers Enter, Space
-and the arrows). A game that takes the arrows or Space listens on its own control (`.listen_keys()` +
-`.on_key_down`, as a `DrawnGame` does), so navigation never presses a focused button with them. When a
+Every host hands a key to the focused control first (its own key handling; returning true claims the
+key), then to the canvas's keyboard navigation (Tab stops, Enter / Space on the control the keyboard
+is on, the arrows in a group, slider steps, Escape closing a popup), then to the controls that listen
+to every key (`.listen_keys()`, a `DrawnGame`) and the window-level handlers (`Ui::on_key_down` /
+`on_key_up` / `on_key_char`). Those learn whether navigation used the key: `event.handled` (in the
+browser Tab is the page's, so it covers Enter, Space and the arrows). A game skips handled keys:
+`.on_key_down(|_me, app, cx, e| !e.handled && my_key(app, cx, e))`. On a game screen, turn
+`cx.set_arrows_start_keyboard_navigation(false)` while it plays (back on for menu screens), so its
+first arrow is the game's. When a
 popup window closes with the keyboard in it, the keyboard goes back to its opener, unless the app put it
 somewhere in that frame (`cx.set_accessibility_focus(control)`) or kept it (`cx.keep_accessibility_focus()`).
 

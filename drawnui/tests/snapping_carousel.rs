@@ -497,7 +497,7 @@ fn fast_swipes_across_the_wrap_never_jump_to_another_pair() {
     let mut host = scene(1.0, |c| c.is_looped(true));
     // The loop is 4 slides of 400: positions compared around it.
     let mut positions = vec![state(&host).0];
-    let mut record = |host: &mut Host, positions: &mut Vec<f32>| {
+    let record = |host: &mut Host, positions: &mut Vec<f32>| {
         for _ in 0..6 {
             host.frame_after(16.0);
             positions.push(state(host).0);
