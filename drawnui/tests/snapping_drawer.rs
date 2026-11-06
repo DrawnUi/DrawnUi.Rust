@@ -177,3 +177,27 @@ fn taps_reach_its_content_and_pass_by_it() {
     assert_eq!((host.ui.state.inside, host.ui.state.below), (1, 1));
     assert_eq!(state(&host), (264.0, false, false));
 }
+
+/// A touch that stops a move to a snap and does not pan: the drawer finishes the move to where it
+/// was sent (C# FinishStoppedMove, 58f4a25c; React 0842c63).
+#[test]
+fn a_touch_without_a_pan_lets_a_stopped_move_finish() {
+    for hold in [false, true] {
+        let mut host = scene(|d| d.bounces(true));
+        let id = host.ui.state.drawer;
+        host.ui.tree.get_mut(id).unwrap().open();
+        run(&mut host);
+        host.ui.tree.get_mut(id).unwrap().close();
+        for _ in 0..5 {
+            host.frame_after(16.0);
+        }
+        let (moved, ..) = state(&host);
+        assert!(moved > 20.0 && moved < 240.0, "{hold}: on its way, {moved}");
+        // On its content, where it is now.
+        let y = 280.0 + moved + 100.0;
+        if hold { host.long_press(200.0, y) } else { host.tap(200.0, y) }
+        run(&mut host);
+        assert_eq!(state(&host), (264.0, false, false), "{hold}");
+        assert_eq!(host.ui.state.completed.last(), Some(&false), "{hold}");
+    }
+}

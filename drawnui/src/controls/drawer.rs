@@ -218,6 +218,19 @@ impl SkiaDrawer {
         }
     }
 
+    /// A Down stops a running move to a snap, so a pan can take the drawer from where it is. When
+    /// the touch ends without a pan, the drawer finishes that move to the snap it was sent to (code
+    /// set `is_open`, or a released swipe) instead of staying between its snaps (C#
+    /// FinishStoppedMove).
+    fn finish_stopped_move(&mut self) {
+        let (target, at) = (self.s.snap, self.s.position);
+        if self.s.is_animating() || !self.s.snap_points.contains(&target) || ((at.x - target.x).abs() <= 1.0 && (at.y - target.y).abs() <= 1.0) {
+            return;
+        }
+        self.s.snap = at;
+        self.scroll_to_offset(target, Point::default(), self.sp.animated && self.was_drawn);
+    }
+
     /// React resetPan.
     fn reset_pan(&mut self, translation: Point) {
         (self.s.is_user_focused, self.s.is_user_panning, self.child_was_tapped) = (true, false, false);
@@ -451,6 +464,7 @@ impl Control for SkiaDrawer {
             GestureKind::Up => 'up: {
                 self.had_down = false;
                 if self.child_was_tapped || !self.s.is_user_panning {
+                    self.finish_stopped_move();
                     break 'up;
                 }
                 // React reads the clock while it processes the Up: the frame time here.
