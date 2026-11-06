@@ -269,6 +269,19 @@ fn a_fallback_draws_the_glyph_the_main_font_lacks() {
 }
 
 #[test]
+fn a_one_character_fallback_run_between_main_characters_is_drawn() {
+    for text in ["a\u{2665}b", "a\u{2192}b"] {
+        let mut host = host(SkiaLabel::new(text).font_size(40).text_color(Color::WHITE).font_family_fallback("FontSymbols,FontSymbols2"), 200.0, 1.0);
+        let runs: Vec<(String, f32, usize)> = label(&host).runs().map(|r| (r.text.to_string(), r.width, r.fallback)).collect();
+        assert_eq!(runs.len(), 3, "{text}: {runs:?}");
+        assert!(runs[1].2 > 0, "{text}: the middle run comes from a fallback: {runs:?}");
+        let (left, right) = (runs[0].1, runs[0].1 + runs[1].1);
+        let middle = ink(&mut host, Rect::from_ltrb(left + 2.0, 0.0, right - 2.0, 60.0), not_black);
+        assert!(middle.len() > 40, "{text}: {} ink pixels in the fallback run {left}..{right}", middle.len());
+    }
+}
+
+#[test]
 fn color_emoji_keep_their_colors() {
     if emoji_font().is_none() {
         return;
