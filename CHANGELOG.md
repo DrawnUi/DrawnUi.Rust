@@ -4,7 +4,7 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.33 (crates.io, 2026-11-06)
 
 ### Changed
 
@@ -12,6 +12,12 @@ version before it. Commits in parentheses.
   ripple) play for a finger, a pen or the left mouse button only: a right click that opens a context
   menu shows none. Tapped events and the buttons that raise them stay as they are.
   `Gesture::is_primary()` tells such a press.
+- SkiaDrawer: a touch that does not pan while the drawer moves to a snap (opened or closed in
+  code, or after a swipe) lets it finish that move; a pan still takes the drawer from where it is.
+
+### Toolchain
+
+Skia crates unchanged (0.153.7).
 
 ## 0.1.0-preview.32 (crates.io, 2026-11-05)
 
