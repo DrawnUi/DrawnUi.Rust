@@ -91,6 +91,14 @@ pub struct Gesture {
     pub manipulation: Option<Manipulation>,
 }
 
+impl Gesture {
+    /// A finger, a pen or the left mouse button (DrawnUI `IsPrimaryPointer`): what tap and press
+    /// animations play for. A right or middle click still raises its events, without them.
+    pub fn is_primary(&self) -> bool {
+        self.button == MouseButton::Left
+    }
+}
+
 /// What two or more fingers did since the previous move (AppoMobi.Gestures ManipulationInfo):
 /// pinch to zoom from `scale`, turn from `rotation`. Canvas pixels.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]

@@ -2106,7 +2106,10 @@ impl Control for SkiaLabel {
         let (id, point, base) = (cx.id, cx.point, cx.base());
         let (rect, scale, color) = (base.rect, base.scale, base.p.touch_effect_color);
         let (x, y) = ((point.x - rect.left) / scale, (point.y - rect.top) / scale);
-        cx.cx().play_ripple(id, color, x, y, 0.0);
+        // The ripple for a finger, a pen or the left mouse button only; the span's tap still runs.
+        if gesture.is_primary() {
+            cx.cx().play_ripple(id, color, x, y, 0.0);
+        }
         animators::start_frame(cx.tree, id, fire_span_tap);
         Handled::Yes
     }

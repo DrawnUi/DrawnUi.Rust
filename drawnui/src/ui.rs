@@ -2995,7 +2995,10 @@ impl Router<'_> {
         self.fire(id, point, |raw, state, cx, handlers| match handlers.tapped.as_mut() {
             Some(tapped) => {
                 let (p, rect, scale) = (&raw.base.p, raw.base.rect, raw.base.scale.max(0.1));
-                if p.animation_tapped == crate::controls::button::SkiaTouchAnimation::Ripple {
+                // Only for a finger, a pen, the left mouse button or the keyboard (no gesture): a
+                // right click that opens a context menu plays none.
+                let primary = cx.gesture().is_none_or(|g| g.is_primary());
+                if primary && p.animation_tapped == crate::controls::button::SkiaTouchAnimation::Ripple {
                     let (x, y) = ((point.x - rect.left) / scale, (point.y - rect.top) / scale);
                     cx.play_ripple(id, p.touch_effect_color, x, y, p.animation_tapped_speed);
                 }

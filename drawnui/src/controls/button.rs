@@ -280,8 +280,9 @@ impl Control for SkiaButton {
                 self.had_down = true;
                 self.last_down = gesture.location;
                 cx.invalidate(Dirty::REPAINT);
-                if self.p.apply_effect == SkiaTouchAnimation::Ripple {
-                    // From the press point, in points inside the button.
+                if self.p.apply_effect == SkiaTouchAnimation::Ripple && gesture.is_primary() {
+                    // From the press point, in points inside the button (a finger, a pen or the
+                    // left mouse button only).
                     let (id, point, base) = (cx.id, cx.point, cx.base());
                     let (x, y) = ((point.x - base.rect.left) / base.scale, (point.y - base.rect.top) / base.scale);
                     let color = base.p.touch_effect_color;
