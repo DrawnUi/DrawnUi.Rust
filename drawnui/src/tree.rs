@@ -831,6 +831,24 @@ pub struct Tree {
     pub(crate) window_focused: Option<bool>,
     /// The system's light or dark appearance (`Cx::system_theme`); `None` until a host says.
     pub(crate) system_theme: Option<crate::SystemTheme>,
+    /// Designer actions by path, in the order added; a running one is out (`None`).
+    pub(crate) designer_actions: Vec<(String, Option<DesignerAction>)>,
+    /// Counts the changes of `designer_actions` (`Ui::designer_actions_revision`).
+    pub(crate) designer_actions_revision: u32,
+}
+
+/// An action the DrawnUI Designer can run (`Ui::designer_action`), with the app state.
+pub(crate) type DesignerAction = Box<dyn FnMut(&mut dyn std::any::Any, &mut Cx<'_>)>;
+
+impl Tree {
+    /// Adds the action, or replaces the one with the same path where it is.
+    pub(crate) fn add_designer_action(&mut self, path: String, action: DesignerAction) {
+        match self.designer_actions.iter_mut().find(|(p, _)| *p == path) {
+            Some(entry) => entry.1 = Some(action),
+            None => self.designer_actions.push((path, Some(action))),
+        }
+        self.designer_actions_revision = self.designer_actions_revision.wrapping_add(1);
+    }
 }
 
 impl Tree {
@@ -1140,6 +1158,28 @@ impl Cx<'_> {
     /// cannot tell (`Ui::on_system_theme_changed`).
     pub fn system_theme(&self) -> Option<crate::SystemTheme> {
         self.tree.system_theme
+    }
+
+    /// Adds a designer action while the app runs (`Ui::designer_action`), or replaces the one with
+    /// the same path: one a screen offers while it is shown. `S` is the app state type.
+    pub fn add_designer_action<S: std::any::Any>(&mut self, path: impl Into<String>, mut run: impl FnMut(&mut S, &mut Cx<'_>) + 'static) {
+        let action: DesignerAction = Box::new(move |state, cx| {
+            if let Some(state) = state.downcast_mut::<S>() {
+                run(state, cx)
+            }
+        });
+        self.tree.add_designer_action(path.into(), action);
+    }
+
+    /// Removes the designer action with this path; false when there was none.
+    pub fn remove_designer_action(&mut self, path: &str) -> bool {
+        let before = self.tree.designer_actions.len();
+        self.tree.designer_actions.retain(|(p, _)| p != path);
+        let removed = self.tree.designer_actions.len() != before;
+        if removed {
+            self.tree.designer_actions_revision = self.tree.designer_actions_revision.wrapping_add(1);
+        }
+        removed
     }
 
     /// A handle another thread uses to mark controls dirty and wake the frame loop (a camera

@@ -766,6 +766,25 @@ handler nothing runs and nothing is redrawn.
 - Browser: `prefers-color-scheme`.
 - iOS and Android: not reported yet (`None`).
 
+## Designer actions
+
+Declare the states the DrawnUI Designer (and agents through its MCP) can jump the app to, so a
+level, a game state or a dialog is one click away instead of played to:
+
+```rust
+let mut ui = Ui::new(Game::default(), build);
+for level in 1..=20 {
+    ui = ui.designer_action(format!("Levels/Level {level}"), move |game: &mut Game, cx| game.start_level(level, cx));
+}
+let ui = ui.designer_action("Dialogs/Options", |game: &mut Game, cx| game.show_options(cx));
+```
+
+The path's groups come before the name, slash-separated. The same path replaces an action in its
+place; the designer lists them in declaration order. A screen offers its own while shown with
+`cx.add_designer_action(path, |game: &mut Game, cx| ...)` and takes them back with
+`cx.remove_designer_action(path)`. Actions run on the UI thread with the app state; only names and
+closures are kept, nothing runs unless a designer asks.
+
 ## Clipboard
 
 `cx.set_clipboard(text)` copies plain text, `cx.request_paste()` asks for the clipboard's text,

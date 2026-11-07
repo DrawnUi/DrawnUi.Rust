@@ -763,6 +763,43 @@ impl<S: 'static> Ui<S> {
         self
     }
 
+    /// A named state the DrawnUI Designer can jump the app to (a level, a game state, a dialog):
+    /// the designer lists it under the app's screens and runs it on a click; agents run it through
+    /// the designer's MCP (`list_actions`, `run_action`). `path` names it with its groups,
+    /// slash-separated: "Levels/Level 3" shows as "Level 3" under "Levels". The same path replaces
+    /// an action where it is; the order is the order of declaration. It runs on the UI thread with
+    /// the app state, as any handler. Only the names and closures are kept: nothing runs unless a
+    /// designer asks (`Cx::add_designer_action` / `remove_designer_action` while the app runs).
+    pub fn designer_action(mut self, path: impl Into<String>, run: impl FnMut(&mut S, &mut Cx<'_>) + 'static) -> Self {
+        Cx { tree: &mut self.tree }.add_designer_action(path, run);
+        self
+    }
+
+    /// The designer actions' paths, in the order declared (`designer_action`).
+    pub fn designer_actions(&self) -> impl Iterator<Item = &str> {
+        self.tree.designer_actions.iter().map(|(p, _)| p.as_str())
+    }
+
+    /// Changes with every action added, replaced or removed: a designer agent sends the list again
+    /// when it differs from the one it sent.
+    pub fn designer_actions_revision(&self) -> u32 {
+        self.tree.designer_actions_revision
+    }
+
+    /// Runs the designer action with this path; false when there is none (or it is running).
+    pub fn run_designer_action(&mut self, path: &str) -> bool {
+        let Some(mut action) = self.tree.designer_actions.iter_mut().find(|(p, _)| p == path).and_then(|(_, a)| a.take()) else { return false };
+        action(&mut self.state, &mut Cx { tree: &mut self.tree });
+        // Back in its place, unless the action removed or replaced itself.
+        if let Some(entry) = self.tree.designer_actions.iter_mut().find(|(p, a)| p == path && a.is_none()) {
+            entry.1 = Some(action);
+        }
+        self.state_dirty = true;
+        self.tree.needs_frame = true;
+        self.apply_focus_request();
+        true
+    }
+
     /// Runs with the system's light or dark appearance: once when the host learns it (at start,
     /// before the first frame), then on every change (the user switched it in the system
     /// settings, or the system follows the time of day). `Cx::system_theme` reads it. Hosts:
