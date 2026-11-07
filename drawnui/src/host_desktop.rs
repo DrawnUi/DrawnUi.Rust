@@ -77,6 +77,9 @@ enum Arrived {
     /// Android, iOS: the device turned to another quarter (`rotation::Sensor`).
     #[cfg(any(target_os = "ios", target_os = "android"))]
     Rotation(i32),
+    /// Windows: the light / dark app mode, read when the system announced a color change.
+    #[cfg(windows)]
+    Theme(crate::SystemTheme),
 }
 
 impl From<accesskit_winit::Event> for Arrived {
@@ -257,6 +260,7 @@ pub fn run(title: &str, size: (f64, f64), make: fn() -> Box<dyn App>) {
     }
 }
 
+#[cfg(not(windows))]
 fn system_theme(theme: winit::window::Theme) -> crate::SystemTheme {
     match theme {
         winit::window::Theme::Light => crate::SystemTheme::Light,
@@ -307,6 +311,14 @@ impl Desktop {
         });
         app.init(&mut host);
         // The system's light / dark appearance as it is now (`Ui::on_system_theme_changed`).
+        // Windows: read from the setting itself, and again on every change the system announces
+        // (winit's own value keeps the first change only: uxtheme hands it a cached answer).
+        #[cfg(windows)]
+        {
+            app.system_theme(win::apps_theme());
+            win::watch_theme(&window, proxy.clone());
+        }
+        #[cfg(not(windows))]
         if let Some(theme) = window.theme() {
             app.system_theme(system_theme(theme));
         }
@@ -1843,6 +1855,8 @@ impl ApplicationHandler<Arrived> for Desktop {
                 self.stats.image_ms.push(started.elapsed().as_secs_f32() * 1000.0);
             }
             Arrived::Baked(id, image) => self.app.baked(id, image),
+            #[cfg(windows)]
+            Arrived::Theme(theme) => self.app.system_theme(theme),
             Arrived::Access(event) => self.access_event(event.window_event),
             // The frame applies the marks.
             Arrived::Wake => {}
@@ -1920,6 +1934,7 @@ impl ApplicationHandler<Arrived> for Desktop {
             // The app window moved: popup windows close, as native menus do (they would stay where
             // they were).
             WindowEvent::Moved(_) => self.close_popups(),
+            #[cfg(not(windows))]
             WindowEvent::ThemeChanged(theme) => {
                 self.app.system_theme(system_theme(theme));
                 self.redraw();
@@ -2459,6 +2474,60 @@ fn work_area(monitor: &winit::monitor::MonitorHandle) -> Option<skia::Rect> {
 /// Windows API the popup windows need beyond winit.
 #[cfg(windows)]
 mod win {
+    /// "Choose your mode" for apps (Settings > Personalization > Colors): `AppsUseLightTheme`, 0 =
+    /// dark. Light when the value is missing (the Windows default).
+    pub(super) fn apps_theme() -> crate::SystemTheme {
+        const HKEY_CURRENT_USER: isize = 0x8000_0001_u32 as i32 as isize;
+        const RRF_RT_REG_DWORD: u32 = 0x10;
+        let key: Vec<u16> = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize\0".encode_utf16().collect();
+        let name: Vec<u16> = "AppsUseLightTheme\0".encode_utf16().collect();
+        let (mut value, mut size) = (1u32, 4u32);
+        // SAFETY: zero-terminated names, a 4-byte buffer for a REG_DWORD.
+        let found = unsafe {
+            RegGetValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr(), RRF_RT_REG_DWORD, std::ptr::null_mut(), (&mut value as *mut u32).cast(), &mut size)
+        } == 0;
+        if found && value == 0 { crate::SystemTheme::Dark } else { crate::SystemTheme::Light }
+    }
+
+    /// Hears the system's "ImmersiveColorSet" setting change on the app's window (what Settings
+    /// sends when the mode changes) and hands the mode read then to the event loop.
+    pub(super) fn watch_theme(window: &winit::window::Window, proxy: winit::event_loop::EventLoopProxy<super::Arrived>) {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        let Ok(RawWindowHandle::Win32(handle)) = window.window_handle().map(|h| h.as_raw()) else { return };
+        // ponytail: one proxy kept for the app's life (one window, one subclass); never freed.
+        let data = Box::into_raw(Box::new(proxy)) as usize;
+        // SAFETY: a live window of this thread; the subclass stays for its life.
+        unsafe { SetWindowSubclass(handle.hwnd.get(), Some(theme_proc), 1, data) };
+    }
+
+    unsafe extern "system" fn theme_proc(window: isize, msg: u32, wparam: usize, lparam: isize, _id: usize, data: usize) -> isize {
+        const WM_SETTINGCHANGE: u32 = 0x1A;
+        if msg == WM_SETTINGCHANGE && lparam != 0 {
+            const AREA: &str = "ImmersiveColorSet";
+            let name = lparam as *const u16;
+            // SAFETY: WM_SETTINGCHANGE's lParam, when set, is a zero-terminated UTF-16 area name;
+            // the comparison stops at the first difference, so it never reads past that zero.
+            if AREA.encode_utf16().chain([0]).enumerate().all(|(i, c)| unsafe { *name.add(i) } == c) {
+                // SAFETY: `data` is the proxy `watch_theme` leaked for this window.
+                let proxy = unsafe { &*(data as *const winit::event_loop::EventLoopProxy<super::Arrived>) };
+                let _ = proxy.send_event(super::Arrived::Theme(apps_theme()));
+            }
+        }
+        // SAFETY: the message as it came, to the next procedure in the chain.
+        unsafe { DefSubclassProc(window, msg, wparam, lparam) }
+    }
+
+    type SubclassProc = unsafe extern "system" fn(isize, u32, usize, isize, usize, usize) -> isize;
+    #[link(name = "comctl32")]
+    unsafe extern "system" {
+        fn SetWindowSubclass(window: isize, proc_: Option<SubclassProc>, id: usize, data: usize) -> i32;
+        fn DefSubclassProc(window: isize, msg: u32, wparam: usize, lparam: isize) -> isize;
+    }
+    #[link(name = "advapi32")]
+    unsafe extern "system" {
+        fn RegGetValueW(key: isize, sub_key: *const u16, value: *const u16, flags: u32, kind: *mut u32, data: *mut std::ffi::c_void, size: *mut u32) -> i32;
+    }
+
     #[derive(Default)]
     #[repr(C)]
     pub(super) struct MonitorInfo {
