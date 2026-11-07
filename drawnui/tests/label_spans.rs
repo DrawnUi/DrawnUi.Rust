@@ -491,3 +491,27 @@ fn selectable_text_gets_the_lines_and_their_css_font() {
     let l = &lines[0];
     assert_eq!((l.font_family.as_str(), l.font_weight, l.font_size, l.height), ("FontText, FontSymbols, FontSymbols2", 600, 16.0, line));
 }
+
+/// An outline and a drop shadow add their room once per line, not to every span: two spans draw
+/// as the same text in one (DrawnUi.Net 6dcfcfce, "BRICKS BREAKER !" with a gap before "!").
+#[test]
+fn outline_and_shadow_room_is_added_once_not_per_span() {
+    let look = |l: Build<SkiaLabel>| {
+        l.font_size(30)
+            .text_color(Color::WHITE)
+            .stroke_color(Color::RED)
+            .stroke_width(2.0)
+            .drop_shadow_color(Color::BLUE)
+            .drop_shadow_size(3.0)
+            .drop_shadow_offset_x(4.0)
+            .horizontal_options(LayoutOptions::Start)
+    };
+    for scale in [1.0f32, 2.0] {
+        let mut plain = host(look(SkiaLabel::new("BRICKS BREAKER !")), 500.0, scale);
+        let mut spans = host(look(SkiaLabel::new("").spans(vec![TextSpan::new("BRICKS BREAKER "), TextSpan::new("!")])), 500.0, scale);
+        let (a, b) = (label(&plain).content_size(), label(&spans).content_size());
+        assert!((a.width - b.width).abs() < 0.5, "scale {scale}: plain {a:?} spans {b:?}");
+        let area = Rect::from_wh(508.0 * scale, 80.0 * scale);
+        assert_eq!(ink(&mut plain, area, not_black), ink(&mut spans, area, not_black), "scale {scale}: the same pixels");
+    }
+}
