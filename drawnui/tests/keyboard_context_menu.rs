@@ -117,3 +117,30 @@ fn a_screen_readers_show_menu_opens_that_controls_menu() {
         assert_eq!(host.ui.state.menus.iter().map(|m| m.0).collect::<Vec<_>>(), ["card"]);
     }
 }
+
+#[derive(Default)]
+struct Plain {
+    menu: u32,
+    label: Handle<SkiaLabel>,
+}
+
+#[test]
+fn show_menu_runs_the_controls_handler_and_reports_when_nobody_took_it() {
+    let ui = Ui::new(Plain::default(), |app: &mut Plain| {
+        SkiaLayout::column().children((SkiaLabel::new("Hi")
+            .assign(&mut app.label)
+            .on_context_menu(|_me, s: &mut Plain, _cx, _m: &ContextMenu| {
+                s.menu += 1;
+                true
+            }),))
+    });
+    let mut host = Headless::new(ui, 400, 300, 1.0);
+    host.settle();
+    let label: ControlId = host.ui.state.label.into();
+    let root = host.ui.tree.parent(label).unwrap();
+    assert!(host.ui.accessibility_context_menu(label.to_bits() as u32));
+    assert_eq!(host.ui.state.menu, 1, "the label's own handler");
+    // No handler up from the root and no app fallback: nobody took it.
+    assert!(!host.ui.accessibility_context_menu(root.to_bits() as u32));
+    assert_eq!(host.ui.state.menu, 1);
+}

@@ -984,8 +984,8 @@ impl<S: 'static> Ui<S> {
     /// context menu of the control in keyboard focus (`from`, else the focused control, else the
     /// one the keyboard navigation is on), as a right click at its center would open it: the first
     /// control up from it with an `on_context_menu` handler, else the `Ui::on_context_menu`
-    /// fallback; the source is `ContextMenuSource::Keyboard`. False when no control is in focus:
-    /// the host then asks where the pointer is.
+    /// fallback; the source is `ContextMenuSource::Keyboard`. True when one of them took it; false
+    /// when none did or no control is in focus (the host then asks where the pointer is).
     pub fn keyboard_context_menu(&mut self, from: Option<ControlId>) -> bool {
         let keyboard = self.accessibility_focused().filter(|_| !self.has_no_keyboard_focus());
         let Some(focus) = from.filter(|id| self.tree.node(*id).is_some()).or(self.focused()).or(keyboard) else { return false };
@@ -1006,7 +1006,7 @@ impl<S: 'static> Ui<S> {
                 return true;
             }
         }
-        let Some(fallback) = self.context_menu.as_mut() else { return true };
+        let Some(fallback) = self.context_menu.as_mut() else { return false };
         let scale = self.scale.max(0.1);
         let menu = ContextMenu {
             location: Point::new(location.x / scale, location.y / scale),
@@ -1015,10 +1015,10 @@ impl<S: 'static> Ui<S> {
             control: None,
             local: Point::default(),
         };
-        fallback(&mut self.state, &menu, &mut Cx { tree: &mut self.tree });
+        let taken = fallback(&mut self.state, &menu, &mut Cx { tree: &mut self.tree });
         self.state_dirty = true;
         self.apply_focus_request();
-        true
+        taken
     }
 
     /// A control used the gesture: it consumed it and is not only a `block_gestures_below` layer.
