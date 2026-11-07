@@ -195,6 +195,8 @@ pub struct SkiaEditor {
     /// A press is selecting from this character.
     drag_anchor: Option<usize>,
     focused: bool,
+    /// The app's window has the keyboard: the caret shows and blinks only then (`Cx::window_focused`).
+    window_active: bool,
     shift: bool,
     caret_on: bool,
     /// Frame time of the next blink, milliseconds; 0 = restart the blink.
@@ -240,6 +242,7 @@ impl SkiaEditor {
             focused: false,
             shift: false,
             caret_on: true,
+            window_active: true,
             blink_at: 0.0,
             ticking: false,
             scroll: Point::default(),
@@ -1025,7 +1028,7 @@ fn tick(id: ControlId, time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> Fr
             }
         }
         if let Some(editor) = part_mut::<SkiaEditor>(control) {
-            if editor.focused {
+            if editor.focused && editor.window_active {
                 if editor.blink_at == 0.0 {
                     editor.blink_at = time_ms + BLINK_MS;
                 } else if time_ms >= editor.blink_at {
@@ -1036,7 +1039,7 @@ fn tick(id: ControlId, time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> Fr
                 wake_at = Some(editor.blink_at);
             }
             // A handler may have left more work; it asked for a wake then.
-            result.keep = editor.focused || editor.pending != 0;
+            result.keep = (editor.focused && editor.window_active) || editor.pending != 0;
             editor.ticking = result.keep;
         }
     }
@@ -1220,7 +1223,7 @@ impl Control for SkiaEditor {
             paint.set_color(stroke_color);
             canvas.draw_rrect(frame, &paint);
         }
-        if self.focused && self.p.can_show_cursor && self.caret_on
+        if self.focused && self.window_active && self.p.can_show_cursor && self.caret_on
             && let Some(caret) = label.and_then(|l| caret_rect(l, self.cursor + self.selection, scale))
         {
             let mut paint = Paint::default();
@@ -1331,6 +1334,7 @@ impl Control for SkiaEditor {
 
     fn on_focus_changed(&mut self, cx: &mut GestureCx, focused: bool) {
         self.focused = focused;
+        self.window_active = cx.tree.window_focused.unwrap_or(true);
         // Focused from code before any caret was placed: the caret goes to the end, so typing appends.
         if focused && !self.cursor_set {
             (self.cursor, self.selection, self.cursor_set) = (self.chars, 0, true);
@@ -1344,6 +1348,19 @@ impl Control for SkiaEditor {
             self.keyboard_edges = None;
             self.shift = false;
         }
+        cx.invalidate(Dirty::DRAW);
+        self.wake(cx.tree);
+    }
+
+    /// Another app took the keyboard: the editor keeps its focus, its caret hides and stops
+    /// blinking (no frames); back, the caret shows again at once (DrawnUI IsWindowActive).
+    fn on_window_focus(&mut self, cx: &mut GestureCx, active: bool) {
+        if !self.focused || self.window_active == active {
+            return;
+        }
+        self.window_active = active;
+        self.caret_on = true;
+        self.blink_at = 0.0;
         cx.invalidate(Dirty::DRAW);
         self.wake(cx.tree);
     }

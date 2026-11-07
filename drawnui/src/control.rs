@@ -141,6 +141,14 @@ pub trait Control: Any {
         }
     }
 
+    /// The focused control (`Ui::focused`) hears the app's window get the keyboard (`true`) or
+    /// lose it to another app (`false`); it keeps the focus either way (an editor hides its caret).
+    fn on_window_focus(&mut self, cx: &mut GestureCx, active: bool) {
+        if let Some(inner) = self.inner_mut() {
+            inner.on_window_focus(cx, active)
+        }
+    }
+
     /// While focused, the control takes typed text (`KeyKind::Char`): the host opens its
     /// keyboard and IME over the control (an editor).
     fn wants_text_input(&self) -> bool {

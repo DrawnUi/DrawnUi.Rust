@@ -3625,6 +3625,9 @@ impl<S: 'static> App for Ui<S> {
             return;
         }
         self.tree.window_focused = Some(focused);
+        if let Some(control) = self.focused() {
+            with_kind(&mut self.tree, control, |kind, cx| kind.on_window_focus(cx, focused));
+        }
         if !focused {
             // As native menus: the app losing the keyboard closes its popups.
             self.close_tooltip(false);

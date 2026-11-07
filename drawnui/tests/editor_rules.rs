@@ -542,3 +542,30 @@ fn is_focused_on_the_builder_focuses_the_editor_when_mounted() {
         assert_eq!(editor(&host).is_focused(), focused);
     }
 }
+
+/// Another app takes the keyboard: the editor keeps its focus, its caret hides and stops blinking
+/// (no frames); back, the caret shows again in the same field and blinks (DrawnUI IsWindowActive,
+/// DrawnUi.Net 232b37be).
+#[test]
+fn the_caret_hides_and_sleeps_while_the_window_is_inactive() {
+    let accent = Color::from_rgb(0x3B, 0x82, 0xF6);
+    let mut host = host(SkiaEditor::new().text("away"));
+    focus(&mut host);
+    let editor = host.ui.focused().expect("focused");
+    assert!(pixels_of(&mut host, accent) > 10);
+    drawnui::App::window_focus(&mut host.ui, false);
+    frame(&mut host);
+    assert_eq!(pixels_of(&mut host, accent), 0, "no caret while another app has the keyboard");
+    assert_eq!(host.ui.focused(), Some(editor), "the focus stays");
+    assert!(!host.ui.needs_frame(), "no frames while inactive");
+    assert_eq!(host.ui.wake_at(), None, "no blink while inactive");
+    host.frame_after(2000.0);
+    assert_eq!(pixels_of(&mut host, accent), 0);
+    drawnui::App::window_focus(&mut host.ui, true);
+    frame(&mut host);
+    assert!(pixels_of(&mut host, accent) > 10, "the caret shows again at once");
+    assert_eq!(host.ui.focused(), Some(editor));
+    let wake = host.ui.wake_at().expect("the blink resumes");
+    host.frame_after(wake - host.time_ms());
+    assert_eq!(pixels_of(&mut host, accent), 0, "and blinks");
+}
