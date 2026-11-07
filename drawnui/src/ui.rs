@@ -211,6 +211,8 @@ pub struct AccessibilityNode {
     pub group: Option<(u32, u32)>,
     /// The active modal (`accessibility_modal`): read as a modal dialog (aria-modal).
     pub modal: bool,
+    /// The control has an `on_context_menu` handler: a screen reader offers "show menu" on it.
+    pub has_context_menu: bool,
 }
 
 /// A role a user operates (a button, a field, a toggle...): one that takes no input is read as
@@ -978,6 +980,47 @@ impl<S: 'static> Ui<S> {
         taken
     }
 
+    /// The Menu key, Shift+F10 or a screen reader's "show menu" (DrawnUI KeyboardContextMenu): the
+    /// context menu of the control in keyboard focus (`from`, else the focused control, else the
+    /// one the keyboard navigation is on), as a right click at its center would open it: the first
+    /// control up from it with an `on_context_menu` handler, else the `Ui::on_context_menu`
+    /// fallback; the source is `ContextMenuSource::Keyboard`. False when no control is in focus:
+    /// the host then asks where the pointer is.
+    pub fn keyboard_context_menu(&mut self, from: Option<ControlId>) -> bool {
+        let keyboard = self.accessibility_focused().filter(|_| !self.has_no_keyboard_focus());
+        let Some(focus) = from.filter(|id| self.tree.node(*id).is_some()).or(self.focused()).or(keyboard) else { return false };
+        let has_menu = |tree: &Tree, id: ControlId| tree.node(id).is_some_and(|n| n.handlers.input.as_ref().is_some_and(|h| h.context_menu.is_some()));
+        let target = std::iter::successors(Some(focus), |c| self.tree.parent(*c)).find(|c| has_menu(&self.tree, *c)).unwrap_or(focus);
+        let Some(rect) = drawn_rect(&self.tree, target).or_else(|| self.tree.base(target).map(|b| b.rect)) else { return false };
+        let location = Point::new(rect.center_x(), rect.center_y());
+        let mut gesture = plain_gesture(GestureKind::ContextMenu, location, self.tree.time_ms);
+        gesture.source = ContextMenuSource::Keyboard;
+        let point = to_local(&self.tree, target, location);
+        if has_menu(&self.tree, target) {
+            self.tree.gesture = Some(gesture);
+            let routing = Routing { state: &mut self.state, state_dirty: &mut self.state_dirty, over: &mut self.over_next, by_z: &mut self.by_z };
+            let taken = Router { tree: &mut self.tree, r: routing, pressed: None }.fire_context_menu(target, &gesture, point);
+            self.tree.gesture = None;
+            if taken {
+                self.apply_focus_request();
+                return true;
+            }
+        }
+        let Some(fallback) = self.context_menu.as_mut() else { return true };
+        let scale = self.scale.max(0.1);
+        let menu = ContextMenu {
+            location: Point::new(location.x / scale, location.y / scale),
+            pixels: location,
+            source: ContextMenuSource::Keyboard,
+            control: None,
+            local: Point::default(),
+        };
+        fallback(&mut self.state, &menu, &mut Cx { tree: &mut self.tree });
+        self.state_dirty = true;
+        self.apply_focus_request();
+        true
+    }
+
     /// A control used the gesture: it consumed it and is not only a `block_gestures_below` layer.
     fn used(&self, consumed: Option<ControlId>) -> bool {
         consumed.is_some_and(|id| self.tree.base(id).is_some_and(|b| !b.p.block_gestures_below))
@@ -1015,7 +1058,11 @@ impl<S: 'static> Ui<S> {
         // browser overlay activating its element) marked it.
         let mut navigated = marked;
         let top_popup = self.tree.popups.iter().rev().find(|p| !p.options.passive).map(|p| p.id);
-        if !handled && !marked && kind == KeyKind::Down && key == "Escape" && top_popup.is_some() {
+        let menu_key = key == "ContextMenu" || (key == "F10" && modifiers.shift && !modifiers.ctrl && !modifiers.alt && !modifiers.meta);
+        if !handled && !marked && kind == KeyKind::Down && menu_key && self.keyboard_context_menu(None) {
+            // The Menu key and Shift+F10: the context menu of the control in keyboard focus.
+            navigated = true;
+        } else if !handled && !marked && kind == KeyKind::Down && key == "Escape" && top_popup.is_some() {
             // Escape closes the top popup window (native menus).
             if let Some(top) = top_popup {
                 self.tree.close_popup(top);
@@ -2455,6 +2502,7 @@ impl<S: 'static> Ui<S> {
                         parent,
                         group: None,
                         modal: is_modal,
+                        has_context_menu: node.handlers.input.as_ref().is_some_and(|h| h.context_menu.is_some()),
                     });
                 }
             }
@@ -3592,6 +3640,11 @@ impl<S: 'static> App for Ui<S> {
 
     fn accessibility_activate(&mut self, id: u32) {
         Ui::accessibility_activate(self, id)
+    }
+
+    fn accessibility_context_menu(&mut self, id: u32) -> bool {
+        let control = self.tree.nodes.get(id as usize).and_then(|n| n.as_ref()).map(|n| n.id);
+        control.is_some() && Ui::keyboard_context_menu(self, control)
     }
 
     fn system_theme(&mut self, theme: SystemTheme) {

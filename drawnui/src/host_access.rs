@@ -68,6 +68,9 @@ pub(crate) fn tree(title: &str, nodes: &[AccessibilityNode], scale: f64, focus: 
         node.set_bounds(Rect::new(r.left as f64, r.top as f64, r.right as f64, r.bottom as f64));
         // Any node can be scrolled into view (a screen reader moving to a node off screen).
         node.add_action(Action::ScrollIntoView);
+        if n.has_context_menu {
+            node.add_action(Action::ShowContextMenu);
+        }
         if n.can_interact {
             node.add_action(Action::Click);
             node.add_action(Action::Focus);
@@ -199,6 +202,7 @@ mod tests {
             parent,
             group: None,
             modal: false,
+            has_context_menu: false,
         }
     }
 

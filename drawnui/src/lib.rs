@@ -380,6 +380,11 @@ pub trait App {
     /// The accessibility overlay activated a control (a click on its node, Enter or Space on it):
     /// the control gets a Tapped at its center. `id` is `AccessibilityNode::id`.
     fn accessibility_activate(&mut self, _id: u32) {}
+    /// A screen reader's "show menu" on a node (AccessKit ShowContextMenu, VoiceOver VO+Shift+M):
+    /// `Ui::keyboard_context_menu` from that control. True when a menu request was routed.
+    fn accessibility_context_menu(&mut self, _id: u32) -> bool {
+        false
+    }
     /// The node the keyboard (or a screen reader) is on, `None` = none.
     fn accessibility_focused_id(&self) -> Option<u32> {
         None

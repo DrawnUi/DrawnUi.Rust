@@ -4,6 +4,23 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## Unreleased
+
+### Added
+
+- The Menu key and Shift+F10 open the context menu of the control in keyboard focus, at its center:
+  the first control up from it with `on_context_menu`, else `Ui::on_context_menu`, with
+  `ContextMenuSource::Keyboard`. A screen reader's "show menu" does the same on its node
+  (`App::accessibility_context_menu`; `AccessibilityNode::has_context_menu`). The app's key
+  handlers see the key as handled. With nothing in keyboard focus the menu opens where the
+  pointer is. `Ui::keyboard_context_menu` asks for it from code.
+- Tests guard a composite-cached layer whose shader effect is removed, and hidden frames that
+  take the waker's marks.
+
+### Breaks
+
+- `AccessibilityNode` has a new field, `has_context_menu`: code that builds one lists it.
+
 ## 0.1.0-preview.34 (crates.io, 2026-11-07)
 
 ### Added

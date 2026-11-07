@@ -339,6 +339,17 @@ window.DrawnUi = {
       requestFrame();
     });
 
+    let menuKeyUsed = false;
+    window.addEventListener(
+      "contextmenu",
+      (e) => {
+        if (!menuKeyUsed || e.pointerType === "mouse" || e.pointerType === "touch" || e.pointerType === "pen") return;
+        menuKeyUsed = false;
+        e.preventDefault();
+        e.stopPropagation();
+      },
+      true,
+    );
     // A right click, a long press on touch, the Menu key: routed like a tap in the engine; the
     // browser's own menu stays away when a control or the app took it (React Canvas.ContextMenu).
     canvas.addEventListener("contextmenu", (e) => {
@@ -417,6 +428,9 @@ window.DrawnUi = {
         // something to delete (Android keyboards send nothing on an empty field).
         if (e.target === textInput && caretKeys.has(e.code)) e.preventDefault();
         if (used) e.preventDefault();
+        // The Menu key / Shift+F10 opened the focused control's menu: the browser's own
+        // keyboard contextmenu that follows is dropped (no second menu).
+        if (e.code === "ContextMenu" || (e.key === "F10" && e.shiftKey)) menuKeyUsed = used;
       },
       true,
     );

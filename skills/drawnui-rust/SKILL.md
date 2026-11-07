@@ -723,6 +723,13 @@ first arrow is the game's. When a
 popup window closes with the keyboard in it, the keyboard goes back to its opener, unless the app put it
 somewhere in that frame (`cx.set_accessibility_focus(control)`) or kept it (`cx.keep_accessibility_focus()`).
 
+The Menu key and Shift+F10 (macOS: Shift+F10) open the context menu of the control the keyboard is on,
+as a right click at its center would: the first control up from it with `.on_context_menu(...)`, else
+`Ui::on_context_menu`; `menu.source` is `ContextMenuSource::Keyboard`. A screen reader's "show menu"
+(VoiceOver VO+Shift+M, Narrator / NVDA's context menu command) does the same on its node. This runs in
+the canvas step, so the app's own key handlers see `event.handled`: never open a second menu for the
+Menu key yourself. With no control in keyboard focus the menu opens where the pointer is.
+
 ## Closing the app (desktop)
 
 `Ui::on_app_closing(|app, cx| -> bool)` is the app's closing step on Windows, macOS and Linux: it runs

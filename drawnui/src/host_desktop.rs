@@ -412,6 +412,9 @@ impl Desktop {
                 let id = host_access::snapshot_id(request.target_node);
                 match (request.action, id) {
                     (accesskit::Action::Click, Some(id)) => self.app.accessibility_activate(id),
+                    (accesskit::Action::ShowContextMenu, Some(id)) => {
+                        self.app.accessibility_context_menu(id);
+                    }
                     (accesskit::Action::Focus, Some(id)) => {
                         if let Some(previous) = host_access::snapshot_id(self.access_focus) {
                             self.app.accessibility_focus(previous, false);
@@ -2065,8 +2068,10 @@ impl ApplicationHandler<Arrived> for Desktop {
                 if let Some(text) = event.text.as_deref().filter(|t| down && plain && !t.chars().any(char::is_control)) {
                     self.key(KeyKind::Char, "", text, event.repeat);
                 }
-                // The Menu key asks for a context menu where the mouse is.
-                if down && !used && key == "ContextMenu" {
+                // The Menu key or Shift+F10 with no control in keyboard focus: a context menu where
+                // the mouse is.
+                let shift_f10 = key == "F10" && m.shift && !(m.ctrl || m.alt || m.meta);
+                if down && !used && (key == "ContextMenu" || shift_f10) {
                     let now = self.now_ms();
                     self.app.context_menu(self.cursor.0, self.cursor.1, ContextMenuSource::Keyboard, now);
                 }
