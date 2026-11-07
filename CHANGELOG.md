@@ -4,6 +4,17 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## 0.1.0-preview.36 (crates.io, 2026-11-07)
+
+### Changed
+
+- The Menu key, Shift+F10 and a screen reader's "show menu" count as handled only when a control's
+  `on_context_menu` or the app's `Ui::on_context_menu` took the request.
+
+### Toolchain
+
+Skia crates unchanged (0.153.7).
+
 ## 0.1.0-preview.35 (crates.io, 2026-11-07)
 
 ### Added
