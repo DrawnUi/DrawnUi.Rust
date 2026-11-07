@@ -91,10 +91,10 @@ objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSRunLoop", "NSString", "NSObject", "NSDate", "NSTimer"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-quartz-core", "NSView", "NSResponder", "NSWindow", "NSScreen"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-quartz-core", "NSView", "NSResponder", "NSWindow", "NSScreen", "NSPasteboard"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
-objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "objc2-quartz-core", "UIView", "UIResponder", "UIScreen", "UIGeometry", "UIColor", "UIWindow"] }
+objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "objc2-quartz-core", "UIView", "UIResponder", "UIScreen", "UIGeometry", "UIColor", "UIWindow", "UIPasteboard"] }
 # Device rotation: the accelerometer.
 objc2-core-motion = { version = "0.3.2", default-features = false, features = ["std", "CMMotionManager", "CMAccelerometer", "CMLogItem"] }
 # The display link that paces iOS frames (C# Super.iOS).

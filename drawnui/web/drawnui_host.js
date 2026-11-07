@@ -450,6 +450,13 @@ window.DrawnUi = {
       requestFrame();
     });
     module._dui_window_focus(app, document.hasFocus() ? 1 : 0);
+    // The system's light / dark appearance (Ui::on_system_theme_changed), first as it is now.
+    const scheme = window.matchMedia("(prefers-color-scheme: dark)");
+    scheme.addEventListener("change", (e) => {
+      module._dui_system_theme(app, e.matches ? 1 : 0);
+      requestFrame();
+    });
+    module._dui_system_theme(app, scheme.matches ? 1 : 0);
     canvas.addEventListener("webglcontextlost", (e) => {
       e.preventDefault(); // without it the browser never gives the context back
       lost = true;

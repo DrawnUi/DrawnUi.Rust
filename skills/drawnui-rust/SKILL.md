@@ -173,20 +173,6 @@ The app is built as an emscripten side module and swapped into the running engin
 - Check a linked module: none of its `GOT.func` / `GOT.mem` imports may also be one of its exports.
 - Same result another way: a unique `-C metadata=<build id>` per build.
 
-## Hot reload in the browser (feature `hot-reload`)
-
-The app is built as an emscripten side module and swapped into the running engine (`dui_hot_swap`);
-`hot_reload!` carries the state across as JSON (`#[serde(default)]` on the state struct).
-
-- **Link the side module with `-Bsymbolic`** (a wasm-ld argument of the side-module link). The
-  engine keeps the previous module loaded and emscripten's loader keeps the first definition of each
-  symbol. Every build of the same crate gives its generic code (`Ui<App>`, `drop` of `App`, `build`)
-  the same symbol names, so without the flag the new module runs the previous module's code. It shows
-  only when `App` changes shape: old code reads the new state at old offsets, and the app fails
-  ("RefCell already borrowed", "memory access out of bounds", wrong values).
-- Check a linked module: none of its `GOT.func` / `GOT.mem` imports may also be one of its exports.
-- Same result another way: a unique `-C metadata=<build id>` per build.
-
 ## Windows build
 
 `cargo run --release` from the app folder. Skia comes from the release archive. A source build
@@ -760,6 +746,25 @@ value; it is `true` until the host has reported one.
   press that comes a few milliseconds later as the activating click. An X11 window manager may give
   the focus after the click.
 - Browser: window focus and blur. Phones: `true` while the app is shown, `false` while hidden.
+
+## Light or dark system appearance
+
+`Ui::on_system_theme_changed(|app: &mut App, theme, cx| ...)` gets `SystemTheme::Light` or
+`SystemTheme::Dark`: once when the host learns it (at start, before the first frame), then once per
+change (the user switches it in the system settings, or the system follows the time of day).
+`cx.system_theme()` reads the last value, `None` before a host reported one or where the host
+cannot tell. Restyle the app in the handler (its colors, a theme flag in the state); without a
+handler nothing runs and nothing is redrawn.
+- Windows and macOS: from the window. Linux: where the desktop reports it (Wayland), not on X11.
+- Browser: `prefers-color-scheme`.
+- iOS and Android: not reported yet (`None`).
+
+## Clipboard
+
+`cx.set_clipboard(text)` copies plain text, `cx.request_paste()` asks for the clipboard's text,
+which comes to the focused control as typed text; `SkiaEditor` uses both for Ctrl / Cmd + C, X and
+V. Windows, macOS, Linux (X11 selections, also on Wayland desktops), iOS and the browser. Android:
+not yet.
 
 ## Switching input off
 

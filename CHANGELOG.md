@@ -4,6 +4,17 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## Unreleased
+
+### Added
+
+- `Ui::on_system_theme_changed(|app, theme, cx| ...)` and `Cx::system_theme()`: the system's light
+  or dark appearance (`SystemTheme::Light` / `Dark`), once when the host learns it, then on every
+  change. Windows, macOS and the browser (`prefers-color-scheme`); Linux where the desktop reports
+  it. `App::system_theme` for hosts, `Headless::system_theme` for tests.
+- Copy and paste on macOS and iOS: `Cx::set_clipboard`, `Cx::request_paste` and the editor's
+  Cmd+C / Cmd+X / Cmd+V use the system pasteboard.
+
 ## 0.1.0-preview.33 (crates.io, 2026-11-06)
 
 ### Changed

@@ -47,7 +47,7 @@ pub use types::{
     CacheType, CornerRadius, Dirty, GesturesMode, GpuBackend, GradientType, IntoProp, LayoutOptions, LockTouch, RenderingModeType, SkiaGradient, SkiaShadow,
     Thickness,
 };
-pub use ui::{TooltipStyle, Ui};
+pub use ui::{SystemTheme, TooltipStyle, Ui};
 pub use waker::Waker;
 
 /// Everything an app needs: `use drawnui::prelude::*;`
@@ -108,7 +108,7 @@ pub mod prelude {
         AccessibilityNode, AnimationId, Aria, Build, CacheType, FramesBuild, FramesSet, Container, ContextMenu, ContextMenuSource, Control,
         ControlId, CornerRadius, Cursor, Cx, Dirty, Easing, Gesture, GestureCx, GestureKind, GradientType, Handle, Handled,
         Has, InputKey, IntoChildren, KeyEvent, KeyKind, Keyboard, LayoutCx, LayoutOptions, LockTouch, Modifiers,
-        MouseButton, Mut, PaintCx, PopupAnchor, PopupId, PopupWindowOptions, TooltipStyle, GesturesMode, GpuBackend, RenderingModeType, SkiaGradient, SkiaShadow, Thickness, Ui, ValueAnimator, Waker, easing, props,
+        MouseButton, Mut, PaintCx, PopupAnchor, PopupId, PopupWindowOptions, SystemTheme, TooltipStyle, GesturesMode, GpuBackend, RenderingModeType, SkiaGradient, SkiaShadow, Thickness, Ui, ValueAnimator, Waker, easing, props,
     };
 }
 
@@ -357,6 +357,9 @@ pub trait App {
     /// that follows (the click that activated the window); the browser on window focus / blur;
     /// phones with the app shown / hidden.
     fn window_focus(&mut self, _focused: bool) {}
+    /// The system's light or dark appearance: once as soon as the host knows it, then on every
+    /// change (`Ui::on_system_theme_changed`). Hosts that cannot tell never call it.
+    fn system_theme(&mut self, _theme: SystemTheme) {}
     /// A screen reader started or stopped reading the app (the desktop host: an AccessKit client
     /// connected or left); `Ui::set_screen_reader_running`.
     fn screen_reader_running(&mut self, _running: bool) {}

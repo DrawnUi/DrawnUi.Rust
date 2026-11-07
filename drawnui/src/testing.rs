@@ -155,6 +155,12 @@ impl<S: 'static> Headless<S> {
         close
     }
 
+    /// The system switched to a light or dark appearance (or the host reports it at start), as a
+    /// host tells the app (`Ui::on_system_theme_changed`).
+    pub fn system_theme(&mut self, theme: crate::SystemTheme) {
+        crate::App::system_theme(&mut self.ui, theme);
+    }
+
     /// Pointer down and up at a pixel position, one frame after each.
     pub fn tap(&mut self, x: f32, y: f32) {
         self.press(PointerKind::Down, x, y);

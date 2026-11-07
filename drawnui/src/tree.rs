@@ -829,6 +829,8 @@ pub struct Tree {
     pub(crate) tooltips_from_accessibility: bool,
     /// The app's window has the keyboard (`Cx::window_focused`); `None` until a host says.
     pub(crate) window_focused: Option<bool>,
+    /// The system's light or dark appearance (`Cx::system_theme`); `None` until a host says.
+    pub(crate) system_theme: Option<crate::SystemTheme>,
 }
 
 impl Tree {
@@ -1132,6 +1134,12 @@ impl Cx<'_> {
     /// the host reported one.
     pub fn window_focused(&self) -> bool {
         self.tree.window_focused.unwrap_or(true)
+    }
+
+    /// The system's light or dark appearance, `None` until the host reported it or where the host
+    /// cannot tell (`Ui::on_system_theme_changed`).
+    pub fn system_theme(&self) -> Option<crate::SystemTheme> {
+        self.tree.system_theme
     }
 
     /// A handle another thread uses to mark controls dirty and wake the frame loop (a camera

@@ -257,6 +257,13 @@ pub fn run(title: &str, size: (f64, f64), make: fn() -> Box<dyn App>) {
     }
 }
 
+fn system_theme(theme: winit::window::Theme) -> crate::SystemTheme {
+    match theme {
+        winit::window::Theme::Light => crate::SystemTheme::Light,
+        winit::window::Theme::Dark => crate::SystemTheme::Dark,
+    }
+}
+
 impl Desktop {
     /// Closes the popup windows (desktop), when there are any. Their windows go at once: a
     /// title-bar drag on Windows runs a modal move loop that never reaches `about_to_wait`, where
@@ -299,6 +306,10 @@ impl Desktop {
             let _ = waking.lock().map(|proxy| proxy.send_event(Arrived::Wake));
         });
         app.init(&mut host);
+        // The system's light / dark appearance as it is now (`Ui::on_system_theme_changed`).
+        if let Some(theme) = window.theme() {
+            app.system_theme(system_theme(theme));
+        }
         // No screen reader until AccessKit hears a client (`access_event`).
         #[cfg(not(target_os = "emscripten"))]
         app.screen_reader_running(false);
@@ -1557,8 +1568,8 @@ fn open_url(url: &str) {
     }
 }
 
-/// The system clipboard's text: Windows (Win32) and Linux (X11 selections); elsewhere nothing is
-/// copied and a paste brings nothing.
+/// The system clipboard's text: Windows (Win32), Linux (X11 selections), macOS (NSPasteboard), iOS
+/// (UIPasteboard); on Android nothing is copied yet and a paste brings nothing.
 mod clipboard {
     /// Linux: one clipboard for the app's life. An X11 selection is handed out by the app that
     /// copied it, so the clipboard stays open after a copy.
@@ -1655,12 +1666,50 @@ mod clipboard {
         }
     }
 
-    #[cfg(not(any(windows, target_os = "linux")))]
+    /// macOS: the general pasteboard (NSPasteboard), plain text.
+    #[cfg(target_os = "macos")]
+    #[allow(unused_unsafe)]
+    pub fn set(text: &str) -> bool {
+        use objc2_app_kit::{NSPasteboard, NSPasteboardTypeString};
+        // SAFETY: AppKit calls on the main thread (the event loop), with a valid string.
+        unsafe {
+            let board = NSPasteboard::generalPasteboard();
+            board.clearContents();
+            board.setString_forType(&objc2_foundation::NSString::from_str(text), NSPasteboardTypeString)
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[allow(unused_unsafe)]
+    pub fn get() -> Option<String> {
+        use objc2_app_kit::{NSPasteboard, NSPasteboardTypeString};
+        // SAFETY: as `set`.
+        unsafe { NSPasteboard::generalPasteboard().stringForType(NSPasteboardTypeString).map(|text| text.to_string()) }
+    }
+
+    /// iOS: the general pasteboard (UIPasteboard), plain text.
+    #[cfg(target_os = "ios")]
+    #[allow(unused_unsafe)]
+    pub fn set(text: &str) -> bool {
+        // SAFETY: UIKit calls on the main thread (the event loop), with a valid string.
+        unsafe { objc2_ui_kit::UIPasteboard::generalPasteboard().setString(Some(&objc2_foundation::NSString::from_str(text))) };
+        true
+    }
+
+    #[cfg(target_os = "ios")]
+    #[allow(unused_unsafe)]
+    pub fn get() -> Option<String> {
+        // SAFETY: as `set`.
+        unsafe { objc2_ui_kit::UIPasteboard::generalPasteboard().string().map(|text| text.to_string()) }
+    }
+
+    /// Android: not wired yet (the activity's ClipboardManager through JNI).
+    #[cfg(target_os = "android")]
     pub fn set(_text: &str) -> bool {
         false
     }
 
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(target_os = "android")]
     pub fn get() -> Option<String> {
         None
     }
@@ -1871,6 +1920,10 @@ impl ApplicationHandler<Arrived> for Desktop {
             // The app window moved: popup windows close, as native menus do (they would stay where
             // they were).
             WindowEvent::Moved(_) => self.close_popups(),
+            WindowEvent::ThemeChanged(theme) => {
+                self.app.system_theme(system_theme(theme));
+                self.redraw();
+            }
             WindowEvent::Resized(size) => {
                 // The same size: only the safe area changed (Android hears insets as a resize),
                 // the surface stays.

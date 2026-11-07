@@ -295,6 +295,13 @@ type UiKeyHandler<S> = Box<dyn FnMut(&mut S, &KeyEvent<'_>, &mut Cx<'_>) -> bool
 /// finger other than the one that drives the pointer, the popup window it came from.
 type PointerInput = (PointerKind, MouseButton, bool, Point, f64, Option<u64>, Option<u32>);
 
+/// The system's light or dark appearance (`Ui::on_system_theme_changed`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SystemTheme {
+    Light,
+    Dark,
+}
+
 pub struct Ui<S: 'static> {
     pub tree: Tree,
     pub state: S,
@@ -405,6 +412,8 @@ pub struct Ui<S: 'static> {
     left_all_at: Option<f64>,
     /// Runs when the app's window gets or loses the keyboard (`on_window_focus`).
     window_focus: Option<Box<dyn FnMut(&mut S, bool, &mut Cx<'_>)>>,
+    /// Runs when the system's light / dark appearance is known and when it changes.
+    system_theme: Option<Box<dyn FnMut(&mut S, SystemTheme, &mut Cx<'_>)>>,
     /// Runs for each popup window that closed (`on_popup_window_closed`).
     popup_closed: Option<Box<dyn FnMut(&mut S, PopupId, &mut Cx<'_>)>>,
     /// `on_app_closing`.
@@ -543,6 +552,7 @@ impl<S: 'static> Ui<S> {
             eating_press: false,
             left_all_at: None,
             window_focus: None,
+            system_theme: None,
             popup_closed: None,
             app_closing: None,
             #[cfg(feature = "designer")]
@@ -687,12 +697,6 @@ impl<S: 'static> Ui<S> {
     /// Runs when the page or window is hidden (`false`: a background tab, a minimized or covered
     /// window) or shown again (React Pong: `visibilitychange` pauses the game). Observers run
     /// after it.
-    /// Runs when the app's window gets the keyboard (`true`) or loses it to another app (`false`),
-    /// once per change; opening or using a popup window of the app is not leaving it. Desktop: from
-    /// the window's focus events, at once, so when a click on a background window activates it,
-    /// this runs before that click's Down reaches any control (Windows and macOS give the focus
-    /// before the click; an X11 window manager may give it after). Browser: window focus / blur.
-    /// Phones: `true` when the app is shown, `false` when hidden. `Cx::window_focused` reads it.
     /// How tooltips look and when they show (DrawnUI `TooltipStyle`).
     pub fn tooltip_style(mut self, style: TooltipStyle) -> Self {
         self.tree.tooltip_style = style;
@@ -707,10 +711,6 @@ impl<S: 'static> Ui<S> {
         self
     }
 
-    /// Runs for each popup window that closed, for any reason (an item picked, a press outside,
-    /// Escape, the wheel, the window losing the keyboard, `Cx::close_popup_window`), before the
-    /// next frame's observers: a menu bar unselects its title (DrawnUI `PopupWindowClosed`).
-    /// Tooltips are not reported.
     /// The app's closing step (desktop: Windows, macOS, Linux), before its window goes: the user
     /// clicked its close button, pressed Alt+F4 or Cmd+Q. Return true to let it close, false to keep
     /// it open: the app can ask "save first?" and end later with `Cx::close_app`. Without it the
@@ -721,6 +721,10 @@ impl<S: 'static> Ui<S> {
         self
     }
 
+    /// Runs for each popup window that closed, for any reason (an item picked, a press outside,
+    /// Escape, the wheel, the window losing the keyboard, `Cx::close_popup_window`), before the
+    /// next frame's observers: a menu bar unselects its title (DrawnUI `PopupWindowClosed`).
+    /// Tooltips are not reported.
     pub fn on_popup_window_closed(mut self, f: impl FnMut(&mut S, PopupId, &mut Cx<'_>) + 'static) -> Self {
         self.popup_closed = Some(Box::new(f));
         self
@@ -746,8 +750,25 @@ impl<S: 'static> Ui<S> {
         self
     }
 
+    /// Runs when the app's window gets the keyboard (`true`) or loses it to another app (`false`),
+    /// once per change; opening or using a popup window of the app is not leaving it. Desktop: from
+    /// the window's focus events, at once, so when a click on a background window activates it,
+    /// this runs before that click's Down reaches any control (Windows and macOS give the focus
+    /// before the click; an X11 window manager may give it after). Browser: window focus / blur.
+    /// Phones: `true` when the app is shown, `false` when hidden. `Cx::window_focused` reads it.
     pub fn on_window_focus(mut self, f: impl FnMut(&mut S, bool, &mut Cx<'_>) + 'static) -> Self {
         self.window_focus = Some(Box::new(f));
+        self
+    }
+
+    /// Runs with the system's light or dark appearance: once when the host learns it (at start,
+    /// before the first frame), then on every change (the user switched it in the system
+    /// settings, or the system follows the time of day). `Cx::system_theme` reads it. Hosts:
+    /// Windows, macOS (Metal window) and the browser (`prefers-color-scheme`); Linux where the
+    /// desktop tells winit (Wayland, not X11); not iOS or Android yet. Without a handler nothing
+    /// runs and nothing is drawn again.
+    pub fn on_system_theme_changed(mut self, f: impl FnMut(&mut S, SystemTheme, &mut Cx<'_>) + 'static) -> Self {
+        self.system_theme = Some(Box::new(f));
         self
     }
 
@@ -3571,6 +3592,19 @@ impl<S: 'static> App for Ui<S> {
 
     fn accessibility_activate(&mut self, id: u32) {
         Ui::accessibility_activate(self, id)
+    }
+
+    fn system_theme(&mut self, theme: SystemTheme) {
+        if self.tree.system_theme == Some(theme) {
+            return;
+        }
+        self.tree.system_theme = Some(theme);
+        if let Some(handler) = self.system_theme.as_mut() {
+            handler(&mut self.state, theme, &mut Cx { tree: &mut self.tree });
+            self.state_dirty = true;
+            self.tree.needs_frame = true;
+            self.apply_focus_request();
+        }
     }
 
     fn accessibility_focused_id(&self) -> Option<u32> {

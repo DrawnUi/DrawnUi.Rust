@@ -330,6 +330,12 @@ pub extern "C" fn dui_window_focus(s: *mut WebState, focused: i32) {
     state(s).app.window_focus(focused != 0);
 }
 
+/// The system's appearance (`dark` 1 = dark): `prefers-color-scheme` at start and on every change.
+#[unsafe(no_mangle)]
+pub extern "C" fn dui_system_theme(s: *mut WebState, dark: i32) {
+    state(s).app.system_theme(if dark != 0 { crate::SystemTheme::Dark } else { crate::SystemTheme::Light });
+}
+
 /// The page focus went to an element outside the canvas (a field of the page).
 #[unsafe(no_mangle)]
 pub extern "C" fn dui_focus_out(s: *mut WebState) {
