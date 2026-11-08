@@ -20,6 +20,15 @@ pub(super) struct Item<'a> {
     pub(super) materials: &'a [MaterialOverride],
 }
 
+/// How a control draws its objects: the look, and an outline around every shape.
+pub(super) struct Style {
+    pub(super) look: super::Look,
+    /// Outline width in pixels (0 = none).
+    pub(super) outline: f32,
+    /// Outline color, sRGB, premultiplied by the shader.
+    pub(super) outline_color: [f32; 4],
+}
+
 /// A control's frame: the texture it draws into, with its depth buffer.
 pub(super) struct Target {
     epoch: u32,
@@ -30,7 +39,7 @@ pub(super) struct Target {
 }
 
 #[cfg(not(target_os = "emscripten"))]
-pub(super) fn draw(_target: &mut Option<Target>, _gpu: &mut Gpu, _items: &[Item], _view_proj: Mat4, _size: ISize) -> Option<Image> {
+pub(super) fn draw(_target: &mut Option<Target>, _gpu: &mut Gpu, _items: &[Item], _style: &Style, _view_proj: Mat4, _size: ISize) -> Option<Image> {
     None
 }
 
@@ -58,10 +67,13 @@ layout(location=1) in vec3 a_nrm;
 layout(location=2) in vec2 a_uv;
 layout(location=3) in vec4 a_joints;
 layout(location=4) in vec4 a_weights;
+layout(location=5) in vec3 a_outline_nrm;
 uniform mat4 u_model;
 uniform mat4 u_view_proj;
 uniform mat4 u_joints[64];
 uniform bool u_skinned;
+uniform float u_outline;
+uniform vec2 u_viewport;
 out vec3 v_nrm;
 out vec2 v_uv;
 void main() {
@@ -74,6 +86,15 @@ void main() {
     v_nrm = mat3(m) * a_nrm;
     v_uv = a_uv;
     gl_Position = u_view_proj * m * vec4(a_pos, 1.0);
+    if (u_outline > 0.0) {
+        // The outline pass: the back faces pushed out along their smoothed normals (one per
+        // position, so hard edges do not split), a fixed number of pixels on screen.
+        vec4 n = u_view_proj * vec4(mat3(m) * a_outline_nrm, 0.0);
+        vec2 dir = normalize(n.xy + vec2(1e-6));
+        gl_Position.xy += dir * u_outline * 2.0 / u_viewport * gl_Position.w;
+        // A little behind: where it meets a surface at the same depth, the surface wins.
+        gl_Position.z += 0.002 * gl_Position.w;
+    }
 }";
 
     const FS: &str = "#version 300 es
@@ -84,8 +105,12 @@ uniform vec4 u_color;
 uniform bool u_textured;
 uniform sampler2D u_texture;
 uniform vec3 u_light;
+uniform int u_look;
+uniform bool u_outline_pass;
+uniform vec4 u_outline_color;
 out vec4 o_color;
 void main() {
+    if (u_outline_pass) { o_color = vec4(u_outline_color.rgb * u_outline_color.a, u_outline_color.a); return; }
     vec4 c = u_color;
     // glTF colors are linear; textures are sRGB: light in linear, show in sRGB.
     if (u_textured) { vec4 t = texture(u_texture, v_uv); c *= vec4(pow(t.rgb, vec3(2.2)), t.a); }
@@ -94,7 +119,10 @@ void main() {
     if (!gl_FrontFacing) n = -n;
     float sun = max(dot(n, u_light), 0.0);
     float sky = 0.5 + 0.5 * n.y;
-    vec3 lit = c.rgb * (0.30 + 0.25 * sky + 0.70 * sun);
+    vec3 lit;
+    if (u_look == 2) lit = c.rgb;                                  // flat: the color as it is
+    else if (u_look == 1) lit = c.rgb * (sun > 0.35 ? 1.0 : 0.62);  // toon: lit and shade, two tones
+    else lit = c.rgb * (0.30 + 0.25 * sky + 0.70 * sun);
     o_color = vec4(pow(lit, vec3(1.0 / 2.2)) * c.a, c.a);
 }";
 
@@ -149,6 +177,8 @@ void main() {
         fn glUniform4fv(location: i32, count: i32, value: *const f32);
         fn glUniform3fv(location: i32, count: i32, value: *const f32);
         fn glUniform1i(location: i32, value: i32);
+        fn glUniform1f(location: i32, value: f32);
+        fn glUniform2f(location: i32, x: f32, y: f32);
         fn glDrawElements(mode: u32, count: i32, kind: u32, offset: usize);
         fn glPixelStorei(name: u32, value: i32);
     }
@@ -175,6 +205,7 @@ void main() {
     const TRIANGLES: u32 = 0x0004;
     const LESS: u32 = 0x0201;
     const BACK: u32 = 0x0405;
+    const FRONT: u32 = 0x0404;
     const CCW: u32 = 0x0901;
     const ONE: u32 = 1;
     const ONE_MINUS_SRC_ALPHA: u32 = 0x0303;
@@ -228,6 +259,20 @@ void main() {
         }
     }
 
+    /// One normal per position, the average of the normals there: an outline pushed along them
+    /// stays closed at hard edges (a coin's rim, a box's corner).
+    fn outline_normals(p: &super::super::scene::Primitive) -> Vec<[f32; 3]> {
+        if !p.outline_normals.is_empty() {
+            return p.outline_normals.clone();
+        }
+        let key = |v: &[f32; 3]| v.map(|c| (c * 10_000.0).round() as i32);
+        let mut sums: HashMap<[i32; 3], Vec3> = HashMap::new();
+        for (v, n) in p.positions.iter().zip(&p.normals) {
+            *sums.entry(key(v)).or_insert(Vec3::ZERO) += Vec3::from(*n);
+        }
+        p.positions.iter().map(|v| sums[&key(v)].normalize_or_zero().to_array()).collect()
+    }
+
     struct Uniforms {
         model: i32,
         view_proj: i32,
@@ -237,6 +282,11 @@ void main() {
         textured: i32,
         texture: i32,
         light: i32,
+        look: i32,
+        outline: i32,
+        viewport: i32,
+        outline_pass: i32,
+        outline_color: i32,
     }
 
     /// One model on the GPU: per mesh, per primitive its vertex array and index count; its textures.
@@ -281,6 +331,11 @@ void main() {
                 textured: loc("u_textured"),
                 texture: loc("u_texture"),
                 light: loc("u_light"),
+                look: loc("u_look"),
+                outline: loc("u_outline"),
+                viewport: loc("u_viewport"),
+                outline_pass: loc("u_outline_pass"),
+                outline_color: loc("u_outline_color"),
             };
             (program, uniforms)
         }
@@ -319,6 +374,7 @@ void main() {
                             attribute(2, bytes(&p.uvs), 2);
                             attribute(3, bytes(&p.joints), 4);
                             attribute(4, bytes(&p.weights), 4);
+                            attribute(5, bytes(&outline_normals(p)), 3);
                             buffer(ELEMENT_ARRAY_BUFFER, bytes(&p.indices));
                             glBindVertexArray(0);
                             (vao, p.indices.len() as i32)
@@ -377,7 +433,7 @@ void main() {
     }
 
     /// Draws the objects into the control's texture in one pass and hands it to Skia as an image.
-    pub(in super::super) fn draw(target: &mut Option<Target>, gpu: &mut Gpu, items: &[Item], view_proj: Mat4, size: ISize) -> Option<Image> {
+    pub(in super::super) fn draw(target: &mut Option<Target>, gpu: &mut Gpu, items: &[Item], style: &Style, view_proj: Mat4, size: ISize) -> Option<Image> {
         let epoch = gpu.epoch();
         let models: Vec<Rc<Model>> = CONTEXT.with_borrow_mut(|slot| {
             if slot.as_ref().is_some_and(|c| c.epoch != epoch) {
@@ -414,10 +470,17 @@ void main() {
                 glUniformMatrix4fv(u.view_proj, 1, 0, view_proj.to_cols_array().as_ptr());
                 glUniform3fv(u.light, 1, light.to_array().as_ptr());
                 glUniform1i(u.texture, 0);
+                glUniform1i(u.look, style.look as i32);
+                glUniform2f(u.viewport, size.width as f32, size.height as f32);
+                glUniform4fv(u.outline_color, 1, style.outline_color.as_ptr());
                 glActiveTexture(TEXTURE0);
                 let mut joints = vec![0f32; MAX_JOINTS * 16];
-                // Opaque first, then blended, each in tree order.
-                for pass_blend in [false, true] {
+                // The outline first (back faces pushed out), then opaque, then blended, each in tree order.
+                let passes: &[(bool, bool)] = if style.outline > 0.0 { &[(true, false), (false, false), (false, true)] } else { &[(false, false), (false, true)] };
+                for &(outline_pass, pass_blend) in passes {
+                    glUniform1i(u.outline_pass, outline_pass as i32);
+                    glUniform1f(u.outline, if outline_pass { style.outline } else { 0.0 });
+                    glCullFace(if outline_pass { FRONT } else { BACK });
                     if pass_blend {
                         glEnable(BLEND);
                         glBlendFunc(ONE, ONE_MINUS_SRC_ALPHA);
@@ -449,7 +512,7 @@ void main() {
                                 }
                                 let color = changed.color.unwrap_or(material.map_or([0.8, 0.8, 0.8, 1.0], |m| m.color));
                                 let texture = material.and_then(|m| m.texture).and_then(|t| gl.textures.get(t));
-                                if material.is_some_and(|m| m.double_sided) { glDisable(CULL_FACE) } else { glEnable(CULL_FACE) }
+                                if material.is_some_and(|m| m.double_sided) && !outline_pass { glDisable(CULL_FACE) } else { glEnable(CULL_FACE) }
                                 glUniform4fv(u.color, 1, color.as_ptr());
                                 glUniform1i(u.textured, texture.is_some() as i32);
                                 glBindTexture(TEXTURE_2D, texture.copied().unwrap_or(0));

@@ -59,6 +59,8 @@ pub(super) struct Node {
 pub(super) struct Primitive {
     pub(super) positions: Vec<[f32; 3]>,
     pub(super) normals: Vec<[f32; 3]>,
+    /// The directions an outline pushes each vertex along; empty = the normals averaged per position.
+    pub(super) outline_normals: Vec<[f32; 3]>,
     pub(super) uvs: Vec<[f32; 2]>,
     pub(super) joints: Vec<[f32; 4]>,
     pub(super) weights: Vec<[f32; 4]>,
@@ -167,7 +169,7 @@ impl Scene {
                         let joints = reader.read_joints(0).map_or_else(Vec::new, |r| r.into_u16().map(|j| j.map(f32::from)).collect());
                         let weights = reader.read_weights(0).map_or_else(Vec::new, |r| r.into_f32().collect());
                         let indices = reader.read_indices().map_or_else(|| (0..n as u32).collect(), |r| r.into_u32().collect());
-                        let mut primitive = Primitive { positions, normals, uvs, joints, weights, indices, material: p.material().index() };
+                        let mut primitive = Primitive { positions, normals, outline_normals: Vec::new(), uvs, joints, weights, indices, material: p.material().index() };
                         // Vertex colors are folded into the material color only when uniform; a
                         // per-vertex color set is left out (ponytail above).
                         if primitive.joints.len() != n || primitive.weights.len() != n {
@@ -244,6 +246,13 @@ impl Scene {
         let mut scene = Scene { nodes, meshes, materials, images, skins, animations, bounds: (Vec3::ZERO, Vec3::ZERO) };
         scene.bounds = scene.rest_bounds();
         Ok(scene)
+    }
+
+    /// A scene from parts made in code (`Model3D`): no skins, no animations, no images.
+    pub(super) fn assemble(nodes: Vec<Node>, meshes: Vec<Vec<Primitive>>, materials: Vec<Material>) -> Scene {
+        let mut scene = Scene { nodes, meshes, materials, images: Vec::new(), skins: Vec::new(), animations: Vec::new(), bounds: (Vec3::ZERO, Vec3::ZERO) };
+        scene.bounds = scene.rest_bounds();
+        scene
     }
 
     /// The animation with this name.

@@ -22,7 +22,14 @@ version before it. Commits in parentheses.
   `play` / `play_once` / `hold`, `set_material_color`), lower ones in front, `tilt` to see their
   tops. `on_tapped_3d` tells which object was hit. A model's file is read and uploaded once,
   however many objects and controls show it. The `gallery3d` example: a loader, an achievement, a
-  celebration burst, a reward chest, an avatar and a field of 10 to 100 walking mobs.
+  celebration, a reward chest, an avatar and a field of 10 to 100 walking mobs.
+- 3D made in code (feature `model3d`): `Model3D` puts together named, colored parts from `Mesh3D`
+  shapes (`cylinder`, `sphere`, `torus`, `cuboid`, `lathe` of a side profile, `extrude` of any 2D
+  path: a star, a heart, a check mark, a logo); `SkiaModel3D::from_model`, `SkiaScene3D::model_from`.
+  A part is a node and a material of its own name, so the by-name calls drive it.
+- Looks: `look(Look::Lit | Look::Toon | Look::Flat)` and `outline(width, color)` on `SkiaModel3D` and
+  `SkiaScene3D`: flat colors with an outline draw 3D like an illustration. `set_view_angles` turns a
+  model from code.
 
 ## 0.1.0-preview.37 (crates.io, 2026-11-08)
 

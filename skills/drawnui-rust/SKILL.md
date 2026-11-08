@@ -827,6 +827,21 @@ field.set_position("m7", x, y);                 // every frame, like a sprite's 
 Lower objects (bigger y) are drawn in front; the whole layer is one depth among the 2D layers (a
 sprite cannot sit between two of its objects). A still layer asks for no frames.
 
+Made in code, drawn like an illustration (loaders, badges, rewards, likes, confetti): parts from
+`Mesh3D` shapes, flat colors, an outline. Smooth at any size, no model file:
+
+```rust
+let medal = Model3D::new()
+    .part("disc", Mesh3D::cylinder(1.0, 0.22), gold).turned(90.0, 0.0, 0.0)
+    .part("star", Mesh3D::extrude(&star_path, 0.08), Color::WHITE).at(0.0, 0.0, 0.16);
+SkiaModel3D::from_model(&medal).look(Look::Flat).outline(2.5, ink).orbit(false).view_angles(0.0, 0.0)
+// animate from the app: set_view_angles (spin), set_node_translation / _rotation / _scale per part,
+// set_material_color per part, and the control's own scale_to / rotate_to / fade_to.
+```
+
+`Mesh3D::extrude` takes any Skia path (y down), centered; each closed contour is a solid (no holes:
+use `torus` / `lathe` for rings). `lathe(&[(radius, height)], segments)` turns a side profile.
+
 ## Clipboard
 
 `cx.set_clipboard(text)` copies plain text, `cx.request_paste()` asks for the clipboard's text,

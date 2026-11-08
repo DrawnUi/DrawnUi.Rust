@@ -17,8 +17,22 @@ mod layer;
 mod player;
 mod render;
 mod scene;
+mod shapes;
 
 pub use layer::{SceneHit, SkiaScene3D};
+pub use shapes::{Mesh3D, Model3D};
+
+/// How 3D is drawn (`look` on `SkiaModel3D` and `SkiaScene3D`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Look {
+    /// Shaded by a light and the sky (the default).
+    #[default]
+    Lit,
+    /// Two tones, lit and shade, like a cartoon.
+    Toon,
+    /// Each color as it is, no shading: an illustration (with `outline`).
+    Flat,
+}
 
 use std::any::Any;
 use std::cell::RefCell;
@@ -65,6 +79,11 @@ enum Event {
     Tapped(ModelHit),
 }
 
+/// An outline color for the shader: sRGB, as given.
+fn outline_color(c: Color) -> [f32; 4] {
+    [c.r() as f32 / 255.0, c.g() as f32 / 255.0, c.b() as f32 / 255.0, c.a() as f32 / 255.0]
+}
+
 /// A UI color (sRGB) as a glTF material color (linear).
 fn linear(c: Color) -> [f32; 4] {
     let l = |v: u8| (v as f32 / 255.0).powf(2.2);
@@ -98,14 +117,26 @@ pub struct SkiaModel3D {
     orbit: bool,
     /// Distance to the scene, as a factor of the distance that fits it (1 = fits).
     zoom: f32,
+    look: Look,
+    /// Outline width in points (0 = none) and color.
+    outline: (f32, Color),
 }
 
 impl SkiaModel3D {
+    /// A model made in code (`Model3D`): smooth shapes, flat colors. Same as `new` otherwise.
+    pub fn from_model(model: &Model3D) -> Build<SkiaModel3D> {
+        SkiaModel3D::with_scene(Ok(Rc::new(model.to_scene())))
+    }
+
     /// A scene from the bytes of a `.glb` (or a `.gltf` with its buffers embedded). It plays its
     /// first animation in a loop; drags turn it. Controls showing the same bytes share one copy.
     #[allow(clippy::new_ret_no_self)]
     pub fn new(glb: &[u8]) -> Build<SkiaModel3D> {
-        let (scene, error) = match scene::shared(glb) {
+        SkiaModel3D::with_scene(scene::shared(glb))
+    }
+
+    fn with_scene(read: Result<Rc<Scene>, String>) -> Build<SkiaModel3D> {
+        let (scene, error) = match read {
             Ok(scene) => (Some(scene), None),
             Err(why) => (None, Some(why)),
         };
@@ -129,6 +160,8 @@ impl SkiaModel3D {
             auto_rotate: 0.0,
             orbit: true,
             zoom: 1.0,
+            look: Look::Lit,
+            outline: (0.0, Color::BLACK),
         };
         let mut build = Build::new(model);
         let id = build.id();
@@ -325,10 +358,11 @@ impl Control for SkiaModel3D {
         let pose = scene.world(&self.locals(scene));
         let view_proj = self.camera(scene, (size.width as f32, size.height as f32));
         let hidden = self.hidden(scene);
+        let style = render::Style { look: self.look, outline: self.outline.0 * cx.scale, outline_color: outline_color(self.outline.1) };
         let canvas = cx.canvas;
         let Some(gpu) = cx.gpu() else { return };
         let items = [render::Item { scene, pose: &pose, hidden: &hidden, materials: &self.materials }];
-        let Some(image) = render::draw(&mut self.target.borrow_mut(), gpu, &items, view_proj, size) else { return };
+        let Some(image) = render::draw(&mut self.target.borrow_mut(), gpu, &items, &style, view_proj, size) else { return };
         canvas.draw_image_rect_with_sampling_options(&image, None, Rect::from_xywh(rect.left, rect.top, size.width as f32, size.height as f32), SamplingOptions::default(), &Paint::default());
     }
 }
@@ -380,6 +414,18 @@ impl Build<SkiaModel3D> {
     /// Drags turn the scene (on by default).
     pub fn orbit(mut self, on: bool) -> Self {
         self.control_mut().orbit = on;
+        self
+    }
+
+    /// How it is drawn: `Look::Lit` (default), `Look::Toon` or `Look::Flat`.
+    pub fn look(mut self, look: Look) -> Self {
+        self.control_mut().look = look;
+        self
+    }
+
+    /// An outline around every shape, `width` points, like an illustration's stroke.
+    pub fn outline(mut self, width: f32, color: Color) -> Self {
+        self.control_mut().outline = (width.max(0.0), color);
         self
     }
 
@@ -449,6 +495,13 @@ impl Mut<'_, SkiaModel3D> {
     /// Animation speed, 1 = as authored.
     pub fn set_speed(&mut self, speed: f32) {
         self.control_mut().player.speed = speed;
+    }
+
+    /// The view's angles: around the vertical axis and tilt, degrees (a spin driven by the app).
+    pub fn set_view_angles(&mut self, yaw: f32, pitch: f32) {
+        let model = self.control_mut();
+        (model.yaw, model.pitch) = (yaw, pitch);
+        self.mark(Dirty::DRAW);
     }
 
     /// Turns the scene by itself, degrees per second (0 = still).

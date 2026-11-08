@@ -74,6 +74,9 @@ pub struct SkiaScene3D {
     on_tapped: Option<TappedHandler>,
     /// Files that could not be read: the model name and why.
     errors: Vec<(String, String)>,
+    look: super::Look,
+    /// Outline width in points (0 = none) and color.
+    outline: (f32, Color),
 }
 
 impl SkiaScene3D {
@@ -93,6 +96,8 @@ impl SkiaScene3D {
             on_ended: None,
             on_tapped: None,
             errors: Vec::new(),
+            look: super::Look::Lit,
+            outline: (0.0, Color::BLACK),
         };
         let mut build = Build::new(layer);
         let id = build.id();
@@ -116,8 +121,8 @@ impl SkiaScene3D {
         Some(self.models[o.model].scene.animations.get(o.player.main?.animation)?.name.as_str())
     }
 
-    fn add_model(&mut self, name: String, glb: &[u8]) {
-        match scene::shared(glb) {
+    fn add_model(&mut self, name: String, read: Result<Rc<Scene>, String>) {
+        match read {
             Ok(scene) => {
                 let (lo, hi) = scene.bounds;
                 let model = Model { name: name.clone(), anchor: Vec3::new((lo.x + hi.x) * 0.5, lo.y, (lo.z + hi.z) * 0.5), height: (hi.y - lo.y).max(1e-3), scene };
@@ -283,7 +288,8 @@ impl Control for SkiaScene3D {
             .collect();
         let canvas = cx.canvas;
         let Some(gpu) = cx.gpu() else { return };
-        let Some(image) = render::draw(&mut self.target.borrow_mut(), gpu, &items, view_proj, size) else { return };
+        let style = render::Style { look: self.look, outline: self.outline.0 * scale, outline_color: super::outline_color(self.outline.1) };
+        let Some(image) = render::draw(&mut self.target.borrow_mut(), gpu, &items, &style, view_proj, size) else { return };
         canvas.draw_image_rect_with_sampling_options(&image, None, Rect::from_xywh(rect.left, rect.top, size.width as f32, size.height as f32), SamplingOptions::default(), &Paint::default());
     }
 }
@@ -292,7 +298,25 @@ impl Build<SkiaScene3D> {
     /// A model objects can be made of, by name, from the bytes of a `.glb`. The same bytes used by
     /// other layers or `SkiaModel3D` controls are read once.
     pub fn model(mut self, name: impl Into<String>, glb: &[u8]) -> Self {
-        self.control_mut().add_model(name.into(), glb);
+        self.control_mut().add_model(name.into(), scene::shared(glb));
+        self
+    }
+
+    /// A model made in code (`Model3D`) objects can be made of, by name.
+    pub fn model_from(mut self, name: impl Into<String>, model: &super::Model3D) -> Self {
+        self.control_mut().add_model(name.into(), Ok(Rc::new(model.to_scene())));
+        self
+    }
+
+    /// How objects are drawn: `Look::Lit` (default), `Look::Toon` or `Look::Flat`.
+    pub fn look(mut self, look: super::Look) -> Self {
+        self.control_mut().look = look;
+        self
+    }
+
+    /// An outline around every shape, `width` points, like an illustration's stroke.
+    pub fn outline(mut self, width: f32, color: Color) -> Self {
+        self.control_mut().outline = (width.max(0.0), color);
         self
     }
 
