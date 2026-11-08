@@ -4,6 +4,19 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## Unreleased
+
+### Added
+
+- `SkiaModel3D` (feature `model3d`, browser first): a glTF / GLB scene drawn in 3D inside the UI,
+  with a depth buffer, a light, base colors and color textures, and skeleton animations. The app
+  drives the scene: `play` loops an animation, `play_once` plays one and blends back to the loop,
+  `hold` stays on the last frame, `play_layer` runs another animation at the same time, and moves
+  cross-fade (`crossfade_ms`). Nodes by name: `set_node_visible`, `set_node_translation`,
+  `set_node_rotation`, `set_node_scale`, `reset_node`; materials by name: `set_material_color`,
+  `set_material_visible`. `on_animation_ended` and `on_tapped_3d` (the node, material and point a
+  tap hit). Drag to turn, `auto_rotate`, `zoom`. The `model3d` example shows a boss fight.
+
 ## 0.1.0-preview.37 (crates.io, 2026-11-08)
 
 ### Added

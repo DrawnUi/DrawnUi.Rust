@@ -785,6 +785,33 @@ place; the designer lists them in declaration order. A screen offers its own whi
 `cx.remove_designer_action(path)`. Actions run on the UI thread with the app state; only names and
 closures are kept, nothing runs unless a designer asks.
 
+## 3D models (SkiaModel3D, feature `model3d`)
+
+`drawnui = { version = "...", features = ["model3d"] }`. A glTF 2.0 binary (`.glb`) drawn in 3D inside
+any layout, from its bytes: `SkiaModel3D::new(include_bytes!("assets/boss.glb"))`. It draws through the
+GPU context the UI uses (WebGL2 in the browser; other platforms draw nothing yet), so give it no cache
+and keep it out of cached parents.
+
+```rust
+SkiaModel3D::new(BOSS)
+    .animation("Idle")               // looped from the start (else the file's first)
+    .crossfade_ms(250.0)
+    .view_angles(30.0, 8.0).zoom(0.8)  // camera fits the scene; drag turns it (.orbit(false) off)
+    .assign(&mut app.boss)
+    .on_tapped_3d(|me, app: &mut App, _cx, hit| { me.play_once("Hit"); app.last = hit.material.clone(); })
+    .on_animation_ended(|_me, app: &mut App, _cx, name| app.log.push(name.to_owned()))
+```
+
+From handlers with `cx.get_mut(app.boss)`: `play(name)` loops, `play_once(name)` plays once then blends
+back to the loop that played before, `hold(name)` stays on the last frame, `play_layer` / `stop_layer`
+run another object's animation at the same time, `set_playing`, `set_speed`, `set_auto_rotate`. Parts by
+name: `set_node_visible` / `set_node_translation` / `set_node_rotation` (degrees) / `set_node_scale` /
+`reset_node`, `set_material_color(name, Some(color))` (a configurator's color swatch; `None` = the file's)
+and `set_material_visible`. Names come from the file: `animations()`, `node_names()`, `material_names()`.
+A tap reports the nearest surface under the finger (`ModelHit { node, material, point }`); taps on empty
+space fall through to what is behind. Read: base color and one color texture, one light; no normal or
+metallic maps, no compressed (Draco, meshopt, KTX2) files, no morph targets, 64 bones per skin.
+
 ## Clipboard
 
 `cx.set_clipboard(text)` copies plain text, `cx.request_paste()` asks for the clipboard's text,

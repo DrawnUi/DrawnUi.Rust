@@ -2,7 +2,9 @@
 //! meshes with a depth buffer, textures, a light, skeletal animation. The scene is drawn with the
 //! GPU context Skia uses into a texture of the control's size, which the control then shows as an
 //! image: layout, gestures and everything drawn around it work as for any control. Drag to turn it.
-//! WebGL2 (the browser) for now; elsewhere the control shows a note.
+//! The app drives the scene: animations looped, played once or layered, blended into each other;
+//! nodes and materials by name (shown, moved, recolored); taps tell which part was hit.
+//! WebGL2 (the browser) for now; elsewhere nothing is drawn yet.
 // The GL side is the browser's for now: elsewhere the scene is read but not drawn.
 #![cfg_attr(not(target_os = "emscripten"), allow(dead_code))]
 // ponytail: one directional light + sky light, base color texture and factor only (no normal,
@@ -14,16 +16,61 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use glam::{Mat4, Quat, Vec3};
-use skia_safe::{Data, ISize, Paint, Rect, SamplingOptions};
+use skia_safe::{Color, Data, ISize, Paint, Rect, SamplingOptions};
 
 use crate::animators::{self, FrameTick};
 use crate::control::{Control, GestureCx, Handled, PaintCx, part_mut};
 use crate::gestures::{Gesture, GestureKind};
-use crate::tree::{Build, ControlId, Cx, Mut};
+use crate::tree::{Build, ControlId, Cx, Mut, Raw, Tree, wrong_state};
 use crate::types::Dirty;
 
 /// Joint matrices a skinned mesh may use (WebGL2 guarantees 256 vertex uniform vectors).
 const MAX_JOINTS: usize = 64;
+
+/// What a tap on the scene hit (`on_tapped_3d`): the node and the material under the finger, and
+/// the point in the scene.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModelHit {
+    /// The glTF node's name ("" when it has none).
+    pub node: String,
+    /// The material's name ("" when it has none).
+    pub material: String,
+    /// Where the ray met the surface, in scene units.
+    pub point: [f32; 3],
+}
+
+type EndedHandler = Box<dyn FnMut(Raw<'_>, &mut dyn Any, &mut Cx<'_>, &str)>;
+type TappedHandler = Box<dyn FnMut(Raw<'_>, &mut dyn Any, &mut Cx<'_>, &ModelHit)>;
+
+/// An animation playing: its index and seconds into it.
+#[derive(Clone, Copy)]
+struct Track {
+    animation: usize,
+    time: f32,
+    looped: bool,
+}
+
+/// A node's own transform set from code (`set_node_translation` and the rest): it replaces what
+/// the file and the animations give that part.
+#[derive(Clone, Copy, Default)]
+struct NodeOverride {
+    translation: Option<Vec3>,
+    rotation: Option<Quat>,
+    scale: Option<Vec3>,
+    hidden: bool,
+}
+
+/// A material changed from code (`set_material_color`, `set_material_visible`).
+#[derive(Clone, Copy, Default)]
+struct MaterialOverride {
+    color: Option<[f32; 4]>,
+    hidden: bool,
+}
+
+enum Event {
+    Ended(String),
+    Tapped(ModelHit),
+}
 
 /// A glTF scene drawn in 3D (see the module docs).
 pub struct SkiaModel3D {
@@ -33,14 +80,27 @@ pub struct SkiaModel3D {
     error: Option<String>,
     /// GL objects, made at the first paint on a GL context.
     gl: RefCell<Option<GlScene>>,
-    /// The animation playing, its name as asked (`None`: the first one).
-    animation: Option<String>,
+    /// The animation asked for by name before the first frame (`Build::animation`).
+    start_animation: Option<String>,
+    /// The main animation.
+    main: Option<Track>,
+    /// The animation the main one fades from, and the seconds the fade has run.
+    fading: Option<(Track, f32)>,
+    /// Cross-fade length, seconds.
+    fade: f32,
+    /// A once-only animation goes back to this looping one when it ends.
+    back_to: Option<usize>,
+    /// Animations playing at the same time as the main one (other objects of the scene).
+    layers: Vec<Track>,
     playing: bool,
     speed: f32,
-    /// Seconds into the animation.
-    time: f32,
     last_ms: Option<f64>,
     ticking: bool,
+    nodes: Vec<NodeOverride>,
+    materials: Vec<MaterialOverride>,
+    events: Vec<Event>,
+    on_ended: Option<EndedHandler>,
+    on_tapped: Option<TappedHandler>,
     /// Turn around the vertical axis, degrees; tilt, degrees.
     yaw: f32,
     pitch: f32,
@@ -54,24 +114,35 @@ pub struct SkiaModel3D {
 
 impl SkiaModel3D {
     /// A scene from the bytes of a `.glb` (or a `.gltf` with its buffers embedded). It plays its
-    /// first animation; drags turn it.
+    /// first animation in a loop; drags turn it.
     #[allow(clippy::new_ret_no_self)]
     pub fn new(glb: &[u8]) -> Build<SkiaModel3D> {
         let (scene, error) = match Scene::load(glb) {
             Ok(scene) => (Some(Rc::new(scene)), None),
             Err(why) => (None, Some(why)),
         };
+        let (nodes, materials) = scene.as_ref().map_or((0, 0), |s| (s.nodes.len(), s.materials.len()));
+        let main = scene.as_ref().filter(|s| !s.animations.is_empty()).map(|_| Track { animation: 0, time: 0.0, looped: true });
         let model = SkiaModel3D {
             id: ControlId { index: 0, generation: 0 },
             scene,
             error,
             gl: RefCell::new(None),
-            animation: None,
+            start_animation: None,
+            main,
+            fading: None,
+            fade: 0.25,
+            back_to: None,
+            layers: Vec::new(),
             playing: true,
             speed: 1.0,
-            time: 0.0,
             last_ms: None,
             ticking: false,
+            nodes: vec![NodeOverride::default(); nodes],
+            materials: vec![MaterialOverride::default(); materials],
+            events: Vec::new(),
+            on_ended: None,
+            on_tapped: None,
             yaw: 20.0,
             pitch: 10.0,
             auto_rotate: 0.0,
@@ -89,70 +160,231 @@ impl SkiaModel3D {
         self.scene.as_ref().map_or(Vec::new(), |s| s.animations.iter().map(|a| a.name.clone()).collect())
     }
 
+    /// The names of the scene's nodes (objects, bones, cameras), in file order.
+    pub fn node_names(&self) -> Vec<String> {
+        self.scene.as_ref().map_or(Vec::new(), |s| s.nodes.iter().map(|n| n.name.clone()).collect())
+    }
+
+    /// The names of the scene's materials (its parts by look), in file order.
+    pub fn material_names(&self) -> Vec<String> {
+        self.scene.as_ref().map_or(Vec::new(), |s| s.materials.iter().map(|m| m.name.clone()).collect())
+    }
+
+    /// The main animation playing, by name.
+    pub fn current_animation(&self) -> Option<&str> {
+        Some(self.scene.as_ref()?.animations.get(self.main?.animation)?.name.as_str())
+    }
+
     /// The file could not be read: why (`None` when it was).
     pub fn error(&self) -> Option<&str> {
         self.error.as_deref()
     }
 
-    fn animation_index(&self) -> Option<usize> {
-        let scene = self.scene.as_ref()?;
-        match &self.animation {
-            Some(name) => scene.animations.iter().position(|a| &a.name == name),
-            None => (!scene.animations.is_empty()).then_some(0),
+    fn animation_named(&self, name: &str) -> Option<usize> {
+        self.scene.as_ref()?.animations.iter().position(|a| a.name == name)
+    }
+
+    fn node_named(&self, name: &str) -> Option<usize> {
+        self.scene.as_ref()?.nodes.iter().position(|n| n.name == name)
+    }
+
+    fn material_named(&self, name: &str) -> Option<usize> {
+        self.scene.as_ref()?.materials.iter().position(|m| m.name == name)
+    }
+
+    /// Starts `animation` as the main one, fading from what played.
+    fn start(&mut self, animation: usize, looped: bool) {
+        if let Some(old) = self.main.filter(|_| self.fade > 0.0) {
+            self.fading = Some((old, 0.0));
         }
+        self.main = Some(Track { animation, time: 0.0, looped });
+        self.playing = true;
     }
 
     fn wants_frames(&self) -> bool {
-        self.scene.is_some() && ((self.playing && self.animation_index().is_some()) || self.auto_rotate != 0.0)
+        self.scene.is_some()
+            && (!self.events.is_empty() || self.fading.is_some() || self.auto_rotate != 0.0 || (self.playing && (self.main.is_some() || !self.layers.is_empty())))
     }
 
-    fn update_ticking(&mut self, cx: &mut Cx) {
+    fn update_ticking(&mut self, tree: &mut Tree) {
         if self.wants_frames() {
             if !std::mem::replace(&mut self.ticking, true) {
                 self.last_ms = None;
-                animators::start_frame(cx.tree, self.id, tick);
+                animators::start_frame(tree, self.id, tick);
             }
         } else if std::mem::take(&mut self.ticking) {
-            animators::stop_frames(cx.tree, self.id);
+            animators::stop_frames(tree, self.id);
         }
+    }
+
+    /// One frame of time: tracks advance, a fade goes on, a once-only animation that ended is
+    /// reported and goes back to the looping one.
+    fn advance(&mut self, delta: f32) {
+        let Some(scene) = self.scene.clone() else { return };
+        self.yaw = (self.yaw + self.auto_rotate * delta) % 360.0;
+        if !self.playing {
+            return;
+        }
+        let step = delta * self.speed;
+        if let Some((track, elapsed)) = &mut self.fading {
+            track.time += step;
+            *elapsed += delta;
+            if *elapsed >= self.fade {
+                self.fading = None;
+            }
+        }
+        for layer in &mut self.layers {
+            layer.time += step;
+        }
+        let Some(main) = &mut self.main else { return };
+        main.time += step;
+        let duration = scene.animations.get(main.animation).map_or(0.0, |a| a.duration);
+        if !main.looped && main.time >= duration {
+            main.time = duration;
+            let ended = scene.animations[main.animation].name.clone();
+            self.events.push(Event::Ended(ended));
+            match self.back_to.take() {
+                Some(back) => self.start(back, true),
+                // Held on its last frame (a death).
+                None => self.playing = !self.layers.is_empty(),
+            }
+        }
+    }
+
+    /// The local transform of every node for this frame: the file's, the animations' (blended
+    /// while fading), then what code set.
+    fn locals(&self, scene: &Scene) -> Vec<(Vec3, Quat, Vec3)> {
+        let mut local = scene.rest();
+        if let Some(main) = self.main {
+            match self.fading {
+                Some((from, elapsed)) => {
+                    let mut old = local.clone();
+                    scene.apply(from, &mut old);
+                    scene.apply(main, &mut local);
+                    let w = (elapsed / self.fade).clamp(0.0, 1.0);
+                    for (l, o) in local.iter_mut().zip(&old) {
+                        *l = (o.0.lerp(l.0, w), o.1.slerp(l.1, w), o.2.lerp(l.2, w));
+                    }
+                }
+                None => scene.apply(main, &mut local),
+            }
+        }
+        for layer in &self.layers {
+            scene.apply(*layer, &mut local);
+        }
+        for (l, o) in local.iter_mut().zip(&self.nodes) {
+            if let Some(t) = o.translation {
+                l.0 = t;
+            }
+            if let Some(r) = o.rotation {
+                l.1 = r;
+            }
+            if let Some(s) = o.scale {
+                l.2 = s;
+            }
+        }
+        local
+    }
+
+    /// Hidden nodes, a hidden parent hiding its children.
+    fn hidden(&self, scene: &Scene) -> Vec<bool> {
+        (0..scene.nodes.len())
+            .map(|i| std::iter::successors(Some(i), |n| scene.nodes[*n].parent).any(|n| self.nodes.get(n).is_some_and(|o| o.hidden)))
+            .collect()
+    }
+
+    fn camera(&self, scene: &Scene, size: (f32, f32)) -> Mat4 {
+        scene.camera(self.yaw, self.pitch, self.zoom, size.0 / size.1.max(1.0))
+    }
+
+    /// What the ray through this point of the control (pixels from its corner) meets first.
+    fn hit(&self, x: f32, y: f32, size: (f32, f32)) -> Option<ModelHit> {
+        let scene = self.scene.as_ref()?;
+        let pose = scene.world(&self.locals(scene));
+        let inverse = self.camera(scene, size).inverse();
+        let (nx, ny) = (x / size.0 * 2.0 - 1.0, 1.0 - y / size.1 * 2.0);
+        let (near, far) = (inverse.project_point3(Vec3::new(nx, ny, -1.0)), inverse.project_point3(Vec3::new(nx, ny, 1.0)));
+        let (node, primitive, t) = scene.ray_hit(&pose, &self.hidden(scene), &self.materials, near, (far - near).normalize())?;
+        let material = scene.meshes[scene.nodes[node].mesh?][primitive].material.and_then(|m| scene.materials.get(m)).map_or(String::new(), |m| m.name.clone());
+        let point = near + (far - near).normalize() * t;
+        Some(ModelHit { node: scene.nodes[node].name.clone(), material, point: point.to_array() })
     }
 }
 
-fn tick(id: ControlId, time_ms: f64, _state: &mut dyn Any, cx: &mut Cx<'_>) -> FrameTick {
+/// One frame: time moves on, then the app hears what happened (an animation ended, a tap).
+fn tick(id: ControlId, time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> FrameTick {
     let mut result = FrameTick { keep: false, state_touched: false };
     let Some(mut node) = cx.tree.take(id) else { return result };
+    let mut queue = Vec::new();
     if let Some(model) = node.kind.as_deref_mut().and_then(part_mut::<SkiaModel3D>) {
         let delta = model.last_ms.map_or(0.0, |last| ((time_ms - last) / 1000.0) as f32);
         model.last_ms = Some(time_ms);
-        if model.playing {
-            model.time += delta * model.speed;
+        model.advance(delta);
+        let events = std::mem::take(&mut model.events);
+        for event in events {
+            let control = node.kind.as_deref_mut().expect("checked above");
+            let model = part_mut::<SkiaModel3D>(control).expect("checked above");
+            match event {
+                Event::Ended(name) => {
+                    if let Some(mut handler) = model.on_ended.take() {
+                        let control = node.kind.as_deref_mut().expect("checked above");
+                        handler(Raw { id, control, base: &mut node.base, queue: &mut queue }, state, &mut Cx { tree: cx.tree }, &name);
+                        result.state_touched = true;
+                        let model = node.kind.as_deref_mut().and_then(part_mut::<SkiaModel3D>).expect("checked above");
+                        model.on_ended.get_or_insert(handler);
+                    }
+                }
+                Event::Tapped(hit) => {
+                    if let Some(mut handler) = model.on_tapped.take() {
+                        let control = node.kind.as_deref_mut().expect("checked above");
+                        handler(Raw { id, control, base: &mut node.base, queue: &mut queue }, state, &mut Cx { tree: cx.tree }, &hit);
+                        result.state_touched = true;
+                        let model = node.kind.as_deref_mut().and_then(part_mut::<SkiaModel3D>).expect("checked above");
+                        model.on_tapped.get_or_insert(handler);
+                    }
+                }
+            }
         }
-        model.yaw = (model.yaw + model.auto_rotate * delta) % 360.0;
+        let model = node.kind.as_deref_mut().and_then(part_mut::<SkiaModel3D>).expect("checked above");
         result.keep = model.wants_frames();
         model.ticking = result.keep;
     }
     cx.tree.put_back(node);
+    cx.tree.queue.append(&mut queue);
     cx.tree.invalidate(id, Dirty::DRAW);
     result
 }
 
 impl Control for SkiaModel3D {
     fn on_props_changed(&mut self, cx: &mut Cx) {
-        self.update_ticking(cx);
+        if let Some(name) = self.start_animation.take()
+            && let Some(animation) = self.animation_named(&name)
+        {
+            self.main = Some(Track { animation, time: 0.0, looped: true });
+        }
+        self.update_ticking(cx.tree);
     }
 
     fn on_gesture(&mut self, cx: &mut GestureCx, gesture: &Gesture) -> Handled {
-        if !self.orbit {
-            return Handled::No;
-        }
         match gesture.kind {
             GestureKind::Down => Handled::Yes,
-            GestureKind::Panning => {
+            GestureKind::Panning if self.orbit => {
                 let scale = cx.base().scale.max(0.1);
                 self.yaw += gesture.delta.x / scale * 0.5;
                 self.pitch = (self.pitch + gesture.delta.y / scale * 0.3).clamp(-60.0, 80.0);
                 cx.invalidate(Dirty::DRAW);
                 Handled::Yes
+            }
+            GestureKind::Tapped if self.on_tapped.is_some() => {
+                let rect = cx.base().rect;
+                match self.hit(cx.point.x - rect.left, cx.point.y - rect.top, (rect.width(), rect.height())) {
+                    Some(hit) => {
+                        self.events.push(Event::Tapped(hit));
+                        self.update_ticking(cx.tree);
+                        Handled::Tapped
+                    }
+                    None => Handled::No,
+                }
             }
             _ => Handled::No,
         }
@@ -165,8 +397,9 @@ impl Control for SkiaModel3D {
             return;
         }
         let Some(scene) = self.scene.clone() else { return };
-        let pose = scene.pose(self.animation_index(), self.time);
-        let view_proj = scene.camera(self.yaw, self.pitch, self.zoom, size.width as f32 / size.height as f32);
+        let pose = scene.world(&self.locals(&scene));
+        let view_proj = self.camera(&scene, (size.width as f32, size.height as f32));
+        let hidden = self.hidden(&scene);
         let canvas = cx.canvas;
         let Some(gpu) = cx.gpu() else { return };
         let mut gl = self.gl.borrow_mut();
@@ -174,19 +407,20 @@ impl Control for SkiaModel3D {
             // A new GL context: the old objects are gone with the old one.
             *gl = None;
         }
-        let Some(image) = render::draw(&mut gl, gpu, &scene, &pose, view_proj, size) else { return };
+        let Some(image) = render::draw(&mut gl, gpu, &scene, &pose, &hidden, &self.materials, view_proj, size) else { return };
         canvas.draw_image_rect_with_sampling_options(&image, None, Rect::from_xywh(rect.left, rect.top, size.width as f32, size.height as f32), SamplingOptions::default(), &Paint::default());
     }
 }
 
 impl Build<SkiaModel3D> {
-    /// The animation to play by name (glTF animation name); the first one when not set.
+    /// The animation it loops from the start, by name (glTF animation name); the first one when
+    /// not set.
     pub fn animation(mut self, name: impl Into<String>) -> Self {
-        self.control_mut().animation = Some(name.into());
+        self.control_mut().start_animation = Some(name.into());
         self
     }
 
-    /// Plays the animation (on by default).
+    /// Plays the animations (on by default).
     pub fn playing(mut self, on: bool) -> Self {
         self.control_mut().playing = on;
         self
@@ -195,6 +429,12 @@ impl Build<SkiaModel3D> {
     /// Animation speed, 1 = as authored.
     pub fn speed(mut self, speed: f32) -> Self {
         self.control_mut().speed = speed;
+        self
+    }
+
+    /// How long one animation blends into the next, milliseconds (250 by default, 0 = cut).
+    pub fn crossfade_ms(mut self, ms: f32) -> Self {
+        self.control_mut().fade = ms.max(0.0) / 1000.0;
         self
     }
 
@@ -221,21 +461,85 @@ impl Build<SkiaModel3D> {
         self.control_mut().orbit = on;
         self
     }
+
+    /// Runs when an animation played with `play_once` ended, with its name.
+    pub fn on_animation_ended<S: Any>(mut self, mut f: impl FnMut(&mut Mut<'_, SkiaModel3D>, &mut S, &mut Cx<'_>, &str) + 'static) -> Self {
+        self.control_mut().on_ended = Some(Box::new(move |raw, state, cx, name| {
+            let state = state.downcast_mut::<S>().unwrap_or_else(|| wrong_state::<S>());
+            f(&mut raw.typed(), state, cx, name)
+        }));
+        self
+    }
+
+    /// Runs when a tap lands on the scene's surface (not on empty space around it), with what it
+    /// hit: the node, the material and the point.
+    pub fn on_tapped_3d<S: Any>(mut self, mut f: impl FnMut(&mut Mut<'_, SkiaModel3D>, &mut S, &mut Cx<'_>, &ModelHit) + 'static) -> Self {
+        self.control_mut().on_tapped = Some(Box::new(move |raw, state, cx, hit| {
+            let state = state.downcast_mut::<S>().unwrap_or_else(|| wrong_state::<S>());
+            f(&mut raw.typed(), state, cx, hit)
+        }));
+        self
+    }
 }
 
 impl Mut<'_, SkiaModel3D> {
-    /// Plays the animation with this name from its start; false when the scene has none such.
+    /// Loops the animation with this name, blending into it; false when the scene has none such.
     pub fn play(&mut self, name: &str) -> bool {
         let model = self.control_mut();
-        if !model.animations().iter().any(|a| a == name) {
-            return false;
-        }
-        (model.animation, model.time, model.playing) = (Some(name.to_owned()), 0.0, true);
+        let Some(animation) = model.animation_named(name) else { return false };
+        model.back_to = None;
+        model.start(animation, true);
         self.mark(Dirty::DRAW_APPLY);
         true
     }
 
-    /// Stops or resumes the animation where it is.
+    /// Plays the animation with this name once, then blends back into the looping one that
+    /// played before it (an attack, then idle again); `on_animation_ended` hears its end. With
+    /// nothing looping before, it holds its last frame (a death). False when there is none such.
+    pub fn play_once(&mut self, name: &str) -> bool {
+        let model = self.control_mut();
+        let Some(animation) = model.animation_named(name) else { return false };
+        if let Some(main) = model.main.filter(|m| m.looped) {
+            model.back_to = Some(main.animation);
+        }
+        model.start(animation, false);
+        self.mark(Dirty::DRAW_APPLY);
+        true
+    }
+
+    /// Holds the animation where it is: a once-only one stays on its frame, nothing goes back.
+    pub fn hold(&mut self, name: &str) -> bool {
+        let model = self.control_mut();
+        let Some(animation) = model.animation_named(name) else { return false };
+        model.back_to = None;
+        model.start(animation, false);
+        self.mark(Dirty::DRAW_APPLY);
+        true
+    }
+
+    /// Loops another animation together with the main one (another object of the scene: a coin
+    /// spinning while the boss attacks). False when the scene has none such.
+    pub fn play_layer(&mut self, name: &str) -> bool {
+        let model = self.control_mut();
+        let Some(animation) = model.animation_named(name) else { return false };
+        if !model.layers.iter().any(|l| l.animation == animation) {
+            model.layers.push(Track { animation, time: 0.0, looped: true });
+        }
+        model.playing = true;
+        self.mark(Dirty::DRAW_APPLY);
+        true
+    }
+
+    /// Stops an animation started with `play_layer`.
+    pub fn stop_layer(&mut self, name: &str) {
+        let model = self.control_mut();
+        if let Some(animation) = model.animation_named(name) {
+            model.layers.retain(|l| l.animation != animation);
+        }
+        self.mark(Dirty::DRAW_APPLY);
+    }
+
+    /// Stops or resumes all animations where they are.
     pub fn set_playing(&mut self, on: bool) {
         self.control_mut().playing = on;
         self.mark(Dirty::DRAW_APPLY);
@@ -251,11 +555,70 @@ impl Mut<'_, SkiaModel3D> {
         self.control_mut().auto_rotate = degrees_per_second;
         self.mark(Dirty::APPLY);
     }
+
+    fn with_node(&mut self, name: &str, f: impl FnOnce(&mut NodeOverride)) -> bool {
+        let model = self.control_mut();
+        let Some(i) = model.node_named(name) else { return false };
+        f(&mut model.nodes[i]);
+        self.mark(Dirty::DRAW);
+        true
+    }
+
+    /// Shows or hides a node by name, with what hangs under it. False when there is none such.
+    pub fn set_node_visible(&mut self, name: &str, visible: bool) -> bool {
+        self.with_node(name, |n| n.hidden = !visible)
+    }
+
+    /// Moves a node by name: its own position, in its parent's units. It replaces what the file
+    /// and the animations give it.
+    pub fn set_node_translation(&mut self, name: &str, xyz: [f32; 3]) -> bool {
+        self.with_node(name, |n| n.translation = Some(Vec3::from(xyz)))
+    }
+
+    /// Turns a node by name: rotations around x, y, z in degrees (applied in that order).
+    pub fn set_node_rotation(&mut self, name: &str, degrees: [f32; 3]) -> bool {
+        let [x, y, z] = degrees.map(f32::to_radians);
+        self.with_node(name, |n| n.rotation = Some(Quat::from_euler(glam::EulerRot::XYZ, x, y, z)))
+    }
+
+    /// Scales a node by name.
+    pub fn set_node_scale(&mut self, name: &str, xyz: [f32; 3]) -> bool {
+        self.with_node(name, |n| n.scale = Some(Vec3::from(xyz)))
+    }
+
+    /// Gives a node back what the file and the animations say: position, turn, scale, shown.
+    pub fn reset_node(&mut self, name: &str) -> bool {
+        self.with_node(name, |n| *n = NodeOverride::default())
+    }
+
+    /// Recolors a material by name (a part of the model: skin, armor); `None` = the file's color.
+    /// A texture is tinted by it. False when there is none such.
+    pub fn set_material_color(&mut self, name: &str, color: Option<Color>) -> bool {
+        let model = self.control_mut();
+        let Some(i) = model.material_named(name) else { return false };
+        model.materials[i].color = color.map(|c| {
+            // The file's colors are linear; a UI color is sRGB.
+            let linear = |v: u8| (v as f32 / 255.0).powf(2.2);
+            [linear(c.r()), linear(c.g()), linear(c.b()), c.a() as f32 / 255.0]
+        });
+        self.mark(Dirty::DRAW);
+        true
+    }
+
+    /// Shows or hides every surface with this material. False when there is none such.
+    pub fn set_material_visible(&mut self, name: &str, visible: bool) -> bool {
+        let model = self.control_mut();
+        let Some(i) = model.material_named(name) else { return false };
+        model.materials[i].hidden = !visible;
+        self.mark(Dirty::DRAW);
+        true
+    }
 }
 
 // ---------------------------------------------------------------- the scene on the CPU
 
 struct Node {
+    name: String,
     parent: Option<usize>,
     translation: Vec3,
     rotation: Quat,
@@ -275,6 +638,7 @@ struct Primitive {
 }
 
 struct Material {
+    name: String,
     color: [f32; 4],
     texture: Option<usize>,
     double_sided: bool,
@@ -351,6 +715,7 @@ impl Scene {
             .map(|m| {
                 let pbr = m.pbr_metallic_roughness();
                 Material {
+                    name: m.name().unwrap_or_default().to_owned(),
                     color: pbr.base_color_factor(),
                     texture: pbr.base_color_texture().map(|t| t.texture().source().index()),
                     double_sided: m.double_sided(),
@@ -402,6 +767,7 @@ impl Scene {
             .map(|n| {
                 let (t, r, s) = n.transform().decomposed();
                 Node {
+                    name: n.name().unwrap_or_default().to_owned(),
                     parent: None,
                     translation: Vec3::from(t),
                     rotation: Quat::from_array(r),
@@ -451,20 +817,32 @@ impl Scene {
         Ok(scene)
     }
 
-    /// Every node's world matrix for this animation at this time (looped).
-    fn pose(&self, animation: Option<usize>, time: f32) -> Vec<Mat4> {
-        let mut local: Vec<(Vec3, Quat, Vec3)> = self.nodes.iter().map(|n| (n.translation, n.rotation, n.scale)).collect();
-        if let Some(a) = animation.and_then(|i| self.animations.get(i)) {
-            let t = if a.duration > 0.0 { time.rem_euclid(a.duration) } else { 0.0 };
-            for c in &a.channels {
-                let Some(l) = local.get_mut(c.node) else { continue };
-                match c.path {
-                    Path::Translation => l.0 = Vec3::from_slice(&sample(c, t, 3)),
-                    Path::Rotation => l.1 = Quat::from_slice(&sample(c, t, 4)).normalize(),
-                    Path::Scale => l.2 = Vec3::from_slice(&sample(c, t, 3)),
-                }
+    /// Every node's own transform as the file gives it.
+    fn rest(&self) -> Vec<(Vec3, Quat, Vec3)> {
+        self.nodes.iter().map(|n| (n.translation, n.rotation, n.scale)).collect()
+    }
+
+    /// Writes an animation's values at its time into the nodes it moves; a looped one wraps, a
+    /// once-only one stops at its end.
+    fn apply(&self, track: Track, local: &mut [(Vec3, Quat, Vec3)]) {
+        let Some(a) = self.animations.get(track.animation) else { return };
+        let t = match (a.duration > 0.0, track.looped) {
+            (false, _) => 0.0,
+            (true, true) => track.time.rem_euclid(a.duration),
+            (true, false) => track.time.clamp(0.0, a.duration),
+        };
+        for c in &a.channels {
+            let Some(l) = local.get_mut(c.node) else { continue };
+            match c.path {
+                Path::Translation => l.0 = Vec3::from_slice(&sample(c, t, 3)),
+                Path::Rotation => l.1 = Quat::from_slice(&sample(c, t, 4)).normalize(),
+                Path::Scale => l.2 = Vec3::from_slice(&sample(c, t, 3)),
             }
         }
+    }
+
+    /// Every node's world matrix from the local transforms.
+    fn world(&self, local: &[(Vec3, Quat, Vec3)]) -> Vec<Mat4> {
         let mut world = vec![None; self.nodes.len()];
         fn resolve(i: usize, nodes: &[Node], local: &[(Vec3, Quat, Vec3)], world: &mut [Option<Mat4>]) -> Mat4 {
             if let Some(m) = world[i] {
@@ -479,7 +857,60 @@ impl Scene {
             world[i] = Some(m);
             m
         }
-        (0..self.nodes.len()).map(|i| resolve(i, &self.nodes, &local, &mut world)).collect()
+        (0..self.nodes.len()).map(|i| resolve(i, &self.nodes, local, &mut world)).collect()
+    }
+
+    /// The world matrices with one looped animation at this time (bounds, tests).
+    fn pose(&self, animation: Option<usize>, time: f32) -> Vec<Mat4> {
+        let mut local = self.rest();
+        if let Some(animation) = animation {
+            self.apply(Track { animation, time, looped: true }, &mut local);
+        }
+        self.world(&local)
+    }
+
+    /// A primitive's vertices in the scene as posed: skinned by its joints, else moved by its node.
+    fn posed_positions(&self, node: usize, primitive: &Primitive, pose: &[Mat4]) -> Vec<Vec3> {
+        let joints: Option<Vec<Mat4>> = self.nodes[node].skin.and_then(|s| self.skins.get(s)).map(|skin| skin.joints.iter().zip(&skin.inverse_bind).map(|(j, ibm)| pose[*j] * *ibm).collect());
+        primitive
+            .positions
+            .iter()
+            .enumerate()
+            .map(|(v, position)| {
+                let at = Vec3::from(*position);
+                match (&joints, primitive.joints.get(v), primitive.weights.get(v)) {
+                    (Some(joints), Some(j), Some(w)) => (0..4).fold(Vec3::ZERO, |sum, k| match joints.get(j[k] as usize) {
+                        Some(m) => sum + m.transform_point3(at) * w[k],
+                        None => sum,
+                    }),
+                    _ => pose[node].transform_point3(at),
+                }
+            })
+            .collect()
+    }
+
+    /// The nearest surface a ray meets: node, primitive, distance. Hidden nodes and materials are
+    /// passed through.
+    fn ray_hit(&self, pose: &[Mat4], hidden: &[bool], materials: &[MaterialOverride], from: Vec3, dir: Vec3) -> Option<(usize, usize, f32)> {
+        let mut best: Option<(usize, usize, f32)> = None;
+        for (i, node) in self.nodes.iter().enumerate() {
+            let Some(mesh) = node.mesh.and_then(|m| self.meshes.get(m)).filter(|_| !hidden[i]) else { continue };
+            for (p, primitive) in mesh.iter().enumerate() {
+                if primitive.material.and_then(|m| materials.get(m)).is_some_and(|m| m.hidden) {
+                    continue;
+                }
+                let at = self.posed_positions(i, primitive, pose);
+                for tri in primitive.indices.chunks_exact(3) {
+                    let (Some(a), Some(b), Some(c)) = (at.get(tri[0] as usize), at.get(tri[1] as usize), at.get(tri[2] as usize)) else { continue };
+                    if let Some(t) = ray_triangle(from, dir, *a, *b, *c)
+                        && best.is_none_or(|(_, _, d)| t < d)
+                    {
+                        best = Some((i, p, t));
+                    }
+                }
+            }
+        }
+        best
     }
 
     fn rest_bounds(&self) -> (Vec3, Vec3) {
@@ -487,18 +918,8 @@ impl Scene {
         let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
         for (i, node) in self.nodes.iter().enumerate() {
             let Some(mesh) = node.mesh.and_then(|m| self.meshes.get(m)) else { continue };
-            // A skinned mesh is placed by its joints only (glTF ignores its node's transform).
-            let joints: Option<Vec<Mat4>> = node.skin.and_then(|s| self.skins.get(s)).map(|skin| skin.joints.iter().zip(&skin.inverse_bind).map(|(j, ibm)| pose[*j] * *ibm).collect());
             for p in mesh {
-                for (v, position) in p.positions.iter().enumerate() {
-                    let at = Vec3::from(*position);
-                    let v = match (&joints, p.joints.get(v), p.weights.get(v)) {
-                        (Some(joints), Some(j), Some(w)) => (0..4).fold(Vec3::ZERO, |sum, k| match joints.get(j[k] as usize) {
-                            Some(m) => sum + m.transform_point3(at) * w[k],
-                            None => sum,
-                        }),
-                        _ => pose[i].transform_point3(at),
-                    };
+                for v in self.posed_positions(i, p, &pose) {
                     (lo, hi) = (lo.min(v), hi.max(v));
                 }
             }
@@ -520,6 +941,29 @@ impl Scene {
         let proj = Mat4::perspective_rh_gl(fov, aspect, (distance - radius * 2.0).max(distance * 0.01), distance + radius * 2.0);
         proj * view
     }
+}
+
+/// Where a ray meets a triangle, both sides (Moller-Trumbore): the distance along the ray.
+fn ray_triangle(from: Vec3, dir: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> {
+    let (e1, e2) = (b - a, c - a);
+    let p = dir.cross(e2);
+    let det = e1.dot(p);
+    if det.abs() < 1e-9 {
+        return None;
+    }
+    let inv = 1.0 / det;
+    let s = from - a;
+    let u = s.dot(p) * inv;
+    if !(0.0..=1.0).contains(&u) {
+        return None;
+    }
+    let q = s.cross(e1);
+    let v = dir.dot(q) * inv;
+    if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
+    let t = e2.dot(q) * inv;
+    (t > 0.0).then_some(t)
 }
 
 /// The value of a channel at `t`, `width` floats.
@@ -879,7 +1323,8 @@ void main() {
     }
 
     /// Draws the scene in its pose into the frame texture and hands it to Skia as an image.
-    pub(super) fn draw(slot: &mut Option<GlScene>, gpu: &mut Gpu, scene: &Scene, pose: &[Mat4], view_proj: Mat4, size: ISize) -> Option<Image> {
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn draw(slot: &mut Option<GlScene>, gpu: &mut Gpu, scene: &Scene, pose: &[Mat4], hidden: &[bool], overrides: &[MaterialOverride], view_proj: Mat4, size: ISize) -> Option<Image> {
         let gl = slot.get_or_insert_with(|| upload(scene, gpu.epoch()));
         ensure_frame(gl, size);
         let light = Vec3::new(0.4, 0.8, 0.6).normalize();
@@ -914,6 +1359,9 @@ void main() {
                 }
                 for (i, node) in scene.nodes.iter().enumerate() {
                     let (Some(m), Some(vaos)) = (node.mesh, node.mesh.and_then(|m| gl.meshes.get(m))) else { continue };
+                    if hidden[i] {
+                        continue;
+                    }
                     let skin = node.skin.and_then(|s| scene.skins.get(s));
                     let model = if skin.is_some() { Mat4::IDENTITY } else { pose[i] };
                     if let Some(skin) = skin {
@@ -925,10 +1373,11 @@ void main() {
                     glUniformMatrix4fv(gl.uniforms.model, 1, 0, model.to_cols_array().as_ptr());
                     for (p, (vao, count)) in scene.meshes[m].iter().zip(vaos) {
                         let material = p.material.and_then(|i| scene.materials.get(i));
-                        if material.is_some_and(|m| m.blend) != pass_blend {
+                        let changed = p.material.and_then(|i| overrides.get(i)).copied().unwrap_or_default();
+                        if changed.hidden || material.is_some_and(|m| m.blend) != pass_blend {
                             continue;
                         }
-                        let color = material.map_or([0.8, 0.8, 0.8, 1.0], |m| m.color);
+                        let color = changed.color.unwrap_or(material.map_or([0.8, 0.8, 0.8, 1.0], |m| m.color));
                         let texture = material.and_then(|m| m.texture).and_then(|t| gl.textures.get(t));
                         if material.is_some_and(|m| m.double_sided) { glDisable(CULL_FACE) } else { glEnable(CULL_FACE) }
                         glUniform4fv(gl.uniforms.color, 1, color.as_ptr());
@@ -968,7 +1417,8 @@ mod render {
     use skia_safe::Image;
 
     /// Not on this platform yet: nothing is drawn.
-    pub(super) fn draw(_slot: &mut Option<GlScene>, _gpu: &mut Gpu, _scene: &Scene, _pose: &[Mat4], _view_proj: Mat4, _size: ISize) -> Option<Image> {
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn draw(_slot: &mut Option<GlScene>, _gpu: &mut Gpu, _scene: &Scene, _pose: &[Mat4], _hidden: &[bool], _overrides: &[MaterialOverride], _view_proj: Mat4, _size: ISize) -> Option<Image> {
         None
     }
 }
