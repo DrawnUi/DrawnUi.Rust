@@ -24,8 +24,14 @@ full = ["skia-safe/textlayout", "svg"]
 hot-reload = ["dep:serde"]
 # Tools (DrawnUI Designer): the properties of every control by name (`Tree::props`, `Tree::set_prop`).
 designer = []
+# SkiaModel3D: glTF scenes drawn in 3D (skinned meshes, animation, a depth buffer); WebGL2 for now.
+model3d = ["dep:gltf", "dep:glam"]
 
 [dependencies]
+# SkiaModel3D (feature `model3d`): the glTF reader without its image decoders (Skia decodes),
+# and the vector math for poses and cameras.
+gltf = { version = "1.4", default-features = false, features = ["utils", "names"], optional = true }
+glam = { version = "0.30", optional = true }
 skia-safe = { workspace = true }
 # The raw Skia structs behind skia-safe (the same crate skia-safe uses), for the one field
 # skia-safe does not reach yet: a flush's finished callback (`gpu.rs`).

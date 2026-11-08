@@ -1,0 +1,11 @@
+[package]
+name = "model3d"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+drawnui = { path = "../../drawnui", features = ["model3d"] }
+
+[build-dependencies]
+embed-resource = "3"
