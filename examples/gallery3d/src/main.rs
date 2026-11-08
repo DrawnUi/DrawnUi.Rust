@@ -330,12 +330,12 @@ fn build(app: &mut App) -> Build<DrawnGame> {
         SkiaScroll::new().fill().content(
             SkiaLayout::column().fill_x().padding(24).spacing(20).children((
                 SkiaLabel::new("3D, made in the app").font_size(30).text_color(INK).horizontal_options(LayoutOptions::Center),
-                SkiaLabel::new("Loaders, rewards and characters built and animated inside a DrawnUI screen: no animation files to find.")
+                SkiaLabel::new("3D pieces and characters built and animated inside a DrawnUI screen.")
                     .font_size(15)
                     .text_color(MUTED)
                     .horizontal_text_alignment(TextAlignment::Center)
                     .horizontal_options(LayoutOptions::Center),
-                section("Made in code", "Smooth shapes in flat colors with an outline, a few lines each."),
+                section("Made in code", "Smooth shapes drawn flat with an outline: the drawn look for 3D pieces, a few lines each."),
                 SkiaLayout::wrap().spacing(16).horizontal_options(LayoutOptions::Center).children((
                     tile(
                         "Loading",
