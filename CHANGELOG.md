@@ -16,6 +16,13 @@ version before it. Commits in parentheses.
   `set_node_rotation`, `set_node_scale`, `reset_node`; materials by name: `set_material_color`,
   `set_material_visible`. `on_animation_ended` and `on_tapped_3d` (the node, material and point a
   tap hit). Drag to turn, `auto_rotate`, `zoom`. The `model3d` example shows a boss fight.
+- `SkiaScene3D` (feature `model3d`): a 3D layer over a 2D game field. Many objects, each a model
+  with its own place, size, facing and animations, drawn in one pass; objects are placed in the
+  layer's points like sprites (`add(name, model, x, y, size)`, `set_position`, `set_facing`,
+  `play` / `play_once` / `hold`, `set_material_color`), lower ones in front, `tilt` to see their
+  tops. `on_tapped_3d` tells which object was hit. A model's file is read and uploaded once,
+  however many objects and controls show it. The `gallery3d` example: a loader, an achievement, a
+  celebration burst, a reward chest, an avatar and a field of 10 to 100 walking mobs.
 
 ## 0.1.0-preview.37 (crates.io, 2026-11-08)
 

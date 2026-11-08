@@ -104,7 +104,7 @@ pub mod prelude {
     #[cfg(feature = "svg")]
     pub use crate::controls::svg::{SkiaSvg, SvgBuild, SvgSet};
     #[cfg(feature = "model3d")]
-    pub use crate::controls::model3d::SkiaModel3D;
+    pub use crate::controls::model3d::{SkiaModel3D, SkiaScene3D};
     pub use crate::skia::{BlendMode, Color, PaintCap, Point, Rect, Size, TileMode};
     pub use crate::{
         AccessibilityNode, AnimationId, Aria, Build, CacheType, FramesBuild, FramesSet, Container, ContextMenu, ContextMenuSource, Control,

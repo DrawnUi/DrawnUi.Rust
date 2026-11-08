@@ -812,6 +812,21 @@ A tap reports the nearest surface under the finger (`ModelHit { node, material, 
 space fall through to what is behind. Read: base color and one color texture, one light; no normal or
 metallic maps, no compressed (Draco, meshopt, KTX2) files, no morph targets, 64 bones per skin.
 
+Many objects on one 2D game field: one `SkiaScene3D` layer, not one control per monster. It draws
+every object in one pass and reads each model once:
+
+```rust
+SkiaScene3D::new().model("slime", SLIME).model("coin", COIN).tilt(30.0).fill().assign(&mut app.field)
+    .on_tapped_3d(|me, _app: &mut App, _cx, hit| { me.play_once(&hit.object, "Hit"); })
+// in the game loop, through cx.get_mut(app.field):
+field.add("m7", "slime", x, y, 46.0);          // stands at (x, y) of the layer in points, 46 tall
+field.play("m7", "Walk"); field.set_facing("m7", 90.0); field.set_speed("m7", 1.2);
+field.set_position("m7", x, y);                 // every frame, like a sprite's left / top
+```
+
+Lower objects (bigger y) are drawn in front; the whole layer is one depth among the 2D layers (a
+sprite cannot sit between two of its objects). A still layer asks for no frames.
+
 ## Clipboard
 
 `cx.set_clipboard(text)` copies plain text, `cx.request_paste()` asks for the clipboard's text,

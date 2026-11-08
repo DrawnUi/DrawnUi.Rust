@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["drawnui", "examples/bench", "examples/dungeon", "examples/dungeon-android", "examples/hello", "examples/hellorust", "examples/hellorust-android", "examples/images", "examples/model3d", "examples/popups"]
+members = ["drawnui", "examples/bench", "examples/dungeon", "examples/dungeon-android", "examples/hello", "examples/hellorust", "examples/hellorust-android", "examples/gallery3d", "examples/images", "examples/model3d", "examples/popups"]
 
 [workspace.package]
 edition = "2024"
