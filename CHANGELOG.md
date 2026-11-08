@@ -4,7 +4,7 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.37 (crates.io, 2026-11-08)
 
 ### Added
 
@@ -13,6 +13,10 @@ version before it. Commits in parentheses.
   path, and runs one on a click. `Cx::add_designer_action` / `Cx::remove_designer_action` while the
   app runs; `Ui::designer_actions`, `Ui::run_designer_action` and `Ui::designer_actions_revision`
   for the designer's agent. Nothing runs unless a designer asks.
+
+### Toolchain
+
+Skia crates unchanged (0.153.7).
 
 ## 0.1.0-preview.36 (crates.io, 2026-11-07)
 
