@@ -122,6 +122,8 @@ pub struct SkiaModel3D {
     look: Look,
     /// Outline width in points (0 = none) and color.
     outline: (f32, Color),
+    /// Smooth edges (multisampling).
+    antialias: bool,
 }
 
 impl SkiaModel3D {
@@ -164,6 +166,7 @@ impl SkiaModel3D {
             zoom: 1.0,
             look: Look::Lit,
             outline: (0.0, Color::BLACK),
+            antialias: false,
         };
         let mut build = Build::new(model);
         let id = build.id();
@@ -179,6 +182,11 @@ impl SkiaModel3D {
     /// The names of the scene's nodes (objects, bones, cameras), in file order.
     pub fn node_names(&self) -> Vec<String> {
         self.scene.as_ref().map_or(Vec::new(), |s| s.nodes.iter().map(|n| n.name.clone()).collect())
+    }
+
+    /// Smooth edges on (`antialias`).
+    pub fn antialias(&self) -> bool {
+        self.antialias
     }
 
     /// The names of the scene's materials (its parts by look), in file order.
@@ -353,7 +361,7 @@ impl Control for SkiaModel3D {
         let pose = scene.world(&self.locals(scene));
         let view_proj = self.camera(scene, (size.width as f32, size.height as f32));
         let hidden = self.hidden(scene);
-        let style = render::Style { look: self.look, outline: self.outline.0 * cx.scale, outline_color: outline_color(self.outline.1) };
+        let style = render::Style { look: self.look, outline: self.outline.0 * cx.scale, outline_color: outline_color(self.outline.1), antialias: self.antialias };
         let canvas = cx.canvas;
         let Some(gpu) = cx.gpu() else { return };
         let items = [render::Item { scene, pose: &pose, hidden: &hidden, materials: &self.materials }];
@@ -394,6 +402,10 @@ pub trait Model3DBuild: Sized {
 
     /// An outline around every shape, `width` points, like an illustration's stroke.
     fn outline(self, width: f32, color: Color) -> Self;
+
+    /// Smooth edges (4x multisampling, or the most the device has). Off by default: on costs about
+    /// 28 more bytes of GPU memory per pixel of the control; the CPU time stays the same.
+    fn antialias(self, on: bool) -> Self;
 
     /// Starts with an image on a material (see `Model3DSet::set_material_image`).
     fn material_image(self, name: &str, image: Texture3D) -> Self;
@@ -462,6 +474,11 @@ impl Model3DBuild for Build<SkiaModel3D> {
 
     fn outline(mut self, width: f32, color: Color) -> Self {
         self.control_mut().outline = (width.max(0.0), color);
+        self
+    }
+
+    fn antialias(mut self, on: bool) -> Self {
+        self.control_mut().antialias = on;
         self
     }
 
@@ -536,6 +553,9 @@ pub trait Model3DSet {
     /// material (or `set_material_color(name, Some(Color::WHITE))`) shows it as it is. False when
     /// there is no such material.
     fn set_material_image(&mut self, name: &str, image: Option<Texture3D>) -> bool;
+
+    /// Smooth edges on or off (see `Model3DBuild::antialias`).
+    fn set_antialias(&mut self, on: bool);
 }
 
 impl Model3DSet for Mut<'_, SkiaModel3D> {
@@ -623,6 +643,11 @@ impl Model3DSet for Mut<'_, SkiaModel3D> {
         self.mark(Dirty::DRAW);
         true
     }
+
+    fn set_antialias(&mut self, on: bool) {
+        self.control_mut().antialias = on;
+        self.mark(Dirty::DRAW);
+    }
 }
 
 fn with_animation(me: &mut Mut<'_, SkiaModel3D>, name: &str, f: impl FnOnce(&mut Player, usize)) -> bool {
@@ -666,6 +691,15 @@ mod tests {
     fn a_broken_file_reports_why() {
         let Err(why) = Scene::load(b"not a model") else { panic!("loaded garbage") };
         assert!(!why.is_empty());
+    }
+
+    #[test]
+    fn smooth_edges_take_4_samples_or_the_most_the_device_has() {
+        assert_eq!(render::msaa_samples(16), 4);
+        assert_eq!(render::msaa_samples(4), 4);
+        assert_eq!(render::msaa_samples(2), 2);
+        assert_eq!(render::msaa_samples(1), 0, "one sample is no smoothing: the plain path");
+        assert_eq!(render::msaa_samples(0), 0);
     }
 
     #[test]

@@ -135,3 +135,14 @@ fn an_image_goes_on_a_material_by_name() {
     assert!(boss.set_material_image("Dragon_Main", None));
     assert!(!boss.set_material_image("Nothing", None));
 }
+
+#[test]
+fn smooth_edges_are_off_until_asked() {
+    let mut host = host();
+    let boss = host.ui.state.boss;
+    assert!(!host.ui.tree.find::<SkiaModel3D>(boss).unwrap().antialias(), "off by default");
+    host.ui.tree.get_mut(boss).unwrap().set_antialias(true);
+    assert!(host.ui.tree.find::<SkiaModel3D>(boss).unwrap().antialias());
+    let mut built = SkiaModel3D::from_model(&Model3D::new().part("p", Mesh3D::sphere(1.0), Color::WHITE)).antialias(true);
+    assert!(built.control_mut().antialias());
+}

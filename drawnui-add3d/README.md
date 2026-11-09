@@ -10,7 +10,7 @@ buttons, text and lists.
 - `Model3D` / `Mesh3D`: shapes made in code (discs, spheres, rings, boxes, turned profiles, any 2D path made 3D).
 - Images on materials: `set_material_image` puts any image (a PNG or JPEG file, a photo, a pattern drawn with Skia)
   on a part of a model or a shape made in code, and switches it live (`Texture3D`).
-- Looks: shaded, cartoon (two tones) or flat, with an optional outline.
+- Looks: shaded, cartoon (two tones) or flat, with an optional outline; smooth edges with `antialias(true)`.
 
 ```toml
 [dependencies]

@@ -27,11 +27,28 @@ pub(super) struct Style {
     pub(super) outline: f32,
     /// Outline color, sRGB, premultiplied by the shader.
     pub(super) outline_color: [f32; 4],
+    /// Smooth edges: drawn multisampled, then resolved into the control's texture.
+    pub(super) antialias: bool,
+}
+
+/// Samples for smooth edges: 4, or the most the device has below that; 0 = none (fewer than 2).
+pub(super) fn msaa_samples(max: i32) -> i32 {
+    if max < 2 { 0 } else { max.min(4) }
 }
 
 /// A control's frame: the texture it draws into, with its depth buffer.
 pub(super) struct Target {
     epoch: u32,
+    frame: u32,
+    color: u32,
+    depth: u32,
+    size: ISize,
+    /// With `antialias`: the multisampled frame drawn into, its color and depth buffers, its
+    /// samples and size; resolved into `color` after each draw.
+    msaa: Option<Msaa>,
+}
+
+struct Msaa {
     frame: u32,
     color: u32,
     depth: u32,
@@ -160,6 +177,11 @@ void main() {
         fn glGenRenderbuffers(n: i32, out: *mut u32);
         fn glBindRenderbuffer(target: u32, buffer: u32);
         fn glRenderbufferStorage(target: u32, format: u32, w: i32, h: i32);
+        fn glRenderbufferStorageMultisample(target: u32, samples: i32, format: u32, w: i32, h: i32);
+        fn glBlitFramebuffer(x0: i32, y0: i32, x1: i32, y1: i32, dx0: i32, dy0: i32, dx1: i32, dy1: i32, mask: u32, filter: u32);
+        fn glDeleteFramebuffers(n: i32, frames: *const u32);
+        fn glDeleteRenderbuffers(n: i32, buffers: *const u32);
+        fn glGetIntegerv(name: u32, out: *mut i32);
         fn glFramebufferRenderbuffer(target: u32, attachment: u32, rb_target: u32, buffer: u32);
         fn glViewport(x: i32, y: i32, w: i32, h: i32);
         fn glClearColor(r: f32, g: f32, b: f32, a: f32);
@@ -197,6 +219,11 @@ void main() {
     const COLOR_ATTACHMENT0: u32 = 0x8CE0;
     const DEPTH_ATTACHMENT: u32 = 0x8D00;
     const DEPTH_COMPONENT24: u32 = 0x81A6;
+    const READ_FRAMEBUFFER: u32 = 0x8CA8;
+    const DRAW_FRAMEBUFFER: u32 = 0x8CA9;
+    const MAX_SAMPLES: u32 = 0x8D57;
+    const COLOR_BUFFER_BIT: u32 = 0x4000;
+    const NEAREST: u32 = 0x2600;
     const DEPTH_TEST: u32 = 0x0B71;
     const CULL_FACE: u32 = 0x0B44;
     const BLEND: u32 = 0x0BE2;
@@ -431,7 +458,7 @@ void main() {
                 glGenTextures(1, &mut color);
                 glGenRenderbuffers(1, &mut depth);
             }
-            Target { epoch, frame, color, depth, size: ISize::new(0, 0) }
+            Target { epoch, frame, color, depth, size: ISize::new(0, 0), msaa: None }
         });
         if target.size != size {
             // SAFETY: as `shader`.
@@ -451,6 +478,53 @@ void main() {
         (target.frame, target.color)
     }
 
+    /// The multisampled frame to draw into when `antialias` is on (made or resized here), `None`
+    /// when off or the device has no multisampling; turning it off frees its buffers.
+    fn ensure_msaa(target: &mut Option<Target>, on: bool, size: ISize) -> Option<u32> {
+        let target = target.as_mut()?;
+        let samples = if on {
+            let mut max = 0;
+            // SAFETY: as `shader`.
+            unsafe { glGetIntegerv(MAX_SAMPLES, &mut max) };
+            super::msaa_samples(max)
+        } else {
+            0
+        };
+        if samples == 0 {
+            if let Some(m) = target.msaa.take() {
+                // SAFETY: as `shader`; these objects belong to this target only.
+                unsafe {
+                    glDeleteFramebuffers(1, &m.frame);
+                    glDeleteRenderbuffers(2, [m.color, m.depth].as_ptr());
+                }
+            }
+            return None;
+        }
+        let msaa = target.msaa.get_or_insert_with(|| {
+            let (mut frame, mut buffers) = (0, [0u32; 2]);
+            // SAFETY: as `shader`.
+            unsafe {
+                glGenFramebuffers(1, &mut frame);
+                glGenRenderbuffers(2, buffers.as_mut_ptr());
+            }
+            Msaa { frame, color: buffers[0], depth: buffers[1], size: ISize::new(0, 0) }
+        });
+        if msaa.size != size {
+            // SAFETY: as `shader`.
+            unsafe {
+                glBindRenderbuffer(RENDERBUFFER, msaa.color);
+                glRenderbufferStorageMultisample(RENDERBUFFER, samples, RGBA8, size.width, size.height);
+                glBindRenderbuffer(RENDERBUFFER, msaa.depth);
+                glRenderbufferStorageMultisample(RENDERBUFFER, samples, DEPTH_COMPONENT24, size.width, size.height);
+                glBindFramebuffer(FRAMEBUFFER, msaa.frame);
+                glFramebufferRenderbuffer(FRAMEBUFFER, COLOR_ATTACHMENT0, RENDERBUFFER, msaa.color);
+                glFramebufferRenderbuffer(FRAMEBUFFER, DEPTH_ATTACHMENT, RENDERBUFFER, msaa.depth);
+            }
+            msaa.size = size;
+        }
+        Some(msaa.frame)
+    }
+
     /// Draws the objects into the control's texture in one pass and hands it to Skia as an image.
     pub(in super::super) fn draw(target: &mut Option<Target>, gpu: &mut Gpu, items: &[Item], style: &Style, view_proj: Mat4, size: ISize) -> Option<Image> {
         let epoch = gpu.epoch();
@@ -467,7 +541,9 @@ void main() {
             }
             items.iter().map(|item| model(context, item.scene)).collect()
         });
-        let (frame, color) = ensure_target(target, epoch, size);
+        let (resolved, color) = ensure_target(target, epoch, size);
+        let msaa = ensure_msaa(target, style.antialias, size);
+        let frame = msaa.unwrap_or(resolved);
         let light = Vec3::new(0.4, 0.8, 0.6).normalize();
         CONTEXT.with_borrow(|context| {
             let context = context.as_ref().expect("made above");
@@ -561,6 +637,11 @@ void main() {
                 glDisable(CULL_FACE);
                 glDisable(BLEND);
                 glDepthMask(1);
+                if let Some(msaa) = msaa {
+                    glBindFramebuffer(READ_FRAMEBUFFER, msaa);
+                    glBindFramebuffer(DRAW_FRAMEBUFFER, resolved);
+                    glBlitFramebuffer(0, 0, size.width, size.height, 0, 0, size.width, size.height, COLOR_BUFFER_BIT, NEAREST);
+                }
                 glBindFramebuffer(FRAMEBUFFER, 0);
                 glBindBuffer(ARRAY_BUFFER, 0);
             }

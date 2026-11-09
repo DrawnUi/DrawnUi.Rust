@@ -73,6 +73,8 @@ pub struct SkiaScene3D {
     look: super::Look,
     /// Outline width in points (0 = none) and color.
     outline: (f32, Color),
+    /// Smooth edges (multisampling).
+    antialias: bool,
 }
 
 impl SkiaScene3D {
@@ -94,6 +96,7 @@ impl SkiaScene3D {
             errors: Vec::new(),
             look: super::Look::Lit,
             outline: (0.0, Color::BLACK),
+            antialias: false,
         };
         let mut build = Build::new(layer);
         let id = build.id();
@@ -278,7 +281,7 @@ impl Control for SkiaScene3D {
             .collect();
         let canvas = cx.canvas;
         let Some(gpu) = cx.gpu() else { return };
-        let style = render::Style { look: self.look, outline: self.outline.0 * scale, outline_color: super::outline_color(self.outline.1) };
+        let style = render::Style { look: self.look, outline: self.outline.0 * scale, outline_color: super::outline_color(self.outline.1), antialias: self.antialias };
         let Some(image) = render::draw(&mut self.target.borrow_mut(), gpu, &items, &style, view_proj, size) else { return };
         canvas.draw_image_rect_with_sampling_options(&image, None, Rect::from_xywh(rect.left, rect.top, size.width as f32, size.height as f32), SamplingOptions::default(), &Paint::default());
     }
@@ -298,6 +301,9 @@ pub trait Scene3DBuild: Sized {
 
     /// An outline around every shape, `width` points, like an illustration's stroke.
     fn outline(self, width: f32, color: Color) -> Self;
+
+    /// Smooth edges (see `Model3DBuild::antialias`); off by default.
+    fn antialias(self, on: bool) -> Self;
 
     /// Forward tilt of every object, degrees (15 by default): how much of its top the player sees.
     fn tilt(self, degrees: f32) -> Self;
@@ -329,6 +335,11 @@ impl Scene3DBuild for Build<SkiaScene3D> {
 
     fn outline(mut self, width: f32, color: Color) -> Self {
         self.control_mut().outline = (width.max(0.0), color);
+        self
+    }
+
+    fn antialias(mut self, on: bool) -> Self {
+        self.control_mut().antialias = on;
         self
     }
 
@@ -394,6 +405,9 @@ pub trait Scene3DSet {
 
     /// Stops or resumes every animation of the layer.
     fn set_playing(&mut self, on: bool);
+
+    /// Smooth edges on or off.
+    fn set_antialias(&mut self, on: bool);
 }
 
 impl Scene3DSet for Mut<'_, SkiaScene3D> {
@@ -504,6 +518,11 @@ impl Scene3DSet for Mut<'_, SkiaScene3D> {
     fn set_playing(&mut self, on: bool) {
         self.control_mut().playing = on;
         self.mark(Dirty::DRAW_APPLY);
+    }
+
+    fn set_antialias(&mut self, on: bool) {
+        self.control_mut().antialias = on;
+        self.mark(Dirty::DRAW);
     }
 }
 
