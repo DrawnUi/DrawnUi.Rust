@@ -1,4 +1,4 @@
-# drawnui-3d
+# drawnui-add3d
 
 An add-on for [DrawnUI for Rust](https://crates.io/crates/drawnui): real 3D inside a DrawnUI screen, next to its
 buttons, text and lists.
@@ -13,12 +13,12 @@ buttons, text and lists.
 ```toml
 [dependencies]
 drawnui = "0.1.0-preview"
-drawnui-3d = "0.1.0-preview"
+drawnui-add3d = "0.1.0-preview"
 ```
 
 ```rust
 use drawnui::prelude::*;
-use drawnui_3d::SkiaModel3D;
+use drawnui_add3d::SkiaModel3D;
 
 SkiaModel3D::new(include_bytes!("assets/boss.glb"))
     .animation("Idle")

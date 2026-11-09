@@ -785,10 +785,10 @@ place; the designer lists them in declaration order. A screen offers its own whi
 `cx.remove_designer_action(path)`. Actions run on the UI thread with the app state; only names and
 closures are kept, nothing runs unless a designer asks.
 
-## 3D models (the drawnui-3d add-on)
+## 3D models (the drawnui-add3d add-on)
 
-3D lives in its own crate next to drawnui: `drawnui-3d = "..."` in `[dependencies]` and
-`use drawnui_3d::prelude::*;` (its controls, their `...Build` / `...Set` traits, shapes and looks). A
+3D lives in its own crate next to drawnui: `drawnui-add3d = "..."` in `[dependencies]` and
+`use drawnui_add3d::prelude::*;` (its controls, their `...Build` / `...Set` traits, shapes and looks). A
 glTF 2.0 binary (`.glb`) drawn in 3D inside any layout, from its bytes:
 `SkiaModel3D::new(include_bytes!("assets/boss.glb"))`. It draws through the
 GPU context the UI uses (WebGL2 in the browser; other platforms draw nothing yet), so give it no cache
@@ -859,7 +859,7 @@ drawnui offers it:
   inside `cx.with_control::<MyControl, _>(id, state, |me, state, cx| ...)` (the control is out of the
   tree meanwhile, as for any handler); answer `state_touched: true` when one ran.
 - The GPU while painting: `PaintCx::gpu()` (import textures made outside Skia; `reset_gl_state` after
-  own GL calls). `drawnui-3d` is the worked example.
+  own GL calls). `drawnui-add3d` is the worked example.
 
 ## Clipboard
 

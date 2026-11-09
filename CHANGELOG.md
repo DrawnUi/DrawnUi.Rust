@@ -8,7 +8,7 @@ version before it. Commits in parentheses.
 
 ### Added
 
-- An add-on API: controls made in other crates (add-ons such as `drawnui-3d`) run their own frame
+- An add-on API: controls made in other crates (add-ons such as `drawnui-add3d`) run their own frame
   loop (`Cx::start_frame_loop` with a `FrameFn` answering a `FrameTick`, `Cx::stop_frame_loop`) and
   call the handlers the app gave them with the app state (`Cx::with_control`, `downcast_state`).
   Nothing changes for apps that do not use it.

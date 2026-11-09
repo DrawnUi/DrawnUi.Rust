@@ -1,12 +1,12 @@
 //! A 3D boss in a DrawnUI screen: a glTF model with its skeleton animations (SkiaModel3D, the
-//! drawnui-3d add-on), drawn with the same GPU context as the UI around it. The app drives the scene: moves
+//! drawnui-add3d add-on), drawn with the same GPU context as the UI around it. The app drives the scene: moves
 //! played once and back to idle, a tap on the boss that hits it, its skin and eyes recolored by
 //! material name. Drag the dragon to turn it.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use drawnui::prelude::*;
-use drawnui_3d::prelude::*;
+use drawnui_add3d::prelude::*;
 
 /// "Dragon Evolved" by Quaternius, CC0 (assets/dragon.glb.LICENSE.txt).
 const DRAGON: &[u8] = include_bytes!("../assets/dragon.glb");

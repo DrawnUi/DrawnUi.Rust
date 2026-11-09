@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 drawnui = { path = "../../drawnui" }
-drawnui-3d = { path = "../../drawnui-3d" }
+drawnui-add3d = { path = "../../drawnui-add3d" }
 
 [build-dependencies]
 embed-resource = "3"

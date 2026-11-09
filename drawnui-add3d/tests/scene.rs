@@ -1,7 +1,7 @@
 //! SkiaModel3D scene control (feature `model3d`): animations played once and back to the loop,
 //! held, layered; taps that tell the node and material; nodes and materials by name.
 
-use drawnui_3d::prelude::*;
+use drawnui_add3d::prelude::*;
 use drawnui::prelude::*;
 use drawnui::testing::Headless;
 use drawnui::{MouseButton, PointerKind};

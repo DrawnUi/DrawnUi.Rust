@@ -284,7 +284,7 @@ impl Control for SkiaScene3D {
     }
 }
 
-/// Building a `SkiaScene3D` (`use drawnui_3d::prelude::*`).
+/// Building a `SkiaScene3D` (`use drawnui_add3d::prelude::*`).
 pub trait Scene3DBuild: Sized {
     /// A model objects can be made of, by name, from the bytes of a `.glb`. The same bytes used by
     /// other layers or `SkiaModel3D` controls are read once.
@@ -348,7 +348,7 @@ impl Scene3DBuild for Build<SkiaScene3D> {
     }
 }
 
-/// Driving a `SkiaScene3D` from handlers (`cx.get_mut(handle)`), `use drawnui_3d::prelude::*`.
+/// Driving a `SkiaScene3D` from handlers (`cx.get_mut(handle)`), `use drawnui_add3d::prelude::*`.
 pub trait Scene3DSet {
     /// Places an object made of `model` (a name given to `model`), standing at (x, y) of the layer
     /// in points, `size` points tall; it loops its model's first animation. The same name replaces

@@ -1,7 +1,7 @@
 //! SkiaScene3D (feature `model3d`): many objects on one game field, placed in the layer's points,
 //! each with its own animations, every model read once; taps tell which object was hit.
 
-use drawnui_3d::prelude::*;
+use drawnui_add3d::prelude::*;
 use drawnui::prelude::*;
 use drawnui::testing::Headless;
 use drawnui::{MouseButton, PointerKind};

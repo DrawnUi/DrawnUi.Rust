@@ -1,4 +1,4 @@
-//! drawnui-3d, an add-on for DrawnUI: glTF 2.0 scenes (`.glb`) drawn in real 3D with a
+//! drawnui-add3d, an add-on for DrawnUI: glTF 2.0 scenes (`.glb`) drawn in real 3D with a
 //! depth buffer, textures, a light and skeletal animation, through the GPU context Skia uses, into
 //! a texture the control then shows as an image. Layout, gestures and everything drawn around it
 //! work as for any control.
@@ -361,7 +361,7 @@ impl Control for SkiaModel3D {
     }
 }
 
-/// Building a `SkiaModel3D` (`use drawnui_3d::prelude::*`).
+/// Building a `SkiaModel3D` (`use drawnui_add3d::prelude::*`).
 pub trait Model3DBuild: Sized {
     /// The animation it loops from the start, by name (glTF animation name); the first one when
     /// not set.
@@ -464,7 +464,7 @@ impl Model3DBuild for Build<SkiaModel3D> {
     }
 }
 
-/// Driving a `SkiaModel3D` from handlers (`cx.get_mut(handle)`), `use drawnui_3d::prelude::*`.
+/// Driving a `SkiaModel3D` from handlers (`cx.get_mut(handle)`), `use drawnui_add3d::prelude::*`.
 pub trait Model3DSet {
     /// Loops the animation with this name, blending into it; false when the scene has none such.
     fn play(&mut self, name: &str) -> bool;

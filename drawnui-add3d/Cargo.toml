@@ -1,5 +1,5 @@
 [package]
-name = "drawnui-3d"
+name = "drawnui-add3d"
 version = "0.1.0-preview.1"
 edition.workspace = true
 license.workspace = true

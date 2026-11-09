@@ -1,4 +1,4 @@
-//! The add-on API, used from outside the crate as an add-on (drawnui-3d) does: a control of its
+//! The add-on API, used from outside the crate as an add-on (drawnui-add3d) does: a control of its
 //! own with a frame loop (`Cx::start_frame_loop`) that calls the app's handler with the app state
 //! (`Cx::with_control`, `downcast_state`), and ends by itself or when told.
 

@@ -1,4 +1,4 @@
-//! A gallery of tiny 3D animations inside a DrawnUI screen (the drawnui-3d add-on).
+//! A gallery of tiny 3D animations inside a DrawnUI screen (the drawnui-add3d add-on).
 //! - Made in code, flat: a coin and bouncing dots for loading, a medal for an achievement, a check
 //!   for success, a heart for a like, falling confetti; smooth shapes in flat colors with outlines,
 //!   animated by the app.
@@ -9,7 +9,7 @@
 use std::f32::consts::TAU;
 
 use drawnui::prelude::*;
-use drawnui_3d::prelude::*;
+use drawnui_add3d::prelude::*;
 use drawnui::skia::{Path, PathBuilder};
 
 // Model files: CC0, see assets/MODELS-LICENSE.txt.
