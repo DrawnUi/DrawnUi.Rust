@@ -739,8 +739,6 @@ dependencies = [
  "ash",
  "drawnui-skia-bindings",
  "drawnui-skia-safe",
- "glam",
- "gltf",
  "glutin",
  "glutin-winit",
  "harfrust",
@@ -761,6 +759,15 @@ dependencies = [
  "unicode-bidi",
  "unicode-segmentation",
  "winit",
+]
+
+[[package]]
+name = "drawnui-3d"
+version = "0.1.0-preview.1"
+dependencies = [
+ "drawnui",
+ "glam",
+ "gltf",
 ]
 
 [[package]]
@@ -1029,6 +1036,7 @@ name = "gallery3d"
 version = "0.0.0"
 dependencies = [
  "drawnui",
+ "drawnui-3d",
  "embed-resource",
 ]
 
@@ -1500,6 +1508,7 @@ name = "model3d"
 version = "0.0.0"
 dependencies = [
  "drawnui",
+ "drawnui-3d",
  "embed-resource",
 ]
 

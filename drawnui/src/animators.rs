@@ -140,14 +140,18 @@ type Update = Box<dyn FnMut(f32, &mut Cx<'_>)>;
 type Overlay = Box<dyn Fn(&mut PaintCx<'_>, f32)>;
 type Finished = Box<dyn FnOnce(&mut dyn Any, &mut Cx<'_>)>;
 
-/// What a frame animator answers: whether it goes on, and whether it ran app handlers.
-pub(crate) struct FrameTick {
+/// What a control's frame function answers (`Cx::start_frame_loop`): whether it runs again next
+/// frame, and whether it ran app handlers (the app's observers then run).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FrameTick {
     pub keep: bool,
     pub state_touched: bool,
 }
 
-/// `frame(control, time_ms, app state, cx)`: a plain function, so starting one allocates nothing.
-pub(crate) type Frame = fn(ControlId, f64, &mut dyn Any, &mut Cx<'_>) -> FrameTick;
+/// A control's frame function (`Cx::start_frame_loop`): `frame(control, frame time ms, app state, cx)`.
+/// A plain function, so starting one allocates nothing.
+pub type FrameFn = fn(ControlId, f64, &mut dyn Any, &mut Cx<'_>) -> FrameTick;
+pub(crate) type Frame = FrameFn;
 
 pub(crate) struct Animator {
     /// Grows with every start, so the list in the tree stays sorted by it.
@@ -343,6 +347,20 @@ const RIPPLE_DIAMETER: f32 = 300.0;
 const RIPPLE_OPACITY: f32 = 0.2;
 
 impl Cx<'_> {
+    /// For add-on controls (made outside this crate): runs `frame` once per drawn frame, with the
+    /// frame time and the app state, until it answers `keep: false`, `stop_frames` is called or the
+    /// control is removed. No frames are asked for while none runs. The control keeps its own
+    /// state (animation time, physics) and is reached with `with_control`. (Not `start_frames`:
+    /// that plays a GIF's or sprite's frames.)
+    pub fn start_frame_loop(&mut self, control: impl Into<ControlId>, frame: FrameFn) {
+        start_frame(self.tree, control.into(), frame);
+    }
+
+    /// For add-on controls: removes the control's frame functions (`start_frame_loop`).
+    pub fn stop_frame_loop(&mut self, control: impl Into<ControlId>) {
+        stop_frames(self.tree, control.into());
+    }
+
     /// Starts a value animator on a control: `update(value, cx)` runs every frame while the value
     /// goes from `from` to `to`. It stops by itself when the control is removed.
     pub fn start_animator(

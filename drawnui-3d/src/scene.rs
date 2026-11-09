@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
 use glam::{Mat4, Quat, Vec3};
-use skia_safe::Data;
+use drawnui::skia::Data;
 
 /// An animation playing: its index and seconds into it.
 #[derive(Clone, Copy)]
@@ -481,10 +481,10 @@ pub(super) fn data_uri(uri: &str) -> Option<Vec<u8>> {
 
 /// PNG / JPEG / WebP through Skia's codecs, as unpremultiplied RGBA.
 pub(super) fn decode_image(encoded: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
-    let image = skia_safe::images::deferred_from_encoded_data(Data::new_copy(encoded), None)?;
+    let image = drawnui::skia::images::deferred_from_encoded_data(Data::new_copy(encoded), None)?;
     let (w, h) = (image.width(), image.height());
-    let info = skia_safe::ImageInfo::new((w, h), skia_safe::ColorType::RGBA8888, skia_safe::AlphaType::Unpremul, None);
+    let info = drawnui::skia::ImageInfo::new((w, h), drawnui::skia::ColorType::RGBA8888, drawnui::skia::AlphaType::Unpremul, None);
     let mut pixels = vec![0u8; (w * h * 4) as usize];
-    image.read_pixels(&info, &mut pixels, (w * 4) as usize, (0, 0), skia_safe::image::CachingHint::Disallow).then_some((pixels, w as u32, h as u32))
+    image.read_pixels(&info, &mut pixels, (w * 4) as usize, (0, 0), drawnui::skia::image::CachingHint::Disallow).then_some((pixels, w as u32, h as u32))
 }
 

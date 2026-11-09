@@ -1,0 +1,19 @@
+# Changelog
+
+## Unreleased
+
+### Added
+
+- `SkiaModel3D`: a glTF / GLB scene drawn in 3D inside a DrawnUI screen (depth buffer, a light, base colors and
+  color textures, skeleton animations). `play` loops, `play_once` plays once and blends back to the loop, `hold`
+  stays on the last frame, `play_layer` runs another animation at the same time, moves cross-fade
+  (`crossfade_ms`). Nodes by name (`set_node_visible` / `_translation` / `_rotation` / `_scale`, `reset_node`),
+  materials by name (`set_material_color`, `set_material_visible`). `on_animation_ended`, `on_tapped_3d`. Drag to
+  turn, `auto_rotate`, `zoom`, `set_view_angles`.
+- `SkiaScene3D`: a 3D layer over a 2D game field. Many objects, each a model with its own place, size, facing and
+  animations, drawn in one pass; placed in the layer's points like sprites (`add`, `set_position`, `set_facing`,
+  `play` / `play_once` / `hold`, `set_material_color`), lower ones in front, `tilt`. `on_tapped_3d` tells which
+  object was hit. A model is read and uploaded once, however many objects and controls show it.
+- `Model3D` / `Mesh3D`: shapes made in code (`cylinder`, `sphere`, `torus`, `cuboid`, `lathe`, `extrude` of any
+  2D path) put together as named, colored parts; `SkiaModel3D::from_model`, `SkiaScene3D::model_from`.
+- `look(Look::Lit | Look::Toon | Look::Flat)` and `outline(width, color)`.

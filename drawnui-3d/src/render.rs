@@ -6,10 +6,10 @@
 use std::rc::Rc;
 
 use glam::Mat4;
-use skia_safe::{ISize, Image};
+use drawnui::skia::{ISize, Image};
 
 use super::scene::{MaterialOverride, Scene};
-use crate::gpu::Gpu;
+use drawnui::Gpu;
 
 /// One object to draw: its scene, every node's world matrix (the object's place included), the
 /// nodes hidden and the materials changed.
@@ -53,10 +53,10 @@ mod gl {
     use std::rc::Weak;
 
     use glam::Vec3;
-    use skia_safe::{ColorType, gpu::SurfaceOrigin};
+    use drawnui::skia::{ColorType, gpu::SurfaceOrigin};
 
     use super::*;
-    use crate::gpu::GlTarget;
+    use drawnui::GlTarget;
 
     /// Joint matrices a skinned mesh may use (WebGL2 guarantees 256 vertex uniform vectors).
     const MAX_JOINTS: usize = 64;

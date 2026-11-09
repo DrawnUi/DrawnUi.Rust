@@ -537,6 +537,13 @@ pub(crate) fn wrong_state<S>() -> ! {
     panic!("handler expects app state `{}`", type_name::<S>())
 }
 
+/// For add-on controls: the app state a stored handler was written for, from the erased state the
+/// engine passes around (`with_control`, frame functions). Panics, naming the type, when the app
+/// state is another type.
+pub fn downcast_state<S: Any>(state: &mut dyn Any) -> &mut S {
+    state.downcast_mut::<S>().unwrap_or_else(|| wrong_state::<S>())
+}
+
 impl<T: Control> Build<T> {
     pub fn new(control: T) -> Self {
         Build {
@@ -1148,6 +1155,31 @@ pub struct Cx<'a> {
 }
 
 impl Cx<'_> {
+    /// For add-on controls: runs `f` with the control of type `T` as `me` and the app state, the
+    /// control out of the tree meanwhile, as for any handler. This is how a control calls the
+    /// handlers the app gave it (from a frame function or after a gesture). `None` when the control
+    /// is gone or is not a `T`.
+    pub fn with_control<T: Control, R>(
+        &mut self,
+        id: impl Into<ControlId>,
+        state: &mut dyn Any,
+        f: impl FnOnce(&mut Mut<'_, T>, &mut dyn Any, &mut Cx<'_>) -> R,
+    ) -> Option<R> {
+        let id = id.into();
+        let mut node = self.tree.take(id)?;
+        let mut queue = Vec::new();
+        let result = match node.kind.as_deref_mut().and_then(crate::control::part_mut::<T>) {
+            Some(control) => {
+                let mut me = Mut { id, control, base: &mut node.base, queue: &mut queue };
+                Some(f(&mut me, state, &mut Cx { tree: &mut *self.tree }))
+            }
+            None => None,
+        };
+        self.tree.put_back(node);
+        self.tree.queue.append(&mut queue);
+        result
+    }
+
     /// The app's window has the keyboard: the last value `Ui::on_window_focus` got, `true` until
     /// the host reported one.
     pub fn window_focused(&self) -> bool {

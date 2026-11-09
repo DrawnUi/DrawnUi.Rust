@@ -5,7 +5,8 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-drawnui = { path = "../../drawnui", features = ["model3d"] }
+drawnui = { path = "../../drawnui" }
+drawnui-3d = { path = "../../drawnui-3d" }
 
 [build-dependencies]
 embed-resource = "3"

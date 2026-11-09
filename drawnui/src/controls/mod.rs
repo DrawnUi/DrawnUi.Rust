@@ -19,8 +19,6 @@ pub mod label;
 pub mod rescaling_layout;
 pub mod layout;
 pub mod lottie;
-#[cfg(feature = "model3d")]
-pub mod model3d;
 pub mod label_fps;
 pub mod rich_label;
 pub mod scroll;

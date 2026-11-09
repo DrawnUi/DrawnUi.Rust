@@ -1,4 +1,4 @@
-//! 3D models in the UI (feature `model3d`): glTF 2.0 scenes (`.glb`) drawn in real 3D with a
+//! drawnui-3d, an add-on for DrawnUI: glTF 2.0 scenes (`.glb`) drawn in real 3D with a
 //! depth buffer, textures, a light and skeletal animation, through the GPU context Skia uses, into
 //! a texture the control then shows as an image. Layout, gestures and everything drawn around it
 //! work as for any control.
@@ -19,8 +19,13 @@ mod render;
 mod scene;
 mod shapes;
 
-pub use layer::{SceneHit, SkiaScene3D};
+pub use layer::{Scene3DBuild, Scene3DSet, SceneHit, SkiaScene3D};
 pub use shapes::{Mesh3D, Model3D};
+
+/// Everything an app uses: the controls, their build and set traits, the shapes and the looks.
+pub mod prelude {
+    pub use crate::{Look, Mesh3D, Model3D, Model3DBuild, Model3DSet, ModelHit, Scene3DBuild, Scene3DSet, SceneHit, SkiaModel3D, SkiaScene3D};
+}
 
 /// How 3D is drawn (`look` on `SkiaModel3D` and `SkiaScene3D`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -39,13 +44,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use glam::{Mat4, Quat, Vec3};
-use skia_safe::{Color, ISize, Paint, Rect, SamplingOptions};
+use drawnui::skia::{Color, ISize, Paint, Rect, SamplingOptions};
 
-use crate::animators::{self, FrameTick};
-use crate::control::{Control, GestureCx, Handled, PaintCx, part_mut};
-use crate::gestures::{Gesture, GestureKind};
-use crate::tree::{Build, ControlId, Cx, Mut, Raw, Tree, wrong_state};
-use crate::types::Dirty;
+use drawnui::{Build, Control, ControlId, Cx, Dirty, FrameTick, Gesture, GestureCx, GestureKind, Handled, Mut, PaintCx, downcast_state};
 use player::Player;
 use scene::{MaterialOverride, Scene};
 
@@ -61,8 +62,8 @@ pub struct ModelHit {
     pub point: [f32; 3],
 }
 
-type EndedHandler = Box<dyn FnMut(Raw<'_>, &mut dyn Any, &mut Cx<'_>, &str)>;
-type TappedHandler = Box<dyn FnMut(Raw<'_>, &mut dyn Any, &mut Cx<'_>, &ModelHit)>;
+type EndedHandler = Box<dyn FnMut(&mut Mut<'_, SkiaModel3D>, &mut dyn Any, &mut Cx<'_>, &str)>;
+type TappedHandler = Box<dyn FnMut(&mut Mut<'_, SkiaModel3D>, &mut dyn Any, &mut Cx<'_>, &ModelHit)>;
 
 /// A node's own transform set from code (`set_node_translation` and the rest): it replaces what
 /// the file and the animations give that part.
@@ -142,7 +143,7 @@ impl SkiaModel3D {
         };
         let (nodes, materials) = scene.as_ref().map_or((0, 0), |s| (s.nodes.len(), s.materials.len()));
         let model = SkiaModel3D {
-            id: ControlId { index: 0, generation: 0 },
+            id: ControlId::from_bits(0),
             player: Player::new(scene.as_deref()),
             scene,
             error,
@@ -210,14 +211,14 @@ impl SkiaModel3D {
         self.scene.is_some() && (!self.events.is_empty() || self.auto_rotate != 0.0 || self.player.busy())
     }
 
-    fn update_ticking(&mut self, tree: &mut Tree) {
+    fn update_ticking(&mut self, cx: &mut Cx) {
         if self.wants_frames() {
             if !std::mem::replace(&mut self.ticking, true) {
                 self.last_ms = None;
-                animators::start_frame(tree, self.id, tick);
+                cx.start_frame_loop(self.id, tick);
             }
         } else if std::mem::take(&mut self.ticking) {
-            animators::stop_frames(tree, self.id);
+            cx.stop_frame_loop(self.id);
         }
     }
 
@@ -268,45 +269,38 @@ impl SkiaModel3D {
 
 /// One frame: time moves on, then the app hears what happened (an animation ended, a tap).
 fn tick(id: ControlId, time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> FrameTick {
-    let mut result = FrameTick { keep: false, state_touched: false };
-    let Some(mut node) = cx.tree.take(id) else { return result };
-    let mut queue = Vec::new();
-    if let Some(model) = node.kind.as_deref_mut().and_then(part_mut::<SkiaModel3D>) {
+    cx.with_control::<SkiaModel3D, _>(id, state, |me, state, cx| {
+        let model = me.control_mut();
         let delta = model.last_ms.map_or(0.0, |last| ((time_ms - last) / 1000.0) as f32);
         model.last_ms = Some(time_ms);
         model.advance(delta);
         let events = std::mem::take(&mut model.events);
+        let mut touched = false;
         for event in events {
-            let model = node.kind.as_deref_mut().and_then(part_mut::<SkiaModel3D>).expect("checked above");
             match event {
                 Event::Ended(name) => {
-                    if let Some(mut handler) = model.on_ended.take() {
-                        let control = node.kind.as_deref_mut().expect("checked above");
-                        handler(Raw { id, control, base: &mut node.base, queue: &mut queue }, state, &mut Cx { tree: cx.tree }, &name);
-                        result.state_touched = true;
-                        let model = node.kind.as_deref_mut().and_then(part_mut::<SkiaModel3D>).expect("checked above");
-                        model.on_ended.get_or_insert(handler);
+                    if let Some(mut handler) = me.control_mut().on_ended.take() {
+                        handler(me, state, cx, &name);
+                        me.control_mut().on_ended.get_or_insert(handler);
+                        touched = true;
                     }
                 }
                 Event::Tapped(hit) => {
-                    if let Some(mut handler) = model.on_tapped.take() {
-                        let control = node.kind.as_deref_mut().expect("checked above");
-                        handler(Raw { id, control, base: &mut node.base, queue: &mut queue }, state, &mut Cx { tree: cx.tree }, &hit);
-                        result.state_touched = true;
-                        let model = node.kind.as_deref_mut().and_then(part_mut::<SkiaModel3D>).expect("checked above");
-                        model.on_tapped.get_or_insert(handler);
+                    if let Some(mut handler) = me.control_mut().on_tapped.take() {
+                        handler(me, state, cx, &hit);
+                        me.control_mut().on_tapped.get_or_insert(handler);
+                        touched = true;
                     }
                 }
             }
         }
-        let model = node.kind.as_deref_mut().and_then(part_mut::<SkiaModel3D>).expect("checked above");
-        result.keep = model.wants_frames();
-        model.ticking = result.keep;
-    }
-    cx.tree.put_back(node);
-    cx.tree.queue.append(&mut queue);
-    cx.tree.invalidate(id, Dirty::DRAW);
-    result
+        let model = me.control_mut();
+        let keep = model.wants_frames();
+        model.ticking = keep;
+        me.mark(Dirty::DRAW);
+        FrameTick { keep, state_touched: touched }
+    })
+    .unwrap_or_default()
 }
 
 impl Control for SkiaModel3D {
@@ -320,7 +314,7 @@ impl Control for SkiaModel3D {
             self.player.fade_now();
             self.player.playing = playing;
         }
-        self.update_ticking(cx.tree);
+        self.update_ticking(cx);
     }
 
     fn on_gesture(&mut self, cx: &mut GestureCx, gesture: &Gesture) -> Handled {
@@ -338,7 +332,7 @@ impl Control for SkiaModel3D {
                 match self.hit(cx.point.x - rect.left, cx.point.y - rect.top, (rect.width(), rect.height())) {
                     Some(hit) => {
                         self.events.push(Event::Tapped(hit));
-                        self.update_ticking(cx.tree);
+                        self.update_ticking(&mut cx.cx());
                         Handled::Tapped
                     }
                     None => Handled::No,
@@ -367,187 +361,228 @@ impl Control for SkiaModel3D {
     }
 }
 
-impl Build<SkiaModel3D> {
+/// Building a `SkiaModel3D` (`use drawnui_3d::prelude::*`).
+pub trait Model3DBuild: Sized {
     /// The animation it loops from the start, by name (glTF animation name); the first one when
     /// not set.
-    pub fn animation(mut self, name: impl Into<String>) -> Self {
+    fn animation(self, name: impl Into<String>) -> Self;
+
+    /// Plays the animations (on by default).
+    fn playing(self, on: bool) -> Self;
+
+    /// Animation speed, 1 = as authored.
+    fn speed(self, speed: f32) -> Self;
+
+    /// How long one animation blends into the next, milliseconds (250 by default, 0 = cut).
+    fn crossfade_ms(self, ms: f32) -> Self;
+
+    /// Turns the scene by itself, degrees per second.
+    fn auto_rotate(self, degrees_per_second: f32) -> Self;
+
+    /// Start angles: around the vertical axis and tilt, degrees.
+    fn view_angles(self, yaw: f32, pitch: f32) -> Self;
+
+    /// Distance as a factor of the one that fits the scene (below 1: closer).
+    fn zoom(self, zoom: f32) -> Self;
+
+    /// Drags turn the scene (on by default).
+    fn orbit(self, on: bool) -> Self;
+
+    /// How it is drawn: `Look::Lit` (default), `Look::Toon` or `Look::Flat`.
+    fn look(self, look: Look) -> Self;
+
+    /// An outline around every shape, `width` points, like an illustration's stroke.
+    fn outline(self, width: f32, color: Color) -> Self;
+
+    /// Runs when an animation played with `play_once` or `hold` ended, with its name.
+    fn on_animation_ended<S: Any>(self, f: impl FnMut(&mut Mut<'_, SkiaModel3D>, &mut S, &mut Cx<'_>, &str) + 'static) -> Self;
+
+    /// Runs when a tap lands on the scene's surface (not on empty space around it), with what it
+    /// hit: the node, the material and the point.
+    fn on_tapped_3d<S: Any>(self, f: impl FnMut(&mut Mut<'_, SkiaModel3D>, &mut S, &mut Cx<'_>, &ModelHit) + 'static) -> Self;
+}
+
+impl Model3DBuild for Build<SkiaModel3D> {
+    fn animation(mut self, name: impl Into<String>) -> Self {
         self.control_mut().start_animation = Some(name.into());
         self
     }
 
-    /// Plays the animations (on by default).
-    pub fn playing(mut self, on: bool) -> Self {
+    fn playing(mut self, on: bool) -> Self {
         self.control_mut().player.playing = on;
         self
     }
 
-    /// Animation speed, 1 = as authored.
-    pub fn speed(mut self, speed: f32) -> Self {
+    fn speed(mut self, speed: f32) -> Self {
         self.control_mut().player.speed = speed;
         self
     }
 
-    /// How long one animation blends into the next, milliseconds (250 by default, 0 = cut).
-    pub fn crossfade_ms(mut self, ms: f32) -> Self {
+    fn crossfade_ms(mut self, ms: f32) -> Self {
         self.control_mut().player.fade = ms.max(0.0) / 1000.0;
         self
     }
 
-    /// Turns the scene by itself, degrees per second.
-    pub fn auto_rotate(mut self, degrees_per_second: f32) -> Self {
+    fn auto_rotate(mut self, degrees_per_second: f32) -> Self {
         self.control_mut().auto_rotate = degrees_per_second;
         self
     }
 
-    /// Start angles: around the vertical axis and tilt, degrees.
-    pub fn view_angles(mut self, yaw: f32, pitch: f32) -> Self {
+    fn view_angles(mut self, yaw: f32, pitch: f32) -> Self {
         (self.control_mut().yaw, self.control_mut().pitch) = (yaw, pitch);
         self
     }
 
-    /// Distance as a factor of the one that fits the scene (below 1: closer).
-    pub fn zoom(mut self, zoom: f32) -> Self {
+    fn zoom(mut self, zoom: f32) -> Self {
         self.control_mut().zoom = zoom.max(0.05);
         self
     }
 
-    /// Drags turn the scene (on by default).
-    pub fn orbit(mut self, on: bool) -> Self {
+    fn orbit(mut self, on: bool) -> Self {
         self.control_mut().orbit = on;
         self
     }
 
-    /// How it is drawn: `Look::Lit` (default), `Look::Toon` or `Look::Flat`.
-    pub fn look(mut self, look: Look) -> Self {
+    fn look(mut self, look: Look) -> Self {
         self.control_mut().look = look;
         self
     }
 
-    /// An outline around every shape, `width` points, like an illustration's stroke.
-    pub fn outline(mut self, width: f32, color: Color) -> Self {
+    fn outline(mut self, width: f32, color: Color) -> Self {
         self.control_mut().outline = (width.max(0.0), color);
         self
     }
 
-    /// Runs when an animation played with `play_once` or `hold` ended, with its name.
-    pub fn on_animation_ended<S: Any>(mut self, mut f: impl FnMut(&mut Mut<'_, SkiaModel3D>, &mut S, &mut Cx<'_>, &str) + 'static) -> Self {
-        self.control_mut().on_ended = Some(Box::new(move |raw, state, cx, name| {
-            let state = state.downcast_mut::<S>().unwrap_or_else(|| wrong_state::<S>());
-            f(&mut raw.typed(), state, cx, name)
-        }));
+    fn on_animation_ended<S: Any>(mut self, mut f: impl FnMut(&mut Mut<'_, SkiaModel3D>, &mut S, &mut Cx<'_>, &str) + 'static) -> Self {
+        self.control_mut().on_ended = Some(Box::new(move |me, state, cx, name| f(me, downcast_state::<S>(state), cx, name)));
         self
     }
 
-    /// Runs when a tap lands on the scene's surface (not on empty space around it), with what it
-    /// hit: the node, the material and the point.
-    pub fn on_tapped_3d<S: Any>(mut self, mut f: impl FnMut(&mut Mut<'_, SkiaModel3D>, &mut S, &mut Cx<'_>, &ModelHit) + 'static) -> Self {
-        self.control_mut().on_tapped = Some(Box::new(move |raw, state, cx, hit| {
-            let state = state.downcast_mut::<S>().unwrap_or_else(|| wrong_state::<S>());
-            f(&mut raw.typed(), state, cx, hit)
-        }));
+    fn on_tapped_3d<S: Any>(mut self, mut f: impl FnMut(&mut Mut<'_, SkiaModel3D>, &mut S, &mut Cx<'_>, &ModelHit) + 'static) -> Self {
+        self.control_mut().on_tapped = Some(Box::new(move |me, state, cx, hit| f(me, downcast_state::<S>(state), cx, hit)));
         self
     }
 }
 
-impl Mut<'_, SkiaModel3D> {
-    fn with_animation(&mut self, name: &str, f: impl FnOnce(&mut Player, usize)) -> bool {
-        let model = self.control_mut();
-        let Some(animation) = model.animation_named(name) else { return false };
-        f(&mut model.player, animation);
-        self.mark(Dirty::DRAW_APPLY);
-        true
-    }
-
+/// Driving a `SkiaModel3D` from handlers (`cx.get_mut(handle)`), `use drawnui_3d::prelude::*`.
+pub trait Model3DSet {
     /// Loops the animation with this name, blending into it; false when the scene has none such.
-    pub fn play(&mut self, name: &str) -> bool {
-        self.with_animation(name, Player::play)
-    }
+    fn play(&mut self, name: &str) -> bool;
 
     /// Plays the animation with this name once, then blends back into the looping one that
     /// played before it (an attack, then idle again); `on_animation_ended` hears its end. With
     /// nothing looping before, it holds its last frame (a death). False when there is none such.
-    pub fn play_once(&mut self, name: &str) -> bool {
-        self.with_animation(name, Player::play_once)
-    }
+    fn play_once(&mut self, name: &str) -> bool;
 
     /// Plays the animation once and stays on its last frame; nothing goes back.
-    pub fn hold(&mut self, name: &str) -> bool {
-        self.with_animation(name, Player::hold)
-    }
+    fn hold(&mut self, name: &str) -> bool;
 
     /// Loops another animation together with the main one (another object of the scene: a coin
     /// spinning while the boss attacks). False when the scene has none such.
-    pub fn play_layer(&mut self, name: &str) -> bool {
-        self.with_animation(name, Player::add_layer)
-    }
+    fn play_layer(&mut self, name: &str) -> bool;
 
     /// Stops an animation started with `play_layer`.
-    pub fn stop_layer(&mut self, name: &str) {
-        self.with_animation(name, Player::remove_layer);
-    }
+    fn stop_layer(&mut self, name: &str);
 
     /// Stops or resumes all animations where they are.
-    pub fn set_playing(&mut self, on: bool) {
+    fn set_playing(&mut self, on: bool);
+
+    /// Animation speed, 1 = as authored.
+    fn set_speed(&mut self, speed: f32);
+
+    /// The view's angles: around the vertical axis and tilt, degrees (a spin driven by the app).
+    fn set_view_angles(&mut self, yaw: f32, pitch: f32);
+
+    /// Turns the scene by itself, degrees per second (0 = still).
+    fn set_auto_rotate(&mut self, degrees_per_second: f32);
+
+    /// Shows or hides a node by name, with what hangs under it. False when there is none such.
+    fn set_node_visible(&mut self, name: &str, visible: bool) -> bool;
+
+    /// Moves a node by name: its own position, in its parent's units. It replaces what the file
+    /// and the animations give it.
+    fn set_node_translation(&mut self, name: &str, xyz: [f32; 3]) -> bool;
+
+    /// Turns a node by name: rotations around x, y, z in degrees (applied in that order).
+    fn set_node_rotation(&mut self, name: &str, degrees: [f32; 3]) -> bool;
+
+    /// Scales a node by name.
+    fn set_node_scale(&mut self, name: &str, xyz: [f32; 3]) -> bool;
+
+    /// Gives a node back what the file and the animations say: position, turn, scale, shown.
+    fn reset_node(&mut self, name: &str) -> bool;
+
+    /// Recolors a material by name (a part of the model: skin, armor); `None` = the file's color.
+    /// A texture is tinted by it. False when there is none such.
+    fn set_material_color(&mut self, name: &str, color: Option<Color>) -> bool;
+
+    /// Shows or hides every surface with this material. False when there is none such.
+    fn set_material_visible(&mut self, name: &str, visible: bool) -> bool;
+}
+
+impl Model3DSet for Mut<'_, SkiaModel3D> {
+    fn play(&mut self, name: &str) -> bool {
+        with_animation(self, name, Player::play)
+    }
+
+    fn play_once(&mut self, name: &str) -> bool {
+        with_animation(self, name, Player::play_once)
+    }
+
+    fn hold(&mut self, name: &str) -> bool {
+        with_animation(self, name, Player::hold)
+    }
+
+    fn play_layer(&mut self, name: &str) -> bool {
+        with_animation(self, name, Player::add_layer)
+    }
+
+    fn stop_layer(&mut self, name: &str) {
+        with_animation(self, name, Player::remove_layer);
+    }
+
+    fn set_playing(&mut self, on: bool) {
         self.control_mut().player.playing = on;
         self.mark(Dirty::DRAW_APPLY);
     }
 
-    /// Animation speed, 1 = as authored.
-    pub fn set_speed(&mut self, speed: f32) {
+    fn set_speed(&mut self, speed: f32) {
         self.control_mut().player.speed = speed;
     }
 
-    /// The view's angles: around the vertical axis and tilt, degrees (a spin driven by the app).
-    pub fn set_view_angles(&mut self, yaw: f32, pitch: f32) {
+    fn set_view_angles(&mut self, yaw: f32, pitch: f32) {
         let model = self.control_mut();
         (model.yaw, model.pitch) = (yaw, pitch);
         self.mark(Dirty::DRAW);
     }
 
-    /// Turns the scene by itself, degrees per second (0 = still).
-    pub fn set_auto_rotate(&mut self, degrees_per_second: f32) {
+    fn set_auto_rotate(&mut self, degrees_per_second: f32) {
         self.control_mut().auto_rotate = degrees_per_second;
         self.mark(Dirty::APPLY);
     }
 
-    fn with_node(&mut self, name: &str, f: impl FnOnce(&mut NodeOverride)) -> bool {
-        let model = self.control_mut();
-        let Some(i) = model.node_named(name) else { return false };
-        f(&mut model.nodes[i]);
-        self.mark(Dirty::DRAW);
-        true
+    fn set_node_visible(&mut self, name: &str, visible: bool) -> bool {
+        with_node(self, name, |n| n.hidden = !visible)
     }
 
-    /// Shows or hides a node by name, with what hangs under it. False when there is none such.
-    pub fn set_node_visible(&mut self, name: &str, visible: bool) -> bool {
-        self.with_node(name, |n| n.hidden = !visible)
+    fn set_node_translation(&mut self, name: &str, xyz: [f32; 3]) -> bool {
+        with_node(self, name, |n| n.translation = Some(Vec3::from(xyz)))
     }
 
-    /// Moves a node by name: its own position, in its parent's units. It replaces what the file
-    /// and the animations give it.
-    pub fn set_node_translation(&mut self, name: &str, xyz: [f32; 3]) -> bool {
-        self.with_node(name, |n| n.translation = Some(Vec3::from(xyz)))
-    }
-
-    /// Turns a node by name: rotations around x, y, z in degrees (applied in that order).
-    pub fn set_node_rotation(&mut self, name: &str, degrees: [f32; 3]) -> bool {
+    fn set_node_rotation(&mut self, name: &str, degrees: [f32; 3]) -> bool {
         let [x, y, z] = degrees.map(f32::to_radians);
-        self.with_node(name, |n| n.rotation = Some(Quat::from_euler(glam::EulerRot::XYZ, x, y, z)))
+        with_node(self, name, |n| n.rotation = Some(Quat::from_euler(glam::EulerRot::XYZ, x, y, z)))
     }
 
-    /// Scales a node by name.
-    pub fn set_node_scale(&mut self, name: &str, xyz: [f32; 3]) -> bool {
-        self.with_node(name, |n| n.scale = Some(Vec3::from(xyz)))
+    fn set_node_scale(&mut self, name: &str, xyz: [f32; 3]) -> bool {
+        with_node(self, name, |n| n.scale = Some(Vec3::from(xyz)))
     }
 
-    /// Gives a node back what the file and the animations say: position, turn, scale, shown.
-    pub fn reset_node(&mut self, name: &str) -> bool {
-        self.with_node(name, |n| *n = NodeOverride::default())
+    fn reset_node(&mut self, name: &str) -> bool {
+        with_node(self, name, |n| *n = NodeOverride::default())
     }
 
-    /// Recolors a material by name (a part of the model: skin, armor); `None` = the file's color.
-    /// A texture is tinted by it. False when there is none such.
-    pub fn set_material_color(&mut self, name: &str, color: Option<Color>) -> bool {
+    fn set_material_color(&mut self, name: &str, color: Option<Color>) -> bool {
         let model = self.control_mut();
         let Some(i) = model.material_named(name) else { return false };
         model.materials[i].color = color.map(linear);
@@ -555,8 +590,7 @@ impl Mut<'_, SkiaModel3D> {
         true
     }
 
-    /// Shows or hides every surface with this material. False when there is none such.
-    pub fn set_material_visible(&mut self, name: &str, visible: bool) -> bool {
+    fn set_material_visible(&mut self, name: &str, visible: bool) -> bool {
         let model = self.control_mut();
         let Some(i) = model.material_named(name) else { return false };
         model.materials[i].hidden = !visible;
@@ -565,11 +599,27 @@ impl Mut<'_, SkiaModel3D> {
     }
 }
 
+fn with_animation(me: &mut Mut<'_, SkiaModel3D>, name: &str, f: impl FnOnce(&mut Player, usize)) -> bool {
+    let model = me.control_mut();
+    let Some(animation) = model.animation_named(name) else { return false };
+    f(&mut model.player, animation);
+    me.mark(Dirty::DRAW_APPLY);
+    true
+}
+
+fn with_node(me: &mut Mut<'_, SkiaModel3D>, name: &str, f: impl FnOnce(&mut NodeOverride)) -> bool {
+    let model = me.control_mut();
+    let Some(i) = model.node_named(name) else { return false };
+    f(&mut model.nodes[i]);
+    me.mark(Dirty::DRAW);
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const DRAGON: &[u8] = include_bytes!("../../../../examples/model3d/assets/dragon.glb");
+    const DRAGON: &[u8] = include_bytes!("../../examples/model3d/assets/dragon.glb");
 
     #[test]
     fn a_skinned_glb_loads_with_its_animations_and_moves_over_time() {

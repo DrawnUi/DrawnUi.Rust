@@ -10,16 +10,12 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use glam::{Mat4, Quat, Vec3};
-use skia_safe::{Color, ISize, Paint, Rect, SamplingOptions};
+use drawnui::skia::{Color, ISize, Paint, Rect, SamplingOptions};
 
 use super::player::Player;
 use super::render;
 use super::scene::{self, MaterialOverride, Scene};
-use crate::animators::{self, FrameTick};
-use crate::control::{Control, GestureCx, Handled, PaintCx, part_mut};
-use crate::gestures::{Gesture, GestureKind};
-use crate::tree::{Build, ControlId, Cx, Mut, Raw, Tree, wrong_state};
-use crate::types::Dirty;
+use drawnui::{Build, Control, ControlId, Cx, Dirty, FrameTick, Gesture, GestureCx, GestureKind, Handled, Mut, PaintCx, downcast_state};
 
 /// What a tap on the layer hit (`SkiaScene3D::on_tapped_3d`): the object by its name, and the node
 /// and material of its model under the finger.
@@ -30,8 +26,8 @@ pub struct SceneHit {
     pub material: String,
 }
 
-type EndedHandler = Box<dyn FnMut(Raw<'_>, &mut dyn Any, &mut Cx<'_>, &str, &str)>;
-type TappedHandler = Box<dyn FnMut(Raw<'_>, &mut dyn Any, &mut Cx<'_>, &SceneHit)>;
+type EndedHandler = Box<dyn FnMut(&mut Mut<'_, SkiaScene3D>, &mut dyn Any, &mut Cx<'_>, &str, &str)>;
+type TappedHandler = Box<dyn FnMut(&mut Mut<'_, SkiaScene3D>, &mut dyn Any, &mut Cx<'_>, &SceneHit)>;
 
 /// A model the layer can place: its scene, the point it stands on and its height at rest.
 struct Model {
@@ -84,7 +80,7 @@ impl SkiaScene3D {
     #[allow(clippy::new_ret_no_self)]
     pub fn new() -> Build<SkiaScene3D> {
         let layer = SkiaScene3D {
-            id: ControlId { index: 0, generation: 0 },
+            id: ControlId::from_bits(0),
             models: Vec::new(),
             objects: Vec::new(),
             target: RefCell::new(None),
@@ -139,14 +135,14 @@ impl SkiaScene3D {
         !self.events.is_empty() || (self.playing && self.objects.iter().any(|o| o.visible && o.player.busy()))
     }
 
-    fn update_ticking(&mut self, tree: &mut Tree) {
+    fn update_ticking(&mut self, cx: &mut Cx) {
         if self.wants_frames() {
             if !std::mem::replace(&mut self.ticking, true) {
                 self.last_ms = None;
-                animators::start_frame(tree, self.id, tick);
+                cx.start_frame_loop(self.id, tick);
             }
         } else if std::mem::take(&mut self.ticking) {
-            animators::stop_frames(tree, self.id);
+            cx.stop_frame_loop(self.id);
         }
     }
 
@@ -201,51 +197,45 @@ impl SkiaScene3D {
     }
 }
 
+/// One frame: the objects' animations advance, then the app hears what happened.
 fn tick(id: ControlId, time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> FrameTick {
-    let mut result = FrameTick { keep: false, state_touched: false };
-    let Some(mut node) = cx.tree.take(id) else { return result };
-    let mut queue = Vec::new();
-    if let Some(layer) = node.kind.as_deref_mut().and_then(part_mut::<SkiaScene3D>) {
+    cx.with_control::<SkiaScene3D, _>(id, state, |me, state, cx| {
+        let layer = me.control_mut();
         let delta = layer.last_ms.map_or(0.0, |last| ((time_ms - last) / 1000.0) as f32);
         layer.last_ms = Some(time_ms);
         layer.advance(delta);
         let events = std::mem::take(&mut layer.events);
+        let mut touched = false;
         for event in events {
-            let layer = node.kind.as_deref_mut().and_then(part_mut::<SkiaScene3D>).expect("checked above");
             match event {
                 Event::Ended(object, animation) => {
-                    if let Some(mut handler) = layer.on_ended.take() {
-                        let control = node.kind.as_deref_mut().expect("checked above");
-                        handler(Raw { id, control, base: &mut node.base, queue: &mut queue }, state, &mut Cx { tree: cx.tree }, &object, &animation);
-                        result.state_touched = true;
-                        let layer = node.kind.as_deref_mut().and_then(part_mut::<SkiaScene3D>).expect("checked above");
-                        layer.on_ended.get_or_insert(handler);
+                    if let Some(mut handler) = me.control_mut().on_ended.take() {
+                        handler(me, state, cx, &object, &animation);
+                        me.control_mut().on_ended.get_or_insert(handler);
+                        touched = true;
                     }
                 }
                 Event::Tapped(hit) => {
-                    if let Some(mut handler) = layer.on_tapped.take() {
-                        let control = node.kind.as_deref_mut().expect("checked above");
-                        handler(Raw { id, control, base: &mut node.base, queue: &mut queue }, state, &mut Cx { tree: cx.tree }, &hit);
-                        result.state_touched = true;
-                        let layer = node.kind.as_deref_mut().and_then(part_mut::<SkiaScene3D>).expect("checked above");
-                        layer.on_tapped.get_or_insert(handler);
+                    if let Some(mut handler) = me.control_mut().on_tapped.take() {
+                        handler(me, state, cx, &hit);
+                        me.control_mut().on_tapped.get_or_insert(handler);
+                        touched = true;
                     }
                 }
             }
         }
-        let layer = node.kind.as_deref_mut().and_then(part_mut::<SkiaScene3D>).expect("checked above");
-        result.keep = layer.wants_frames();
-        layer.ticking = result.keep;
-    }
-    cx.tree.put_back(node);
-    cx.tree.queue.append(&mut queue);
-    cx.tree.invalidate(id, Dirty::DRAW);
-    result
+        let layer = me.control_mut();
+        let keep = layer.wants_frames();
+        layer.ticking = keep;
+        me.mark(Dirty::DRAW);
+        FrameTick { keep, state_touched: touched }
+    })
+    .unwrap_or_default()
 }
 
 impl Control for SkiaScene3D {
     fn on_props_changed(&mut self, cx: &mut Cx) {
-        self.update_ticking(cx.tree);
+        self.update_ticking(cx);
     }
 
     fn on_gesture(&mut self, cx: &mut GestureCx, gesture: &Gesture) -> Handled {
@@ -259,7 +249,7 @@ impl Control for SkiaScene3D {
                 match self.hit((cx.point.x - rect.left) / scale, (cx.point.y - rect.top) / scale, size) {
                     Some(hit) => {
                         self.events.push(Event::Tapped(hit));
-                        self.update_ticking(cx.tree);
+                        self.update_ticking(&mut cx.cx());
                         Handled::Tapped
                     }
                     None => Handled::No,
@@ -294,64 +284,116 @@ impl Control for SkiaScene3D {
     }
 }
 
-impl Build<SkiaScene3D> {
+/// Building a `SkiaScene3D` (`use drawnui_3d::prelude::*`).
+pub trait Scene3DBuild: Sized {
     /// A model objects can be made of, by name, from the bytes of a `.glb`. The same bytes used by
     /// other layers or `SkiaModel3D` controls are read once.
-    pub fn model(mut self, name: impl Into<String>, glb: &[u8]) -> Self {
+    fn model(self, name: impl Into<String>, glb: &[u8]) -> Self;
+
+    /// A model made in code (`Model3D`) objects can be made of, by name.
+    fn model_from(self, name: impl Into<String>, model: &super::Model3D) -> Self;
+
+    /// How objects are drawn: `Look::Lit` (default), `Look::Toon` or `Look::Flat`.
+    fn look(self, look: super::Look) -> Self;
+
+    /// An outline around every shape, `width` points, like an illustration's stroke.
+    fn outline(self, width: f32, color: Color) -> Self;
+
+    /// Forward tilt of every object, degrees (15 by default): how much of its top the player sees.
+    fn tilt(self, degrees: f32) -> Self;
+
+    /// Runs when an object's animation played with `play_once` or `hold` ended: the object's name
+    /// and the animation's.
+    fn on_animation_ended<S: Any>(self, f: impl FnMut(&mut Mut<'_, SkiaScene3D>, &mut S, &mut Cx<'_>, &str, &str) + 'static) -> Self;
+
+    /// Runs when a tap lands on an object (the nearest one under the finger), with what it hit. Taps
+    /// on empty field fall through to what is behind the layer.
+    fn on_tapped_3d<S: Any>(self, f: impl FnMut(&mut Mut<'_, SkiaScene3D>, &mut S, &mut Cx<'_>, &SceneHit) + 'static) -> Self;
+}
+
+impl Scene3DBuild for Build<SkiaScene3D> {
+    fn model(mut self, name: impl Into<String>, glb: &[u8]) -> Self {
         self.control_mut().add_model(name.into(), scene::shared(glb));
         self
     }
 
-    /// A model made in code (`Model3D`) objects can be made of, by name.
-    pub fn model_from(mut self, name: impl Into<String>, model: &super::Model3D) -> Self {
+    fn model_from(mut self, name: impl Into<String>, model: &super::Model3D) -> Self {
         self.control_mut().add_model(name.into(), Ok(Rc::new(model.to_scene())));
         self
     }
 
-    /// How objects are drawn: `Look::Lit` (default), `Look::Toon` or `Look::Flat`.
-    pub fn look(mut self, look: super::Look) -> Self {
+    fn look(mut self, look: super::Look) -> Self {
         self.control_mut().look = look;
         self
     }
 
-    /// An outline around every shape, `width` points, like an illustration's stroke.
-    pub fn outline(mut self, width: f32, color: Color) -> Self {
+    fn outline(mut self, width: f32, color: Color) -> Self {
         self.control_mut().outline = (width.max(0.0), color);
         self
     }
 
-    /// Forward tilt of every object, degrees (15 by default): how much of its top the player sees.
-    pub fn tilt(mut self, degrees: f32) -> Self {
+    fn tilt(mut self, degrees: f32) -> Self {
         self.control_mut().tilt = degrees;
         self
     }
 
-    /// Runs when an object's animation played with `play_once` or `hold` ended: the object's name
-    /// and the animation's.
-    pub fn on_animation_ended<S: Any>(mut self, mut f: impl FnMut(&mut Mut<'_, SkiaScene3D>, &mut S, &mut Cx<'_>, &str, &str) + 'static) -> Self {
-        self.control_mut().on_ended = Some(Box::new(move |raw, state, cx, object, animation| {
-            let state = state.downcast_mut::<S>().unwrap_or_else(|| wrong_state::<S>());
-            f(&mut raw.typed(), state, cx, object, animation)
-        }));
+    fn on_animation_ended<S: Any>(mut self, mut f: impl FnMut(&mut Mut<'_, SkiaScene3D>, &mut S, &mut Cx<'_>, &str, &str) + 'static) -> Self {
+        self.control_mut().on_ended = Some(Box::new(move |me, state, cx, object, animation| f(me, downcast_state::<S>(state), cx, object, animation)));
         self
     }
 
-    /// Runs when a tap lands on an object (the nearest one under the finger), with what it hit. Taps
-    /// on empty field fall through to what is behind the layer.
-    pub fn on_tapped_3d<S: Any>(mut self, mut f: impl FnMut(&mut Mut<'_, SkiaScene3D>, &mut S, &mut Cx<'_>, &SceneHit) + 'static) -> Self {
-        self.control_mut().on_tapped = Some(Box::new(move |raw, state, cx, hit| {
-            let state = state.downcast_mut::<S>().unwrap_or_else(|| wrong_state::<S>());
-            f(&mut raw.typed(), state, cx, hit)
-        }));
+    fn on_tapped_3d<S: Any>(mut self, mut f: impl FnMut(&mut Mut<'_, SkiaScene3D>, &mut S, &mut Cx<'_>, &SceneHit) + 'static) -> Self {
+        self.control_mut().on_tapped = Some(Box::new(move |me, state, cx, hit| f(me, downcast_state::<S>(state), cx, hit)));
         self
     }
 }
 
-impl Mut<'_, SkiaScene3D> {
+/// Driving a `SkiaScene3D` from handlers (`cx.get_mut(handle)`), `use drawnui_3d::prelude::*`.
+pub trait Scene3DSet {
     /// Places an object made of `model` (a name given to `model`), standing at (x, y) of the layer
     /// in points, `size` points tall; it loops its model's first animation. The same name replaces
     /// an object. False when there is no such model.
-    pub fn add(&mut self, name: &str, model: &str, x: f32, y: f32, size: f32) -> bool {
+    fn add(&mut self, name: &str, model: &str, x: f32, y: f32, size: f32) -> bool;
+
+    /// Removes an object; false when there is none such.
+    fn remove(&mut self, name: &str) -> bool;
+
+    /// Removes every object.
+    fn clear(&mut self);
+
+    /// Moves an object: where it stands, in the layer's points.
+    fn set_position(&mut self, name: &str, x: f32, y: f32) -> bool;
+
+    /// Turns an object around its vertical axis, degrees (0 = facing the player, 90 = to the right).
+    fn set_facing(&mut self, name: &str, degrees: f32) -> bool;
+
+    /// An object's height in points.
+    fn set_size(&mut self, name: &str, size: f32) -> bool;
+
+    /// Shows or hides an object (a hidden one asks for no frames).
+    fn set_visible(&mut self, name: &str, visible: bool) -> bool;
+
+    /// Loops an object's animation by name, blending into it.
+    fn play(&mut self, name: &str, animation: &str) -> bool;
+
+    /// Plays an object's animation once, then back to the loop it played before.
+    fn play_once(&mut self, name: &str, animation: &str) -> bool;
+
+    /// Plays an object's animation once and holds its last frame.
+    fn hold(&mut self, name: &str, animation: &str) -> bool;
+
+    /// An object's animation speed, 1 = as authored (vary it so a crowd does not move in step).
+    fn set_speed(&mut self, name: &str, speed: f32) -> bool;
+
+    /// Recolors one material of one object; `None` = the file's color.
+    fn set_material_color(&mut self, name: &str, material: &str, color: Option<Color>) -> bool;
+
+    /// Stops or resumes every animation of the layer.
+    fn set_playing(&mut self, on: bool);
+}
+
+impl Scene3DSet for Mut<'_, SkiaScene3D> {
+    fn add(&mut self, name: &str, model: &str, x: f32, y: f32, size: f32) -> bool {
         let layer = self.control_mut();
         let Some(m) = layer.models.iter().position(|m| m.name == model) else { return false };
         let scene = &layer.models[m].scene;
@@ -374,8 +416,7 @@ impl Mut<'_, SkiaScene3D> {
         true
     }
 
-    /// Removes an object; false when there is none such.
-    pub fn remove(&mut self, name: &str) -> bool {
+    fn remove(&mut self, name: &str) -> bool {
         let layer = self.control_mut();
         let before = layer.objects.len();
         layer.objects.retain(|o| o.name != name);
@@ -384,78 +425,60 @@ impl Mut<'_, SkiaScene3D> {
         removed
     }
 
-    /// Removes every object.
-    pub fn clear(&mut self) {
+    fn clear(&mut self) {
         self.control_mut().objects.clear();
         self.mark(Dirty::DRAW_APPLY);
     }
 
-    fn with_object(&mut self, name: &str, dirty: Dirty, f: impl FnOnce(&mut Object, &Scene) -> bool) -> bool {
-        let layer = self.control_mut();
-        let Some(o) = layer.objects.iter_mut().find(|o| o.name == name) else { return false };
-        let done = f(o, &layer.models[o.model].scene);
-        self.mark(dirty);
-        done
-    }
-
-    /// Moves an object: where it stands, in the layer's points.
-    pub fn set_position(&mut self, name: &str, x: f32, y: f32) -> bool {
-        self.with_object(name, Dirty::DRAW, |o, _| {
+    fn set_position(&mut self, name: &str, x: f32, y: f32) -> bool {
+        with_object(self, name, Dirty::DRAW, |o, _| {
             (o.x, o.y) = (x, y);
             true
         })
     }
 
-    /// Turns an object around its vertical axis, degrees (0 = facing the player, 90 = to the right).
-    pub fn set_facing(&mut self, name: &str, degrees: f32) -> bool {
-        self.with_object(name, Dirty::DRAW, |o, _| {
+    fn set_facing(&mut self, name: &str, degrees: f32) -> bool {
+        with_object(self, name, Dirty::DRAW, |o, _| {
             o.facing = degrees;
             true
         })
     }
 
-    /// An object's height in points.
-    pub fn set_size(&mut self, name: &str, size: f32) -> bool {
-        self.with_object(name, Dirty::DRAW, |o, _| {
+    fn set_size(&mut self, name: &str, size: f32) -> bool {
+        with_object(self, name, Dirty::DRAW, |o, _| {
             o.size = size;
             true
         })
     }
 
-    /// Shows or hides an object (a hidden one asks for no frames).
-    pub fn set_visible(&mut self, name: &str, visible: bool) -> bool {
-        self.with_object(name, Dirty::DRAW_APPLY, |o, _| {
+    fn set_visible(&mut self, name: &str, visible: bool) -> bool {
+        with_object(self, name, Dirty::DRAW_APPLY, |o, _| {
             o.visible = visible;
             true
         })
     }
 
-    /// Loops an object's animation by name, blending into it.
-    pub fn play(&mut self, name: &str, animation: &str) -> bool {
-        self.with_object(name, Dirty::DRAW_APPLY, |o, s| s.animation_named(animation).map(|a| o.player.play(a)).is_some())
+    fn play(&mut self, name: &str, animation: &str) -> bool {
+        with_object(self, name, Dirty::DRAW_APPLY, |o, s| s.animation_named(animation).map(|a| o.player.play(a)).is_some())
     }
 
-    /// Plays an object's animation once, then back to the loop it played before.
-    pub fn play_once(&mut self, name: &str, animation: &str) -> bool {
-        self.with_object(name, Dirty::DRAW_APPLY, |o, s| s.animation_named(animation).map(|a| o.player.play_once(a)).is_some())
+    fn play_once(&mut self, name: &str, animation: &str) -> bool {
+        with_object(self, name, Dirty::DRAW_APPLY, |o, s| s.animation_named(animation).map(|a| o.player.play_once(a)).is_some())
     }
 
-    /// Plays an object's animation once and holds its last frame.
-    pub fn hold(&mut self, name: &str, animation: &str) -> bool {
-        self.with_object(name, Dirty::DRAW_APPLY, |o, s| s.animation_named(animation).map(|a| o.player.hold(a)).is_some())
+    fn hold(&mut self, name: &str, animation: &str) -> bool {
+        with_object(self, name, Dirty::DRAW_APPLY, |o, s| s.animation_named(animation).map(|a| o.player.hold(a)).is_some())
     }
 
-    /// An object's animation speed, 1 = as authored (vary it so a crowd does not move in step).
-    pub fn set_speed(&mut self, name: &str, speed: f32) -> bool {
-        self.with_object(name, Dirty::NONE, |o, _| {
+    fn set_speed(&mut self, name: &str, speed: f32) -> bool {
+        with_object(self, name, Dirty::NONE, |o, _| {
             o.player.speed = speed;
             true
         })
     }
 
-    /// Recolors one material of one object; `None` = the file's color.
-    pub fn set_material_color(&mut self, name: &str, material: &str, color: Option<Color>) -> bool {
-        self.with_object(name, Dirty::DRAW, |o, s| match s.materials.iter().position(|m| m.name == material) {
+    fn set_material_color(&mut self, name: &str, material: &str, color: Option<Color>) -> bool {
+        with_object(self, name, Dirty::DRAW, |o, s| match s.materials.iter().position(|m| m.name == material) {
             Some(i) => {
                 o.materials[i].color = color.map(super::linear);
                 true
@@ -464,9 +487,16 @@ impl Mut<'_, SkiaScene3D> {
         })
     }
 
-    /// Stops or resumes every animation of the layer.
-    pub fn set_playing(&mut self, on: bool) {
+    fn set_playing(&mut self, on: bool) {
         self.control_mut().playing = on;
         self.mark(Dirty::DRAW_APPLY);
     }
+}
+
+fn with_object(me: &mut Mut<'_, SkiaScene3D>, name: &str, dirty: Dirty, f: impl FnOnce(&mut Object, &Scene) -> bool) -> bool {
+    let layer = me.control_mut();
+    let Some(o) = layer.objects.iter_mut().find(|o| o.name == name) else { return false };
+    let done = f(o, &layer.models[o.model].scene);
+    me.mark(dirty);
+    done
 }

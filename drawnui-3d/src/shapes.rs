@@ -5,7 +5,7 @@
 use std::f32::consts::TAU;
 
 use glam::{Quat, Vec2, Vec3};
-use skia_safe::{Color, Path, PathVerb};
+use drawnui::skia::{Color, Path, PathVerb};
 
 use super::scene::{Material, Node, Primitive, Scene};
 
@@ -148,7 +148,7 @@ impl Mesh3D {
 /// The path's contours as polygons: lines as they are, curves in short straight steps.
 fn contours(path: &Path) -> Vec<Vec<Vec2>> {
     let (mut out, mut current): (Vec<Vec<Vec2>>, Vec<Vec2>) = (Vec::new(), Vec::new());
-    let v = |p: skia_safe::Point| Vec2::new(p.x, p.y);
+    let v = |p: drawnui::skia::Point| Vec2::new(p.x, p.y);
     // Each record's last points are its own (the start of a segment is the contour's last point).
     for rec in path.iter() {
         let points = rec.points();
@@ -350,7 +350,7 @@ mod tests {
     use super::*;
 
     fn star() -> Path {
-        let mut b = skia_safe::PathBuilder::new();
+        let mut b = drawnui::skia::PathBuilder::new();
         for i in 0..10 {
             let (r, a) = (if i % 2 == 0 { 50.0 } else { 20.0 }, i as f32 * TAU / 10.0 - TAU / 4.0);
             let p = (50.0 + r * a.cos(), 50.0 + r * a.sin());
@@ -380,7 +380,7 @@ mod tests {
     #[test]
     fn a_shape_with_points_in_a_line_is_cut_without_holes() {
         // A heart: its top dip and its bottom tip share x = 50.
-        let mut b = skia_safe::PathBuilder::new();
+        let mut b = drawnui::skia::PathBuilder::new();
         b.move_to((50.0, 88.0));
         b.cubic_to((20.0, 65.0), (0.0, 45.0), (0.0, 28.0));
         b.cubic_to((0.0, 12.0), (12.0, 0.0), (27.0, 0.0));

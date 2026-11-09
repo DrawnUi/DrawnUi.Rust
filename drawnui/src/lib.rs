@@ -32,7 +32,7 @@ mod leak_tests;
 mod waker;
 
 pub use animated_frames::{FramePlayer, FramesBuild, FramesSet};
-pub use animators::{AnimationId, Easing, ValueAnimator, easing};
+pub use animators::{AnimationId, Easing, FrameFn, FrameTick, ValueAnimator, easing};
 pub use bakes::BakeRequest;
 pub use control::{Control, GestureCx, Handled, Has, LayoutCx, PaintCx};
 pub use fonts::Fonts;
@@ -41,7 +41,7 @@ pub use gpu::{GlTarget, Gpu, GpuApi, VulkanHandles};
 pub use images::{Frames, ImageRequest, Images};
 pub use keyboard::{Cursor, InputKey, KEY_CODES, KeyEvent, KeyKind, Keyboard, Modifiers, key_name};
 pub use popups::{PopupAnchor, PopupId, PopupWindowOptions, PopupWindowRequest, TooltipPlacement, place_popup, place_tooltip};
-pub use tree::{Base, Build, Container, ControlId, ControlProps, Cx, Detached, Handle, IntoChildren, Mut, Tree, modal_registered};
+pub use tree::{Base, Build, Container, ControlId, ControlProps, Cx, Detached, Handle, IntoChildren, Mut, Tree, downcast_state, modal_registered};
 pub use ui::{ACCESSIBILITY_INTERVAL_MS, AccessibilityNode, AccessibilityTextLine, AccessibilityValue, Aria, ContextMenu, FrameStats, HistoryOp};
 pub use types::{
     CacheType, CornerRadius, Dirty, GesturesMode, GpuBackend, GradientType, IntoProp, LayoutOptions, LockTouch, RenderingModeType, SkiaGradient, SkiaShadow,
@@ -103,8 +103,6 @@ pub mod prelude {
     pub use crate::controls::sprite::{SkiaSprite, SkiaSpriteSet, SpriteBuild, SpriteSet, SpriteSetBuild, SpriteSetSet};
     #[cfg(feature = "svg")]
     pub use crate::controls::svg::{SkiaSvg, SvgBuild, SvgSet};
-    #[cfg(feature = "model3d")]
-    pub use crate::controls::model3d::{Look, Mesh3D, Model3D, SkiaModel3D, SkiaScene3D};
     pub use crate::skia::{BlendMode, Color, PaintCap, Point, Rect, Size, TileMode};
     pub use crate::{
         AccessibilityNode, AnimationId, Aria, Build, CacheType, FramesBuild, FramesSet, Container, ContextMenu, ContextMenuSource, Control,

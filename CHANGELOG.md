@@ -8,28 +8,10 @@ version before it. Commits in parentheses.
 
 ### Added
 
-- `SkiaModel3D` (feature `model3d`, browser first): a glTF / GLB scene drawn in 3D inside the UI,
-  with a depth buffer, a light, base colors and color textures, and skeleton animations. The app
-  drives the scene: `play` loops an animation, `play_once` plays one and blends back to the loop,
-  `hold` stays on the last frame, `play_layer` runs another animation at the same time, and moves
-  cross-fade (`crossfade_ms`). Nodes by name: `set_node_visible`, `set_node_translation`,
-  `set_node_rotation`, `set_node_scale`, `reset_node`; materials by name: `set_material_color`,
-  `set_material_visible`. `on_animation_ended` and `on_tapped_3d` (the node, material and point a
-  tap hit). Drag to turn, `auto_rotate`, `zoom`. The `model3d` example shows a boss fight.
-- `SkiaScene3D` (feature `model3d`): a 3D layer over a 2D game field. Many objects, each a model
-  with its own place, size, facing and animations, drawn in one pass; objects are placed in the
-  layer's points like sprites (`add(name, model, x, y, size)`, `set_position`, `set_facing`,
-  `play` / `play_once` / `hold`, `set_material_color`), lower ones in front, `tilt` to see their
-  tops. `on_tapped_3d` tells which object was hit. A model's file is read and uploaded once,
-  however many objects and controls show it. The `gallery3d` example: a loader, an achievement, a
-  celebration, a reward chest, an avatar and a field of 10 to 100 walking mobs.
-- 3D made in code (feature `model3d`): `Model3D` puts together named, colored parts from `Mesh3D`
-  shapes (`cylinder`, `sphere`, `torus`, `cuboid`, `lathe` of a side profile, `extrude` of any 2D
-  path: a star, a heart, a check mark, a logo); `SkiaModel3D::from_model`, `SkiaScene3D::model_from`.
-  A part is a node and a material of its own name, so the by-name calls drive it.
-- Looks: `look(Look::Lit | Look::Toon | Look::Flat)` and `outline(width, color)` on `SkiaModel3D` and
-  `SkiaScene3D`: flat colors with an outline draw 3D like an illustration. `set_view_angles` turns a
-  model from code.
+- An add-on API: controls made in other crates (add-ons such as `drawnui-3d`) run their own frame
+  loop (`Cx::start_frame_loop` with a `FrameFn` answering a `FrameTick`, `Cx::stop_frame_loop`) and
+  call the handlers the app gave them with the app state (`Cx::with_control`, `downcast_state`).
+  Nothing changes for apps that do not use it.
 
 ## 0.1.0-preview.37 (crates.io, 2026-11-08)
 

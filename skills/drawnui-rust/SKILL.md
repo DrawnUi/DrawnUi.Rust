@@ -785,10 +785,12 @@ place; the designer lists them in declaration order. A screen offers its own whi
 `cx.remove_designer_action(path)`. Actions run on the UI thread with the app state; only names and
 closures are kept, nothing runs unless a designer asks.
 
-## 3D models (SkiaModel3D, feature `model3d`)
+## 3D models (the drawnui-3d add-on)
 
-`drawnui = { version = "...", features = ["model3d"] }`. A glTF 2.0 binary (`.glb`) drawn in 3D inside
-any layout, from its bytes: `SkiaModel3D::new(include_bytes!("assets/boss.glb"))`. It draws through the
+3D lives in its own crate next to drawnui: `drawnui-3d = "..."` in `[dependencies]` and
+`use drawnui_3d::prelude::*;` (its controls, their `...Build` / `...Set` traits, shapes and looks). A
+glTF 2.0 binary (`.glb`) drawn in 3D inside any layout, from its bytes:
+`SkiaModel3D::new(include_bytes!("assets/boss.glb"))`. It draws through the
 GPU context the UI uses (WebGL2 in the browser; other platforms draw nothing yet), so give it no cache
 and keep it out of cached parents.
 
@@ -841,6 +843,23 @@ SkiaModel3D::from_model(&medal).look(Look::Flat).outline(2.5, ink).orbit(false).
 
 `Mesh3D::extrude` takes any Skia path (y down), centered; each closed contour is a solid (no holes:
 use `torus` / `lathe` for rings). `lathe(&[(radius, height)], segments)` turns a side profile.
+
+## Add-on controls (controls in another crate)
+
+A control made in another crate implements `Control` and gives its builder and handler methods as
+traits (`trait MyBuild for Build<MyControl>`, `trait MySet for Mut<'_, MyControl>`), as drawnui's own
+`...Build` / `...Set` traits do: Rust lets no crate add inherent methods to drawnui's types. What
+drawnui offers it:
+- A frame loop of its own while it moves: `cx.start_frame_loop(id, tick)` where
+  `fn tick(id, time_ms, state: &mut dyn Any, cx) -> FrameTick { keep, state_touched }`;
+  `cx.stop_frame_loop(id)`. No frames are asked for while none runs. From `on_props_changed(cx)`, or
+  from a gesture through `gesture_cx.cx()`.
+- The app's handlers with the app state: store them as `Box<dyn FnMut(&mut Mut<'_, MyControl>, &mut dyn
+  Any, &mut Cx, ...)>`, wrap the app's typed closure with `downcast_state::<S>(state)`, and call them
+  inside `cx.with_control::<MyControl, _>(id, state, |me, state, cx| ...)` (the control is out of the
+  tree meanwhile, as for any handler); answer `state_touched: true` when one ran.
+- The GPU while painting: `PaintCx::gpu()` (import textures made outside Skia; `reset_gl_state` after
+  own GL calls). `drawnui-3d` is the worked example.
 
 ## Clipboard
 
