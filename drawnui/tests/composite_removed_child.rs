@@ -98,3 +98,54 @@ fn image_composite_shows_no_stale_pixels_after_removals_and_moves() {
 fn gpu_composite_shows_no_stale_pixels_after_removals_and_moves() {
     check(CacheType::ImageCompositeGPU);
 }
+
+/// A child moved only by translation (no relayout, a sprite) inside a composite draws at its new
+/// place at once and leaves nothing at the old one, also over several moves in a row.
+fn check_translation(cache: CacheType) {
+    #[derive(Default)]
+    struct Field {
+        sprite: Handle<SkiaShape>,
+        x: f32,
+    }
+    let ui = Ui::new(Field::default(), move |app: &mut Field| {
+        SkiaLayout::new().fill().children((
+            SkiaLayout::new().width_request(300).height_request(150).use_cache(cache).children((
+                brick(10.0, 10.0, Color::RED).assign(&mut app.sprite),
+                brick(150.0, 100.0, Color::GREEN),
+            )),
+            SkiaShape::new().width_request(40).height_request(40).left(320).top(10).background_color(Color::BLUE).on_tapped(|_me, app: &mut Field, cx| {
+                app.x += 60.0;
+                let x = app.x;
+                if let Some(mut s) = cx.get_mut(app.sprite) {
+                    s.set_translation_x(x);
+                    s.set_translation_y(x / 2.0);
+                }
+            }),
+        ))
+    })
+    .background(BG);
+    let mut host = Headless::new(ui, 400, 300, 1.0);
+    host.settle();
+    assert_eq!(host.pixel(30, 20), Color::RED);
+    let mut was = (30, 20);
+    for step in 1..=3 {
+        host.tap(340.0, 30.0);
+        host.frame_after(16.0);
+        let d = 60 * step;
+        let now = (30 + d, 20 + d / 2);
+        assert_eq!(host.pixel(was.0, was.1), BG, "{cache:?} step {step}: nothing left where the sprite was");
+        assert_eq!(host.pixel(now.0, now.1), Color::RED, "{cache:?} step {step}: the sprite shows at its new place");
+        assert_eq!(host.pixel(170, 110), Color::GREEN, "{cache:?} step {step}: its sibling stays");
+        was = now;
+    }
+}
+
+#[test]
+fn image_composite_draws_a_translated_child_at_its_new_place() {
+    check_translation(CacheType::ImageComposite);
+}
+
+#[test]
+fn gpu_composite_draws_a_translated_child_at_its_new_place() {
+    check_translation(CacheType::ImageCompositeGPU);
+}
