@@ -1,7 +1,8 @@
 //! A gallery of tiny 3D animations inside a DrawnUI screen (the drawnui-add3d add-on).
-//! - Made in code, flat: a coin and bouncing dots for loading, a medal for an achievement, a check
-//!   for success, a heart for a like, falling confetti; smooth shapes in flat colors with outlines,
-//!   animated by the app.
+//! - Made in code: a coin and bouncing dots for loading, a medal for an achievement, a check for
+//!   success, a heart for a like, falling confetti; smooth shapes in real 3D shaded by a light, turned
+//!   so their depth shows, animated by the app. The same pieces, angles and theme as the .NET
+//!   gallery (DrawnUi.Blazor.Add3d, Add3dGallery).
 //! - From model files: an avatar, a reward chest, and a field of walking mobs drawn by one 3D layer.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -17,14 +18,16 @@ const CHEST: &[u8] = include_bytes!("../assets/gift.glb");
 const AVATAR: &[u8] = include_bytes!("../assets/avatar.glb");
 const MOB: &[u8] = include_bytes!("../assets/mob.glb");
 
-const PAGE: Color = Color::from_rgb(246, 244, 251);
-const CARD: Color = Color::WHITE;
-const LINE: Color = Color::from_rgb(228, 224, 240);
-const INK: Color = Color::from_rgb(34, 30, 52);
-const MUTED: Color = Color::from_rgb(110, 104, 130);
-const BUTTON: Color = Color::from_rgb(92, 76, 230);
-/// The illustrations' outline.
-const OUTLINE: Color = Color::from_rgb(43, 37, 64);
+const PAGE: Color = Color::from_rgb(14, 16, 24);
+const CARD: Color = Color::from_rgb(24, 27, 40);
+const LINE: Color = Color::from_rgb(40, 44, 62);
+/// The panel a piece stands on inside its card.
+const STAGE: Color = Color::from_rgb(42, 47, 70);
+const INK: Color = Color::from_rgb(242, 241, 248);
+const MUTED: Color = Color::from_rgb(154, 152, 176);
+const BUTTON: Color = Color::from_rgb(124, 108, 242);
+/// The medal's resting turn: it spins from here and lands here.
+const MEDAL_YAW: f32 = 20.0;
 const GOLD: Color = Color::from_rgb(255, 196, 61);
 const GOLD_LIGHT: Color = Color::from_rgb(255, 222, 122);
 const GREY: Color = Color::from_rgb(196, 192, 206);
@@ -215,7 +218,7 @@ fn tile(title: &str, caption: &str, model: impl IntoChildren, button: Build<Skia
         .children((SkiaLayout::column().fill_x().spacing(8).children((
             SkiaLabel::new(title).font_size(18).text_color(INK),
             SkiaLabel::new(caption).font_size(13).text_color(MUTED).height_request(36),
-            SkiaLayout::new().fill_x().height_request(RAIN.1).children(model),
+            SkiaShape::new().corner_radius(12).background_color(STAGE).fill_x().height_request(RAIN.1).children(model),
             button.horizontal_options(LayoutOptions::Center),
         )),))
 }
@@ -224,9 +227,10 @@ fn button(caption: &str) -> Build<SkiaButton> {
     SkiaButton::new(caption).width_request(150).background_color(BUTTON)
 }
 
-/// A flat illustration: flat colors, a dark outline, still unless the app moves it.
-fn flat(model: &Model3D) -> Build<SkiaModel3D> {
-    SkiaModel3D::from_model(model).look(Look::Flat).outline(2.5, OUTLINE).orbit(false).view_angles(0.0, 0.0).fill()
+/// A piece made in code in real 3D (the default Lit look: shaded by a light, in perspective), turned
+/// so its depth shows; still unless the app moves it.
+fn shaded(model: &Model3D, yaw: f32, pitch: f32) -> Build<SkiaModel3D> {
+    SkiaModel3D::from_model(model).orbit(false).view_angles(yaw, pitch).fill()
 }
 
 fn section(title: &str, caption: &str) -> Build<SkiaLayout> {
@@ -251,7 +255,7 @@ fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
     if app.spin < 1.0 {
         app.spin = (app.spin + delta / 0.9).min(1.0);
         if let Some(mut medal) = cx.get_mut(app.medal) {
-            medal.set_view_angles(360.0 * ease_out(app.spin), 0.0);
+            medal.set_view_angles(MEDAL_YAW + 360.0 * ease_out(app.spin), 12.0);
         }
     }
     if app.grow < 1.0 {
@@ -336,12 +340,12 @@ fn build(app: &mut App) -> Build<DrawnGame> {
                     .text_color(MUTED)
                     .horizontal_text_alignment(TextAlignment::Center)
                     .horizontal_options(LayoutOptions::Center),
-                section("Made in code", "Smooth shapes drawn flat with an outline: the drawn look for 3D pieces, a few lines each."),
+                section("Made in code", "Smooth shapes in real 3D, shaded by a light: a few lines of code each."),
                 SkiaLayout::wrap().spacing(16).horizontal_options(LayoutOptions::Center).children((
                     tile(
                         "Loading",
                         "A coin turning while something loads.",
-                        flat(&coin()).auto_rotate(200.0).assign(&mut app.coin),
+                        shaded(&coin(), 0.0, 12.0).auto_rotate(200.0).assign(&mut app.coin),
                         button("Pause").observe(|me, app: &App| me.set_text(if app.paused { "Spin" } else { "Pause" })).on_tapped(|_me, app: &mut App, cx| {
                             app.paused = !app.paused;
                             if let Some(mut coin) = cx.get_mut(app.coin) {
@@ -352,13 +356,13 @@ fn build(app: &mut App) -> Build<DrawnGame> {
                     tile(
                         "Loading dots",
                         "Three dots that bounce one after another.",
-                        flat(&dots()).assign(&mut app.dots),
+                        shaded(&dots(), 0.0, 28.0).assign(&mut app.dots),
                         button("Pause").observe(|me, app: &App| me.set_text(if app.resting { "Bounce" } else { "Pause" })).on_tapped(|_me, app: &mut App, _cx| app.resting = !app.resting),
                     ),
                     tile(
                         "Achievement",
                         "A medal that lights up and spins when unlocked.",
-                        flat(&medal()).assign(&mut app.medal).on_tapped_3d(|_me, app: &mut App, cx, _hit| {
+                        shaded(&medal(), MEDAL_YAW, 12.0).assign(&mut app.medal).on_tapped_3d(|_me, app: &mut App, cx, _hit| {
                             app.spin = 0.0;
                             medal_colors(app, cx);
                         }),
@@ -375,7 +379,7 @@ fn build(app: &mut App) -> Build<DrawnGame> {
                     tile(
                         "Success",
                         "A badge that pops in, then its check grows.",
-                        flat(&badge()).assign(&mut app.badge),
+                        shaded(&badge(), 22.0, 14.0).assign(&mut app.badge),
                         button("Done").on_tapped(|_me, app: &mut App, cx| {
                             app.grow = 0.0;
                             if let Some(mut badge) = cx.get_mut(app.badge) {
@@ -388,7 +392,7 @@ fn build(app: &mut App) -> Build<DrawnGame> {
                     tile(
                         "Like",
                         "A heart that beats, and jumps when liked.",
-                        flat(&heart_model()).assign(&mut app.heart).on_tapped_3d(|me, app: &mut App, _cx, _hit| {
+                        shaded(&heart_model(), -24.0, 12.0).assign(&mut app.heart).on_tapped_3d(|me, app: &mut App, _cx, _hit| {
                             app.liked = !app.liked;
                             app.pop = if app.liked { 1.0 } else { 0.0 };
                             me.set_material_color("heart", (!app.liked).then_some(GREY));
@@ -407,8 +411,6 @@ fn build(app: &mut App) -> Build<DrawnGame> {
                         SkiaScene3D::new()
                             .model_from("paper", &paper())
                             .model_from("star", &confetti_star())
-                            .look(Look::Flat)
-                            .outline(1.5, OUTLINE)
                             .tilt(20.0)
                             .fill()
                             .assign(&mut app.rain),
@@ -427,9 +429,7 @@ fn build(app: &mut App) -> Build<DrawnGame> {
                         "A character that idles, and waves when tapped.",
                         SkiaModel3D::new(AVATAR)
                             .animation("CharacterArmature|Idle")
-                            .look(Look::Toon)
-                            .outline(2.0, OUTLINE)
-                            .view_angles(15.0, 5.0)
+                            .view_angles(25.0, 10.0)
                             .fill()
                             .assign(&mut app.avatar)
                             .on_tapped_3d(|me, _app: &mut App, _cx, _hit| {
@@ -447,9 +447,7 @@ fn build(app: &mut App) -> Build<DrawnGame> {
                         SkiaModel3D::new(CHEST)
                             .animation("Chest_Open")
                             .playing(false)
-                            .look(Look::Toon)
-                            .outline(2.0, OUTLINE)
-                            .view_angles(25.0, 18.0)
+                            .view_angles(30.0, 20.0)
                             .orbit(false)
                             .fill()
                             .assign(&mut app.chest),
@@ -477,11 +475,9 @@ fn build(app: &mut App) -> Build<DrawnGame> {
                             .width_request(FIELD.0)
                             .height_request(FIELD.1)
                             .corner_radius(10)
-                            .background_color(Color::from_rgb(208, 236, 214))
+                            .background_color(Color::from_rgb(58, 98, 74))
                             .children((SkiaScene3D::new()
                                 .model("slime", MOB)
-                                .look(Look::Toon)
-                                .outline(1.5, OUTLINE)
                                 .tilt(30.0)
                                 .fill()
                                 .assign(&mut app.field)
@@ -494,7 +490,7 @@ fn build(app: &mut App) -> Build<DrawnGame> {
                                 .map(|n| {
                                     SkiaButton::new(format!("{n} mobs"))
                                         .width_request(110)
-                                        .observe(move |me, app: &App| me.set_background_color(if app.mobs == n { BUTTON } else { Color::from_rgb(150, 142, 190) }))
+                                        .observe(move |me, app: &App| me.set_background_color(if app.mobs == n { BUTTON } else { STAGE }))
                                         .on_tapped(move |_me, app: &mut App, _cx| app.mobs = n)
                                 })
                                 .collect::<Vec<_>>(),
