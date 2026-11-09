@@ -18,11 +18,37 @@ pub(super) struct Track {
     pub(super) looped: bool,
 }
 
-/// A material changed from code (`set_material_color`, `set_material_visible`).
-#[derive(Clone, Copy, Default)]
+/// A material changed from code (`set_material_color`, `set_material_visible`, `set_material_image`).
+#[derive(Clone, Default)]
 pub(super) struct MaterialOverride {
     pub(super) color: Option<[f32; 4]>,
     pub(super) hidden: bool,
+    pub(super) image: Option<Texture3D>,
+}
+
+/// An image to put on a material (`set_material_image`): a PNG / JPEG / WebP file, or any Skia
+/// image (a photo, a pattern drawn in code). Cheap to clone: the GPU keeps one copy of it however
+/// many materials and controls show it. It wraps by the surface's texture coordinates (glTF's, or
+/// those of the shapes made in code) and is multiplied by the material's color.
+#[derive(Clone)]
+pub struct Texture3D(pub(super) Rc<(Vec<u8>, u32, u32)>);
+
+impl Texture3D {
+    /// From encoded bytes (PNG, JPEG, WebP); `None` when they are not an image.
+    pub fn decode(encoded: &[u8]) -> Option<Texture3D> {
+        decode_image(encoded).map(|i| Texture3D(Rc::new(i)))
+    }
+
+    /// From a Skia image in memory (decoded, or drawn on a raster surface); `None` for an image that
+    /// lives on the GPU only.
+    pub fn from_image(image: &drawnui::skia::Image) -> Option<Texture3D> {
+        pixels(image).map(|i| Texture3D(Rc::new(i)))
+    }
+
+    /// Width and height in pixels.
+    pub fn size(&self) -> (u32, u32) {
+        (self.0.1, self.0.2)
+    }
 }
 
 thread_local! {
@@ -481,7 +507,11 @@ pub(super) fn data_uri(uri: &str) -> Option<Vec<u8>> {
 
 /// PNG / JPEG / WebP through Skia's codecs, as unpremultiplied RGBA.
 pub(super) fn decode_image(encoded: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
-    let image = drawnui::skia::images::deferred_from_encoded_data(Data::new_copy(encoded), None)?;
+    pixels(&drawnui::skia::images::deferred_from_encoded_data(Data::new_copy(encoded), None)?)
+}
+
+/// An image's pixels as unpremultiplied RGBA.
+fn pixels(image: &drawnui::skia::Image) -> Option<(Vec<u8>, u32, u32)> {
     let (w, h) = (image.width(), image.height());
     let info = drawnui::skia::ImageInfo::new((w, h), drawnui::skia::ColorType::RGBA8888, drawnui::skia::AlphaType::Unpremul, None);
     let mut pixels = vec![0u8; (w * h * 4) as usize];

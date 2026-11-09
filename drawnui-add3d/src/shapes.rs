@@ -1,6 +1,7 @@
 //! 3D made in code: smooth shapes (turned profiles, spheres, rings, boxes, any 2D path pushed into
 //! depth) put together as named, colored parts. A part is a node and a material of its own name, so
-//! `set_node_*` and `set_material_color` drive it like a part of a model file.
+//! `set_node_*` and `set_material_color` drive it like a part of a model file. Every shape has
+//! texture coordinates, so `set_material_image` can wrap an image around it.
 
 use std::f32::consts::TAU;
 
@@ -15,37 +16,49 @@ pub struct Mesh3D {
     positions: Vec<[f32; 3]>,
     normals: Vec<[f32; 3]>,
     indices: Vec<u32>,
+    /// Texture coordinates per vertex, (0, 0) = the image's top left.
+    uvs: Vec<[f32; 2]>,
     /// Outline directions per vertex; empty = the normals averaged per position.
     outline: Vec<[f32; 3]>,
 }
 
 impl Mesh3D {
-    fn quad(&mut self, a: Vec3, b: Vec3, c: Vec3, d: Vec3, normal: Vec3) {
+    /// A quad from its bottom left corner counter-clockwise, seen from outside; `uvs` in that order.
+    fn quad(&mut self, a: Vec3, b: Vec3, c: Vec3, d: Vec3, normal: Vec3, uvs: [[f32; 2]; 4]) {
         let base = self.positions.len() as u32;
         for p in [a, b, c, d] {
             self.positions.push(p.to_array());
             self.normals.push(normal.to_array());
         }
+        self.uvs.extend(uvs);
         self.indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
     }
 
     /// A profile turned around the vertical axis: `(radius, height)` points from bottom to top (a
     /// cup, a vase, a coin's rim). Each step of the profile is its own band, so corners stay sharp.
+    /// An image wraps once around and runs from the top of the profile to its bottom, by length
+    /// along it.
     pub fn lathe(profile: &[(f32, f32)], segments: usize) -> Mesh3D {
         let segments = segments.max(3);
         let mut mesh = Mesh3D::default();
-        for pair in profile.windows(2) {
+        let lengths: Vec<f32> = profile.windows(2).map(|p| Vec2::new(p[1].0 - p[0].0, p[1].1 - p[0].1).length()).collect();
+        let total = lengths.iter().sum::<f32>().max(1e-6);
+        let mut along = 0.0;
+        for (pair, length) in profile.windows(2).zip(&lengths) {
             let ((r0, y0), (r1, y1)) = (pair[0], pair[1]);
             // The band's outward normal in the profile plane.
             let (dr, dy) = (r1 - r0, y1 - y0);
             let (nr, ny) = Vec2::new(dy, -dr).normalize_or_zero().into();
             let base = mesh.positions.len() as u32;
+            let (v0, v1) = (1.0 - along / total, 1.0 - (along + length) / total);
+            along += length;
             for s in 0..=segments {
-                let a = s as f32 / segments as f32 * TAU;
-                let (sin, cos) = a.sin_cos();
-                for (r, y) in [(r0, y0), (r1, y1)] {
+                let u = s as f32 / segments as f32;
+                let (sin, cos) = (u * TAU).sin_cos();
+                for ((r, y), v) in [((r0, y0), v0), ((r1, y1), v1)] {
                     mesh.positions.push([r * cos, y, r * sin]);
                     mesh.normals.push([nr * cos, ny, nr * sin]);
+                    mesh.uvs.push([1.0 - u, v]);
                 }
             }
             for s in 0..segments as u32 {
@@ -66,33 +79,44 @@ impl Mesh3D {
     pub fn sphere(radius: f32) -> Mesh3D {
         let steps = 24;
         let profile: Vec<(f32, f32)> = (0..=steps).map(|i| std::f32::consts::PI * (i as f32 / steps as f32 - 0.5)).map(|a| (radius * a.cos(), radius * a.sin())).collect();
-        Mesh3D::lathe(&profile, 48)
+        // Shaded round, not band by band: every normal points away from the center.
+        Mesh3D::lathe(&profile, 48).smooth(|p| p)
     }
 
     /// A ring (a torus): `radius` to the middle of the tube, `tube` the tube's radius.
     pub fn torus(radius: f32, tube: f32) -> Mesh3D {
         let steps = 24;
-        let profile: Vec<(f32, f32)> = (0..=steps).map(|i| i as f32 / steps as f32 * TAU).map(|a| (radius + tube * a.cos(), -tube * a.sin())).collect();
-        Mesh3D::lathe(&profile, 64)
+        let profile: Vec<(f32, f32)> = (0..=steps).map(|i| i as f32 / steps as f32 * TAU).map(|a| (radius + tube * a.cos(), tube * a.sin())).collect();
+        // Every normal points away from the middle of the tube.
+        Mesh3D::lathe(&profile, 64).smooth(|p| p - Vec3::new(p.x, 0.0, p.z).normalize_or_zero() * radius)
     }
 
-    /// A box, centered.
+    /// Normals from the surface's own shape: `away(position)` points outward from it.
+    fn smooth(mut self, away: impl Fn(Vec3) -> Vec3) -> Mesh3D {
+        for (n, p) in self.normals.iter_mut().zip(&self.positions) {
+            *n = away(Vec3::from(*p)).normalize_or_zero().to_array();
+        }
+        self
+    }
+
+    /// A box, centered. An image covers each face whole, upright on the sides.
     pub fn cuboid(width: f32, height: f32, depth: f32) -> Mesh3D {
         let (x, y, z) = (width / 2.0, height / 2.0, depth / 2.0);
         let v = |a: f32, b: f32, c: f32| Vec3::new(a * x, b * y, c * z);
         let mut mesh = Mesh3D::default();
-        mesh.quad(v(-1., -1., 1.), v(1., -1., 1.), v(1., 1., 1.), v(-1., 1., 1.), Vec3::Z);
-        mesh.quad(v(1., -1., -1.), v(-1., -1., -1.), v(-1., 1., -1.), v(1., 1., -1.), -Vec3::Z);
-        mesh.quad(v(1., -1., 1.), v(1., -1., -1.), v(1., 1., -1.), v(1., 1., 1.), Vec3::X);
-        mesh.quad(v(-1., -1., -1.), v(-1., -1., 1.), v(-1., 1., 1.), v(-1., 1., -1.), -Vec3::X);
-        mesh.quad(v(-1., 1., 1.), v(1., 1., 1.), v(1., 1., -1.), v(-1., 1., -1.), Vec3::Y);
-        mesh.quad(v(-1., -1., -1.), v(1., -1., -1.), v(1., -1., 1.), v(-1., -1., 1.), -Vec3::Y);
+        mesh.quad(v(-1., -1., 1.), v(1., -1., 1.), v(1., 1., 1.), v(-1., 1., 1.), Vec3::Z, WHOLE);
+        mesh.quad(v(1., -1., -1.), v(-1., -1., -1.), v(-1., 1., -1.), v(1., 1., -1.), -Vec3::Z, WHOLE);
+        mesh.quad(v(1., -1., 1.), v(1., -1., -1.), v(1., 1., -1.), v(1., 1., 1.), Vec3::X, WHOLE);
+        mesh.quad(v(-1., -1., -1.), v(-1., -1., 1.), v(-1., 1., 1.), v(-1., 1., -1.), -Vec3::X, WHOLE);
+        mesh.quad(v(-1., 1., 1.), v(1., 1., 1.), v(1., 1., -1.), v(-1., 1., -1.), Vec3::Y, WHOLE);
+        mesh.quad(v(-1., -1., -1.), v(1., -1., -1.), v(1., -1., 1.), v(-1., -1., 1.), -Vec3::Y, WHOLE);
         mesh
     }
 
     /// A 2D path pushed into depth (a star, a heart, a check mark, a logo, a digit), `depth` thick,
     /// facing the viewer, centered on the path's bounds; path units, y down as in Skia. Each closed
-    /// contour is its own solid.
+    /// contour is its own solid. An image lies on the front over the path's bounds (mirrored on the
+    /// back) and runs once around the walls.
     // ponytail: contours are filled as solids, holes (an O, a ring) are not cut; draw a ring with
     // `torus` or `lathe` until a shape needs a hole.
     pub fn extrude(path: &Path, depth: f32) -> Mesh3D {
@@ -117,18 +141,22 @@ impl Mesh3D {
             };
             let corner: Vec<[f32; 3]> = (0..n).map(|i| (edge_normal((i + n - 1) % n) + edge_normal(i)).normalize_or_zero()).map(|v| [v.x, v.y, 0.0]).collect();
             let (front, back) = (depth / 2.0, -depth / 2.0);
+            let size = Vec2::new(bounds.width(), bounds.height()).max(Vec2::splat(1e-6));
             for (z, normal, flip) in [(front, Vec3::Z, false), (back, -Vec3::Z, true)] {
                 let base = mesh.positions.len() as u32;
                 for (i, p) in contour.iter().enumerate() {
                     mesh.positions.push([p.x, p.y, z]);
                     mesh.normals.push(normal.to_array());
                     mesh.outline.push(corner[i]);
+                    mesh.uvs.push([p.x / size.x + 0.5, 0.5 - p.y / size.y]);
                 }
                 for [a, b, c] in ear_clip(&contour) {
                     let (b, c) = if flip { (c, b) } else { (b, c) };
                     mesh.indices.extend([base + a, base + b, base + c]);
                 }
             }
+            let perimeter = (0..n).map(|i| contour[i].distance(contour[(i + 1) % n])).sum::<f32>().max(1e-6);
+            let mut along = 0.0;
             for i in 0..n {
                 let (a, b) = (contour[i], contour[(i + 1) % n]);
                 let edge = b - a;
@@ -136,7 +164,9 @@ impl Mesh3D {
                     continue;
                 }
                 let normal = Vec3::new(edge.y, -edge.x, 0.0).normalize();
-                mesh.quad(Vec3::new(a.x, a.y, back), Vec3::new(b.x, b.y, back), Vec3::new(b.x, b.y, front), Vec3::new(a.x, a.y, front), normal);
+                let (u0, u1) = (along / perimeter, (along + edge.length()) / perimeter);
+                along += edge.length();
+                mesh.quad(Vec3::new(a.x, a.y, back), Vec3::new(b.x, b.y, back), Vec3::new(b.x, b.y, front), Vec3::new(a.x, a.y, front), normal, [[u0, 1.0], [u1, 1.0], [u1, 0.0], [u0, 0.0]]);
                 let (ca, cb) = (corner[i], corner[(i + 1) % n]);
                 mesh.outline.extend([ca, cb, cb, ca]);
             }
@@ -144,6 +174,9 @@ impl Mesh3D {
         mesh
     }
 }
+
+/// A quad's texture coordinates when the image covers it whole, upright.
+const WHOLE: [[f32; 2]; 4] = [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]];
 
 /// The path's contours as polygons: lines as they are, curves in short straight steps.
 fn contours(path: &Path) -> Vec<Vec<Vec2>> {
@@ -322,7 +355,7 @@ impl Model3D {
                     normals: p.mesh.normals.clone(),
                     // Only a mesh that gave one for every vertex keeps its own outline directions.
                     outline_normals: if p.mesh.outline.len() == n { p.mesh.outline.clone() } else { Vec::new() },
-                    uvs: vec![[0.0, 0.0]; n],
+                    uvs: if p.mesh.uvs.len() == n { p.mesh.uvs.clone() } else { vec![[0.0, 0.0]; n] },
                     joints: Vec::new(),
                     weights: Vec::new(),
                     indices: p.mesh.indices.clone(),
@@ -361,6 +394,11 @@ mod tests {
     }
 
     /// Every triangle faces the way its vertices' normals say (outward, seen from outside).
+    /// Every vertex's normal points away from the shape's middle (a convex shape, or a ring's tube).
+    fn normals_point_out(mesh: &Mesh3D, middle: impl Fn(Vec3) -> Vec3) -> bool {
+        mesh.positions.iter().zip(&mesh.normals).all(|(p, n)| (Vec3::from(*p) - middle(Vec3::from(*p))).dot(Vec3::from(*n)) > 0.0)
+    }
+
     fn faces_outward(mesh: &Mesh3D) -> bool {
         mesh.indices.chunks(3).all(|t| {
             let [a, b, c] = [t[0], t[1], t[2]].map(|i| Vec3::from(mesh.positions[i as usize]));
@@ -375,6 +413,13 @@ mod tests {
             assert!(!mesh.indices.is_empty(), "{name}");
             assert!(faces_outward(&mesh), "{name}");
         }
+    }
+
+    #[test]
+    fn round_shapes_point_their_normals_out() {
+        assert!(normals_point_out(&Mesh3D::sphere(1.0), |_| Vec3::ZERO));
+        assert!(normals_point_out(&Mesh3D::cylinder(1.0, 0.3), |_| Vec3::ZERO));
+        assert!(normals_point_out(&Mesh3D::torus(1.0, 0.2), |p| Vec3::new(p.x, 0.0, p.z).normalize()));
     }
 
     #[test]
@@ -396,6 +441,20 @@ mod tests {
         assert!((area - signed_area(&outline).abs()).abs() < 1.0, "the triangles cover the shape: {area}");
         let flipped: Vec<_> = triangles.iter().filter(|[a, b, c]| (outline[*b as usize] - outline[*a as usize]).perp_dot(outline[*c as usize] - outline[*a as usize]) < 0.0).collect();
         assert!(flipped.is_empty(), "triangles turned the wrong way: {flipped:?} of {}", outline.len());
+    }
+
+    #[test]
+    fn every_shape_has_texture_coordinates_inside_the_image() {
+        for (name, mesh) in [("sphere", Mesh3D::sphere(1.0)), ("cylinder", Mesh3D::cylinder(1.0, 0.3)), ("torus", Mesh3D::torus(1.0, 0.2)), ("box", Mesh3D::cuboid(1.0, 2.0, 0.5)), ("star", Mesh3D::extrude(&star(), 10.0))] {
+            assert_eq!(mesh.uvs.len(), mesh.positions.len(), "{name}");
+            assert!(mesh.uvs.iter().flatten().all(|c| (-1e-4..=1.0 + 1e-4).contains(c)), "{name}");
+            let (lo, hi) = mesh.uvs.iter().fold(([1f32; 2], [0f32; 2]), |(lo, hi), uv| ([lo[0].min(uv[0]), lo[1].min(uv[1])], [hi[0].max(uv[0]), hi[1].max(uv[1])]));
+            assert!(lo[0] < 0.01 && lo[1] < 0.01 && hi[0] > 0.99 && hi[1] > 0.99, "{name} uses the whole image: {lo:?} {hi:?}");
+        }
+        // A sphere: the top of the image at the top.
+        let sphere = Mesh3D::sphere(1.0);
+        let top = sphere.positions.iter().zip(&sphere.uvs).max_by(|a, b| a.0[1].total_cmp(&b.0[1])).unwrap();
+        assert!(top.1[1] < 0.01, "{:?}", top.1);
     }
 
     #[test]

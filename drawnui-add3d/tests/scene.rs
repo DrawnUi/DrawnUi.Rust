@@ -120,3 +120,18 @@ fn nodes_and_materials_by_name() {
     assert!(boss.reset_node(&nodes[0]));
     assert!(!boss.set_node_visible("Nothing", false));
 }
+
+#[test]
+fn an_image_goes_on_a_material_by_name() {
+    let mut host = host();
+    let boss = host.ui.state.boss;
+    let mut surface = drawnui::skia::surfaces::raster_n32_premul((8, 4)).unwrap();
+    surface.canvas().clear(Color::from_rgb(200, 30, 30));
+    let drawn = Texture3D::from_image(&surface.image_snapshot()).expect("a raster image has pixels");
+    assert_eq!(drawn.size(), (8, 4));
+    assert!(Texture3D::decode(b"not an image").is_none());
+    let mut boss = host.ui.tree.get_mut(boss).unwrap();
+    assert!(boss.set_material_image("Dragon_Main", Some(drawn)));
+    assert!(boss.set_material_image("Dragon_Main", None));
+    assert!(!boss.set_material_image("Nothing", None));
+}

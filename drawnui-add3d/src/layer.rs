@@ -388,6 +388,10 @@ pub trait Scene3DSet {
     /// Recolors one material of one object; `None` = the file's color.
     fn set_material_color(&mut self, name: &str, material: &str, color: Option<Color>) -> bool;
 
+    /// Puts an image on one material of one object (see `Model3DSet::set_material_image`); `None` =
+    /// the file's again.
+    fn set_material_image(&mut self, name: &str, material: &str, image: Option<super::Texture3D>) -> bool;
+
     /// Stops or resumes every animation of the layer.
     fn set_playing(&mut self, on: bool);
 }
@@ -481,6 +485,16 @@ impl Scene3DSet for Mut<'_, SkiaScene3D> {
         with_object(self, name, Dirty::DRAW, |o, s| match s.materials.iter().position(|m| m.name == material) {
             Some(i) => {
                 o.materials[i].color = color.map(super::linear);
+                true
+            }
+            None => false,
+        })
+    }
+
+    fn set_material_image(&mut self, name: &str, material: &str, image: Option<super::Texture3D>) -> bool {
+        with_object(self, name, Dirty::DRAW, |o, s| match s.materials.iter().position(|m| m.name == material) {
+            Some(i) => {
+                o.materials[i].image = image;
                 true
             }
             None => false,

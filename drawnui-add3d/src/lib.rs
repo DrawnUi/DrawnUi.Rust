@@ -20,11 +20,12 @@ mod scene;
 mod shapes;
 
 pub use layer::{Scene3DBuild, Scene3DSet, SceneHit, SkiaScene3D};
+pub use scene::Texture3D;
 pub use shapes::{Mesh3D, Model3D};
 
 /// Everything an app uses: the controls, their build and set traits, the shapes and the looks.
 pub mod prelude {
-    pub use crate::{Look, Mesh3D, Model3D, Model3DBuild, Model3DSet, ModelHit, Scene3DBuild, Scene3DSet, SceneHit, SkiaModel3D, SkiaScene3D};
+    pub use crate::{Look, Mesh3D, Model3D, Model3DBuild, Model3DSet, ModelHit, Scene3DBuild, Scene3DSet, SceneHit, SkiaModel3D, SkiaScene3D, Texture3D};
 }
 
 /// How 3D is drawn (`look` on `SkiaModel3D` and `SkiaScene3D`).
@@ -394,6 +395,9 @@ pub trait Model3DBuild: Sized {
     /// An outline around every shape, `width` points, like an illustration's stroke.
     fn outline(self, width: f32, color: Color) -> Self;
 
+    /// Starts with an image on a material (see `Model3DSet::set_material_image`).
+    fn material_image(self, name: &str, image: Texture3D) -> Self;
+
     /// Runs when an animation played with `play_once` or `hold` ended, with its name.
     fn on_animation_ended<S: Any>(self, f: impl FnMut(&mut Mut<'_, SkiaModel3D>, &mut S, &mut Cx<'_>, &str) + 'static) -> Self;
 
@@ -430,6 +434,14 @@ impl Model3DBuild for Build<SkiaModel3D> {
 
     fn view_angles(mut self, yaw: f32, pitch: f32) -> Self {
         (self.control_mut().yaw, self.control_mut().pitch) = (yaw, pitch);
+        self
+    }
+
+    fn material_image(mut self, name: &str, image: Texture3D) -> Self {
+        let model = self.control_mut();
+        if let Some(i) = model.material_named(name) {
+            model.materials[i].image = Some(image);
+        }
         self
     }
 
@@ -518,6 +530,12 @@ pub trait Model3DSet {
 
     /// Shows or hides every surface with this material. False when there is none such.
     fn set_material_visible(&mut self, name: &str, visible: bool) -> bool;
+
+    /// Puts an image on a material (a skin, a label, a photo, a pattern), in place of the file's
+    /// own; `None` = the file's again. The image is multiplied by the material's color: a white
+    /// material (or `set_material_color(name, Some(Color::WHITE))`) shows it as it is. False when
+    /// there is no such material.
+    fn set_material_image(&mut self, name: &str, image: Option<Texture3D>) -> bool;
 }
 
 impl Model3DSet for Mut<'_, SkiaModel3D> {
@@ -594,6 +612,14 @@ impl Model3DSet for Mut<'_, SkiaModel3D> {
         let model = self.control_mut();
         let Some(i) = model.material_named(name) else { return false };
         model.materials[i].hidden = !visible;
+        self.mark(Dirty::DRAW);
+        true
+    }
+
+    fn set_material_image(&mut self, name: &str, image: Option<Texture3D>) -> bool {
+        let model = self.control_mut();
+        let Some(i) = model.material_named(name) else { return false };
+        model.materials[i].image = image;
         self.mark(Dirty::DRAW);
         true
     }

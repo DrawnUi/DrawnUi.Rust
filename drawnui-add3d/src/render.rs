@@ -303,6 +303,8 @@ void main() {
         // ponytail: a model whose scene is gone keeps its GL objects until the context goes; delete
         // them when apps load and drop many different models.
         models: HashMap<usize, (Weak<Scene>, Rc<Model>)>,
+        /// Images put on materials from code (`set_material_image`), by their pixels' address.
+        images: HashMap<usize, (Weak<(Vec<u8>, u32, u32)>, u32)>,
     }
 
     thread_local! {
@@ -341,24 +343,41 @@ void main() {
         }
     }
 
-    fn upload(scene: &Scene) -> Model {
+    /// One RGBA image as a mipmapped texture.
+    fn texture((rgba, w, h): &(Vec<u8>, u32, u32)) -> u32 {
         // SAFETY: as `shader`.
         unsafe {
             glPixelStorei(UNPACK_ALIGNMENT, 4);
-            let textures = scene
-                .images
-                .iter()
-                .map(|(rgba, w, h)| {
-                    let mut t = 0;
-                    glGenTextures(1, &mut t);
-                    glBindTexture(TEXTURE_2D, t);
-                    glTexImage2D(TEXTURE_2D, 0, RGBA8 as i32, *w as i32, *h as i32, 0, RGBA, UNSIGNED_BYTE, rgba.as_ptr());
-                    glGenerateMipmap(TEXTURE_2D);
-                    glTexParameteri(TEXTURE_2D, 0x2801, 0x2703); // MIN_FILTER LINEAR_MIPMAP_LINEAR
-                    glTexParameteri(TEXTURE_2D, 0x2800, 0x2601); // MAG_FILTER LINEAR
-                    t
-                })
-                .collect();
+            let mut t = 0;
+            glGenTextures(1, &mut t);
+            glBindTexture(TEXTURE_2D, t);
+            glTexImage2D(TEXTURE_2D, 0, RGBA8 as i32, *w as i32, *h as i32, 0, RGBA, UNSIGNED_BYTE, rgba.as_ptr());
+            glGenerateMipmap(TEXTURE_2D);
+            glTexParameteri(TEXTURE_2D, 0x2801, 0x2703); // MIN_FILTER LINEAR_MIPMAP_LINEAR
+            glTexParameteri(TEXTURE_2D, 0x2800, 0x2601); // MAG_FILTER LINEAR
+            t
+        }
+    }
+
+    /// The texture of an image put on a material, uploaded the first time it is drawn.
+    // ponytail: like models, a texture whose image is gone is deleted only when the context goes.
+    fn image_texture(context: &mut Context, image: &super::super::scene::Texture3D) -> u32 {
+        let key = Rc::as_ptr(&image.0) as usize;
+        if let Some((weak, t)) = context.images.get(&key)
+            && weak.upgrade().is_some_and(|i| Rc::ptr_eq(&i, &image.0))
+        {
+            return *t;
+        }
+        let t = texture(&image.0);
+        context.images.retain(|_, (weak, _)| weak.strong_count() > 0);
+        context.images.insert(key, (Rc::downgrade(&image.0), t));
+        t
+    }
+
+    fn upload(scene: &Scene) -> Model {
+        // SAFETY: as `shader`.
+        unsafe {
+            let textures = scene.images.iter().map(texture).collect();
             let meshes = scene
                 .meshes
                 .iter()
@@ -441,8 +460,11 @@ void main() {
             }
             let context = slot.get_or_insert_with(|| {
                 let (program, uniforms) = program();
-                Context { epoch, program, uniforms, models: HashMap::new() }
+                Context { epoch, program, uniforms, models: HashMap::new(), images: HashMap::new() }
             });
+            for image in items.iter().flat_map(|item| item.materials.iter().filter_map(|m| m.image.as_ref())) {
+                image_texture(context, image);
+            }
             items.iter().map(|item| model(context, item.scene)).collect()
         });
         let (frame, color) = ensure_target(target, epoch, size);
@@ -506,12 +528,15 @@ void main() {
                             glUniformMatrix4fv(u.model, 1, 0, model.to_cols_array().as_ptr());
                             for (p, (vao, count)) in scene.meshes[m].iter().zip(vaos) {
                                 let material = p.material.and_then(|i| scene.materials.get(i));
-                                let changed = p.material.and_then(|i| item.materials.get(i)).copied().unwrap_or_default();
-                                if changed.hidden || material.is_some_and(|m| m.blend) != pass_blend {
+                                let changed = p.material.and_then(|i| item.materials.get(i));
+                                if changed.is_some_and(|c| c.hidden) || material.is_some_and(|m| m.blend) != pass_blend {
                                     continue;
                                 }
-                                let color = changed.color.unwrap_or(material.map_or([0.8, 0.8, 0.8, 1.0], |m| m.color));
-                                let texture = material.and_then(|m| m.texture).and_then(|t| gl.textures.get(t));
+                                let color = changed.and_then(|c| c.color).unwrap_or(material.map_or([0.8, 0.8, 0.8, 1.0], |m| m.color));
+                                let texture = match changed.and_then(|c| c.image.as_ref()) {
+                                    Some(image) => context.images.get(&(Rc::as_ptr(&image.0) as usize)).map(|e| &e.1),
+                                    None => material.and_then(|m| m.texture).and_then(|t| gl.textures.get(t)),
+                                };
                                 if material.is_some_and(|m| m.double_sided) && !outline_pass { glDisable(CULL_FACE) } else { glEnable(CULL_FACE) }
                                 glUniform4fv(u.color, 1, color.as_ptr());
                                 glUniform1i(u.textured, texture.is_some() as i32);

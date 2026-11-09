@@ -8,6 +8,8 @@ buttons, text and lists.
 - `SkiaScene3D`: one 3D layer over a 2D game field: many objects placed in points like sprites, each with its own
   animations, drawn in one pass, each model loaded once.
 - `Model3D` / `Mesh3D`: shapes made in code (discs, spheres, rings, boxes, turned profiles, any 2D path made 3D).
+- Images on materials: `set_material_image` puts any image (a PNG or JPEG file, a photo, a pattern drawn with Skia)
+  on a part of a model or a shape made in code, and switches it live (`Texture3D`).
 - Looks: shaded, cartoon (two tones) or flat, with an optional outline.
 
 ```toml
@@ -26,5 +28,5 @@ SkiaModel3D::new(include_bytes!("assets/boss.glb"))
 ```
 
 Draws in the browser (WebGL2) for now; other platforms draw nothing yet. Examples: `examples/model3d` (a boss fight)
-and `examples/gallery3d` (shapes made in code, an avatar, a reward chest, a field of mobs) in the repository.
+and `examples/gallery3d` (shapes made in code, images on a box and a ball, an avatar, a reward chest, a field of mobs) in the repository.
 MIT license.

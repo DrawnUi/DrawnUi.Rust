@@ -3,6 +3,8 @@
 //!   success, a heart for a like, falling confetti; smooth shapes in real 3D shaded by a light, turned
 //!   so their depth shows, animated by the app. The same pieces, angles and theme as the .NET
 //!   gallery (DrawnUi.Blazor.Add3d, Add3dGallery).
+//! - Images on 3D: a product box with its label and a ball with three skins, every image drawn in
+//!   code with Skia and put on the shape's material, switched live.
 //! - From model files: an avatar, a reward chest, and a field of walking mobs drawn by one 3D layer.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -11,12 +13,16 @@ use std::f32::consts::TAU;
 
 use drawnui::prelude::*;
 use drawnui_add3d::prelude::*;
-use drawnui::skia::{Path, PathBuilder};
+use drawnui::skia::{
+    self, Canvas, Color4f, Data, Font, FontMgr, Paint, Path, PathBuilder, Point, Rect, TileMode,
+    gradient::{self, Gradient, Interpolation},
+};
 
 // Model files: CC0, see assets/MODELS-LICENSE.txt.
 const CHEST: &[u8] = include_bytes!("../assets/gift.glb");
 const AVATAR: &[u8] = include_bytes!("../assets/avatar.glb");
 const MOB: &[u8] = include_bytes!("../assets/mob.glb");
+const FONT: &[u8] = include_bytes!("../assets/OpenSans-Regular.ttf");
 
 const PAGE: Color = Color::from_rgb(14, 16, 24);
 const CARD: Color = Color::from_rgb(24, 27, 40);
@@ -142,6 +148,106 @@ fn confetti_star() -> Model3D {
     Model3D::new().part("piece", Mesh3D::extrude(&star(5, 0.6, 0.26), 0.12), Color::WHITE)
 }
 
+// ---------------------------------------------------------------- images drawn in code
+
+/// An image drawn with Skia, ready to put on a 3D surface.
+fn painted(width: i32, height: i32, draw: impl FnOnce(&Canvas, f32, f32)) -> Texture3D {
+    let mut surface = skia::surfaces::raster_n32_premul((width, height)).expect("a raster surface");
+    draw(surface.canvas(), width as f32, height as f32);
+    Texture3D::from_image(&surface.image_snapshot()).expect("a raster image has pixels")
+}
+
+fn fill(color: Color) -> Paint {
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true).set_color(color);
+    paint
+}
+
+fn linear(from: (f32, f32), to: (f32, f32), a: Color, b: Color) -> Paint {
+    let colors = [Color4f::from(a), Color4f::from(b)];
+    let gradient = Gradient::new(gradient::Colors::new(&colors, None, TileMode::Clamp, None), Interpolation::default());
+    let mut paint = Paint::default();
+    paint.set_shader(gradient::shaders::linear_gradient((Point::from(from), Point::from(to)), &gradient, None));
+    paint
+}
+
+/// Text centered on `x`, its baseline at `y`.
+fn centered(canvas: &Canvas, text: &str, x: f32, y: f32, size: f32, color: Color) {
+    let Some(typeface) = FontMgr::new().new_from_data(Data::new_copy(FONT), None) else { return };
+    let font = Font::from_typeface(typeface, size);
+    let paint = fill(color);
+    let (width, _) = font.measure_str(text, Some(&paint));
+    canvas.draw_str(text, (x - width / 2.0, y), &font, &paint);
+}
+
+/// A product box's label: a fruit on a gradient, a frame and the flavor's name.
+fn label(name: &str, top: Color, bottom: Color, fruit: Color) -> Texture3D {
+    painted(512, 512, |c, w, h| {
+        c.draw_rect(Rect::from_wh(w, h), &linear((0.0, 0.0), (0.0, h), top, bottom));
+        let mut frame = fill(Color::from_argb(200, 255, 255, 255));
+        frame.set_style(skia::PaintStyle::Stroke).set_stroke_width(10.0);
+        c.draw_round_rect(Rect::from_xywh(26.0, 26.0, w - 52.0, h - 52.0), 36.0, 36.0, &frame);
+        c.draw_circle((w / 2.0, 214.0), 112.0, &fill(fruit));
+        c.draw_circle((w / 2.0 - 38.0, 176.0), 30.0, &fill(Color::from_argb(90, 255, 255, 255)));
+        c.draw_oval(Rect::from_xywh(w / 2.0 + 6.0, 70.0, 70.0, 34.0), &fill(Color::from_rgb(76, 201, 140)));
+        centered(c, name, w / 2.0, 410.0, 76.0, Color::WHITE);
+        centered(c, "made in code", w / 2.0, 456.0, 26.0, Color::from_argb(220, 255, 255, 255));
+    })
+}
+
+fn labels() -> Vec<Texture3D> {
+    vec![
+        label("BERRY", Color::from_rgb(255, 99, 132), Color::from_rgb(124, 58, 237), Color::from_rgb(190, 24, 93)),
+        label("MINT", Color::from_rgb(52, 211, 153), Color::from_rgb(13, 110, 253), Color::from_rgb(16, 185, 129)),
+        label("SUN", Color::from_rgb(255, 214, 10), Color::from_rgb(253, 126, 20), Color::from_rgb(255, 159, 28)),
+    ]
+}
+
+/// Skins for a sphere: the image wraps once around (left to right) from the top pole to the bottom one.
+fn skins() -> Vec<Texture3D> {
+    let beach = painted(1024, 512, |c, w, h| {
+        let colors = [Color::from_rgb(255, 77, 109), Color::WHITE, Color::from_rgb(255, 196, 61), Color::WHITE, Color::from_rgb(92, 140, 255), Color::WHITE];
+        for (i, color) in colors.iter().enumerate() {
+            c.draw_rect(Rect::from_xywh(i as f32 * w / 6.0, 0.0, w / 6.0, h), &fill(*color));
+        }
+        c.draw_rect(Rect::from_wh(w, 46.0), &fill(Color::WHITE));
+        c.draw_rect(Rect::from_xywh(0.0, h - 46.0, w, 46.0), &fill(Color::WHITE));
+    });
+    let planet = painted(1024, 512, |c, w, h| {
+        let tones = [Color::from_rgb(232, 196, 150), Color::from_rgb(196, 140, 92), Color::from_rgb(244, 222, 186), Color::from_rgb(170, 112, 74)];
+        let mut y = 0.0;
+        for i in 0.. {
+            if y >= h {
+                break;
+            }
+            let band = 18.0 + 22.0 * ((i as f32 * 1.7).sin() * 0.5 + 0.5);
+            c.draw_rect(Rect::from_xywh(0.0, y, w, band + 1.0), &fill(tones[i % tones.len()]));
+            y += band;
+        }
+        c.draw_oval(Rect::from_xywh(620.0, 300.0, 150.0, 70.0), &fill(Color::from_rgb(200, 84, 60)));
+        c.draw_oval(Rect::from_xywh(640.0, 312.0, 110.0, 46.0), &fill(Color::from_rgb(226, 120, 84)));
+    });
+    let dots = painted(1024, 512, |c, w, h| {
+        c.draw_rect(Rect::from_wh(w, h), &fill(Color::from_rgb(30, 41, 90)));
+        for row in 0..8 {
+            for col in 0..16 {
+                let x = (col as f32 + if row % 2 == 0 { 0.25 } else { 0.75 }) * w / 16.0;
+                c.draw_circle((x, (row as f32 + 0.5) * h / 8.0), 13.0, &fill(Color::from_rgb(255, 196, 61)));
+            }
+        }
+    });
+    vec![beach, planet, dots]
+}
+
+/// A white box and a white ball: the images show as they are.
+fn product_box() -> Model3D {
+    Model3D::new().part("box", Mesh3D::cuboid(1.0, 1.0, 1.0), Color::WHITE)
+}
+
+fn ball() -> Model3D {
+    Model3D::new().part("ball", Mesh3D::sphere(1.0), Color::WHITE)
+}
+
 // ---------------------------------------------------------------- the app
 
 /// A small random number generator: the same confetti and crowd every run.
@@ -196,6 +302,12 @@ struct App {
     pieces: Vec<Piece>,
     chest: Handle<SkiaModel3D>,
     open: bool,
+    product: Handle<SkiaModel3D>,
+    labels: Vec<Texture3D>,
+    label: usize,
+    ball: Handle<SkiaModel3D>,
+    skins: Vec<Texture3D>,
+    skin: usize,
     avatar: Handle<SkiaModel3D>,
     field: Handle<SkiaScene3D>,
     walkers: Vec<Walker>,
@@ -321,6 +433,14 @@ fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
     }
 }
 
+/// The next image of a list on a material.
+fn next_image(cx: &mut Cx, model: Handle<SkiaModel3D>, material: &str, images: &[Texture3D], index: &mut usize) {
+    *index = (*index + 1) % images.len();
+    if let Some(mut model) = cx.get_mut(model) {
+        model.set_material_image(material, Some(images[*index].clone()));
+    }
+}
+
 fn medal_colors(app: &App, cx: &mut Cx) {
     if let Some(mut medal) = cx.get_mut(app.medal) {
         for (part, color) in [("disc", GREY), ("inner", Color::from_rgb(222, 219, 230)), ("star", Color::from_rgb(244, 242, 248))] {
@@ -331,6 +451,7 @@ fn medal_colors(app: &App, cx: &mut Cx) {
 
 fn build(app: &mut App) -> Build<DrawnGame> {
     (app.mobs, app.dice, app.spin, app.grow) = (40, Dice(7), 1.0, 1.0);
+    (app.labels, app.skins) = (labels(), skins());
     DrawnGame::new().fill().start_loop(0.0).on_game_loop(|_me, app: &mut App, cx, delta| game_loop(app, cx, delta)).children((
         SkiaScroll::new().fill().content(
             SkiaLayout::column().fill_x().padding(24).spacing(20).children((
@@ -420,6 +541,29 @@ fn build(app: &mut App) -> Build<DrawnGame> {
                                 p.y = -12.0 - app.dice.next() * RAIN.1;
                             }
                         }),
+                    ),
+                )),
+                section("Images on 3D", "Any image on a 3D surface, switched live: drawn in code here, or a photo or a file."),
+                SkiaLayout::wrap().spacing(16).horizontal_options(LayoutOptions::Center).children((
+                    tile(
+                        "Product box",
+                        "A box with its label: tap it or switch the design.",
+                        shaded(&product_box(), 28.0, 18.0)
+                            .auto_rotate(40.0)
+                            .material_image("box", app.labels[0].clone())
+                            .assign(&mut app.product)
+                            .on_tapped_3d(|_me, app: &mut App, cx, _hit| next_image(cx, app.product, "box", &app.labels, &mut app.label)),
+                        button("Next design").on_tapped(|_me, app: &mut App, cx| next_image(cx, app.product, "box", &app.labels, &mut app.label)),
+                    ),
+                    tile(
+                        "Ball",
+                        "One sphere, three skins: a beach ball, a planet, dots.",
+                        shaded(&ball(), 0.0, 16.0)
+                            .auto_rotate(60.0)
+                            .material_image("ball", app.skins[0].clone())
+                            .assign(&mut app.ball)
+                            .on_tapped_3d(|_me, app: &mut App, cx, _hit| next_image(cx, app.ball, "ball", &app.skins, &mut app.skin)),
+                        button("Next skin").on_tapped(|_me, app: &mut App, cx| next_image(cx, app.ball, "ball", &app.skins, &mut app.skin)),
                     ),
                 )),
                 section("From model files", "Free 3D models with their own animations, driven by the app."),

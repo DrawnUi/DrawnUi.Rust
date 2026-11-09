@@ -17,3 +17,8 @@
 - `Model3D` / `Mesh3D`: shapes made in code (`cylinder`, `sphere`, `torus`, `cuboid`, `lathe`, `extrude` of any
   2D path) put together as named, colored parts; `SkiaModel3D::from_model`, `SkiaScene3D::model_from`.
 - `look(Look::Lit | Look::Toon | Look::Flat)` and `outline(width, color)`.
+- Images on materials: `Texture3D` (from PNG / JPEG / WebP bytes, or any Skia image in memory), put on a material by
+  name with `set_material_image` (`SkiaModel3D`, and per object on `SkiaScene3D`) or `material_image` when built;
+  switched live, uploaded once however many materials show it. Shapes made in code carry texture coordinates (a
+  box shows the image on each face, a sphere wraps it around, an extruded path shows it on its front), and spheres
+  and rings are shaded round.
