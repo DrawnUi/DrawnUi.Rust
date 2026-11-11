@@ -15,7 +15,7 @@ use drawnui::skia::{Color, ISize, Paint, Rect, SamplingOptions};
 use super::player::Player;
 use super::render;
 use super::scene::{self, MaterialOverride, Scene};
-use drawnui::{Build, Control, ControlId, Cx, Dirty, FrameTick, Gesture, GestureCx, GestureKind, Handled, Mut, PaintCx, downcast_state};
+use drawnui::{Build, Control, ControlId, Cx, Dirty, FrameTick, Gesture, GestureCx, GestureKind, Handled, LayoutCx, Mut, PaintCx, downcast_state};
 
 /// What a tap on the layer hit (`SkiaScene3D::on_tapped_3d`): the object by its name, and the node
 /// and material of its model under the finger.
@@ -65,6 +65,9 @@ pub struct SkiaScene3D {
     playing: bool,
     last_ms: Option<f64>,
     ticking: bool,
+    /// Nothing of it is on screen: animations stand still and no frames are asked for, until a
+    /// scroll brings it back.
+    off_screen: bool,
     events: Vec<Event>,
     on_ended: Option<EndedHandler>,
     on_tapped: Option<TappedHandler>,
@@ -90,6 +93,7 @@ impl SkiaScene3D {
             playing: true,
             last_ms: None,
             ticking: false,
+            off_screen: false,
             events: Vec::new(),
             on_ended: None,
             on_tapped: None,
@@ -135,7 +139,7 @@ impl SkiaScene3D {
     }
 
     fn wants_frames(&self) -> bool {
-        !self.events.is_empty() || (self.playing && self.objects.iter().any(|o| o.visible && o.player.busy()))
+        !self.events.is_empty() || (self.playing && !self.off_screen && self.objects.iter().any(|o| o.visible && o.player.busy()))
     }
 
     fn update_ticking(&mut self, cx: &mut Cx) {
@@ -202,11 +206,15 @@ impl SkiaScene3D {
 
 /// One frame: the objects' animations advance, then the app hears what happened.
 fn tick(id: ControlId, time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> FrameTick {
+    let off_screen = cx.visible_rect(id).is_empty();
     cx.with_control::<SkiaScene3D, _>(id, state, |me, state, cx| {
         let layer = me.control_mut();
         let delta = layer.last_ms.map_or(0.0, |last| ((time_ms - last) / 1000.0) as f32);
         layer.last_ms = Some(time_ms);
-        layer.advance(delta);
+        layer.off_screen = off_screen;
+        if !off_screen {
+            layer.advance(delta);
+        }
         let events = std::mem::take(&mut layer.events);
         let mut touched = false;
         for event in events {
@@ -239,6 +247,15 @@ fn tick(id: ControlId, time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> Fr
 impl Control for SkiaScene3D {
     fn on_props_changed(&mut self, cx: &mut Cx) {
         self.update_ticking(cx);
+    }
+
+    fn arrange(&mut self, cx: &mut LayoutCx) {
+        // A scroll moving it back into view starts its time again.
+        cx.track_viewport();
+        if self.off_screen && !cx.visible_rect().is_empty() {
+            self.off_screen = false;
+            self.update_ticking(&mut cx.cx());
+        }
     }
 
     fn on_gesture(&mut self, cx: &mut GestureCx, gesture: &Gesture) -> Handled {

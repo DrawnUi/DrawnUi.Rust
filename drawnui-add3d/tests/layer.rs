@@ -93,3 +93,39 @@ fn a_still_layer_asks_for_no_frames() {
     frames(&mut host, 0.2);
     assert!(!host.ui.needs_frame());
 }
+
+#[test]
+fn a_layer_scrolled_out_of_view_asks_for_no_frames_until_it_is_back() {
+    #[derive(Default)]
+    struct Page {
+        field: Handle<SkiaScene3D>,
+        scroll: Handle<SkiaScroll>,
+    }
+    let ui = Ui::new(Page::default(), |app: &mut Page| {
+        SkiaScroll::new().fill().assign(&mut app.scroll).content(SkiaLayout::column().fill_x().children((
+            SkiaScene3D::new().model("dragon", DRAGON).fill_x().height_request(150).assign(&mut app.field),
+            SkiaLayout::new().fill_x().height_request(1200),
+        )))
+    });
+    let mut host = Headless::new(ui, 400, 400, 1.0);
+    host.frame_after(16.7);
+    let mut field = host.ui.tree.get_mut(host.ui.state.field).unwrap();
+    field.add("d", "dragon", 100.0, 100.0, 80.0);
+    field.play("d", "CharacterArmature|Walk");
+    for _ in 0..3 {
+        host.frame_after(16.7);
+    }
+    assert!(host.ui.needs_frame(), "walking on screen");
+    host.pan((200.0, 380.0), (200.0, 20.0), 120.0, 6);
+    for _ in 0..80 {
+        host.frame_after(16.7);
+    }
+    let offset = host.ui.tree.find::<SkiaScroll>(host.ui.state.scroll).unwrap().viewport_offset_y();
+    assert!(offset < -160.0, "scrolled past it: {offset}");
+    assert!(!host.ui.needs_frame(), "off screen, nothing asks for frames");
+    host.pan((200.0, 20.0), (200.0, 380.0), 120.0, 6);
+    for _ in 0..80 {
+        host.frame_after(16.7);
+    }
+    assert!(host.ui.needs_frame(), "back on screen, it walks again");
+}
