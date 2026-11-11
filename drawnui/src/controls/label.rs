@@ -122,9 +122,9 @@ props!(@table LabelProps, LabelBuild, LabelSet {
     line_height / set_line_height: f32 = 1.0, MEASURE;
     /// Every line as tall as the tallest one; off (the default), each line takes its own height.
     line_height_uniform / set_line_height_uniform: bool = false, MEASURE;
-    /// Extra space above a paragraph (a line after `\n`), in line heights with spacing. Upstream
-    /// C# defaults to 0.25; DrawnUi.React has none, so 0 here.
-    paragraph_spacing / set_paragraph_spacing: f32 = 0.0, MEASURE;
+    /// Extra space above a paragraph (a line after `\n`), in line heights with spacing (DrawnUi.Net's
+    /// default 0.25).
+    paragraph_spacing / set_paragraph_spacing: f32 = 0.25, MEASURE;
     /// 1 = the font's own advances; every 1.0 above adds a point between characters.
     character_spacing / set_character_spacing: f32 = 1.0, MEASURE;
     /// Upper, lower or title case, applied at layout time.
@@ -551,13 +551,14 @@ impl SkiaLabel {
         self.line_boxes.first().copied().unwrap_or(0.0)
     }
 
-    /// The height `count` lines take, pixels, the gaps between them included; lines past the
-    /// measured ones are as tall as the last.
+    /// The height `count` lines take, pixels, the gaps and paragraph spaces between them included;
+    /// lines past the measured ones are as tall as the last.
     pub fn lines_height(&self, count: usize) -> f32 {
         let last = self.line_boxes.last().copied().unwrap_or(0.0);
         (0..count).fold(0.0, |h, i| {
             let line = self.line_boxes.get(i).copied().unwrap_or(last);
-            h + line + if i + 1 < count { self.line_gap(line) } else { 0.0 }
+            let paragraph = if i > 0 && self.layout.lines.get(i).is_some_and(|l| l.new_paragraph) { self.paragraph_space } else { 0.0 };
+            h + paragraph + line + if i + 1 < count { self.line_gap(line) } else { 0.0 }
         })
     }
 

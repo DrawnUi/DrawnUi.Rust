@@ -17,6 +17,10 @@ version before it. Commits in parentheses.
   below the text; a font with a leading puts leading x `line_spacing` between lines. Labels, rich
   labels, editors and button captions follow it; text can move by a pixel and multi-line blocks
   can change height by a few pixels.
+- Paragraphs: a quarter of the label font's line between paragraphs by default
+  (`paragraph_spacing` 0.25, as in every DrawnUI engine), so text with `\n` grows a little taller;
+  `paragraph_spacing(0)` keeps paragraphs tight. An auto-height editor counts the paragraph space
+  and each line's own height.
 
 ### Added
 

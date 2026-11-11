@@ -343,7 +343,8 @@ fn multiline_wraps_moves_by_lines_and_grows_with_auto_height() {
     typed(&mut host, "\ntwo\nthree");
     frame(&mut host);
     let line = label(&host).measured_line_height();
-    assert!((height(&host) - one - 2.0 * line).abs() <= 1.0, "{} {one} {line}", height(&host));
+    // Two more lines, each a paragraph: a line plus a quarter line (ParagraphSpacing 0.25).
+    assert!((height(&host) - one - 2.0 * line * 1.25).abs() <= 1.0, "{} {one} {line}", height(&host));
     // Up and Down keep the x: from the end of "three" up into "two", then "one".
     key(&mut host, "ArrowUp", NONE);
     assert_eq!(caret(&host), (7, 0));
@@ -568,4 +569,23 @@ fn the_caret_hides_and_sleeps_while_the_window_is_inactive() {
     let wake = host.ui.wake_at().expect("the blink resumes");
     host.frame_after(wake - host.time_ms());
     assert_eq!(pixels_of(&mut host, accent), 0, "and blinks");
+}
+
+#[test]
+fn each_line_is_as_tall_as_its_own_text() {
+    // DrawnUi.Net EditorLineHeightTests: a 40 pt line over a line at the editor's size. The caret
+    // takes its line's rect (`text_lines`), so it is as tall as the line it is on; auto height adds
+    // the lines' own heights and the paragraph space.
+    let plain = host_at(SkiaEditor::new().max_lines(6).auto_height(true).text("small"), 2.0);
+    let (one, small) = (plain.rect(plain.ui.state.editor).height(), label(&plain).measured_line_height());
+    let mut host = host_at(SkiaEditor::new().max_lines(6).auto_height(true).text("Big\nsmall"), 2.0);
+    let id = host.ui.tree.children(host.ui.state.editor)[1];
+    host.ui.tree.find_mut::<SkiaLabel>(id).unwrap().set_spans(vec![TextSpan::new("Big\n").font_size(40), TextSpan::new("small")]);
+    host.settle();
+    let lines: Vec<f32> = label(&host).text_lines().map(|l| l.rect.height()).collect();
+    assert_eq!(lines.len(), 2);
+    assert!(lines[0] > lines[1] * 2.0, "{lines:?}");
+    assert_eq!(lines[1], small, "the small line keeps its own height");
+    let height = host.rect(host.ui.state.editor).height();
+    assert!((height - one - lines[0] - small * 0.25).abs() <= 1.0, "{height} {one} {lines:?}");
 }

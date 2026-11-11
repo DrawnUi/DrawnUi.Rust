@@ -92,11 +92,11 @@ fn paragraphs_spacing_and_line_height() {
     assert_eq!(label(&one).content_size().height, line.ceil());
 
     // OpenSans has no leading: LineSpacing adds `line * (spacing - 1)` between lines, and a paragraph
-    // adds ParagraphSpacing of a line with its spacing: none by default, as DrawnUi.React (C#: 0.25).
+    // adds ParagraphSpacing of a line with its spacing: 0.25 by default, as DrawnUi.Net.
     let two = host(SkiaLabel::new("a\nb"));
-    assert_eq!(label(&two).content_size().height, (line * 2.0).ceil());
-    let upstream = host(SkiaLabel::new("a\nb").paragraph_spacing(0.25));
-    assert_eq!(label(&upstream).content_size().height, (line * 2.0 + line * 0.25).ceil());
+    assert_eq!(label(&two).content_size().height, (line * 2.0 + line * 0.25).ceil());
+    let none = host(SkiaLabel::new("a\nb").paragraph_spacing(0));
+    assert_eq!(label(&none).content_size().height, (line * 2.0).ceil());
     let spaced = host(SkiaLabel::new("a\nb").line_spacing(1.5).paragraph_spacing(1));
     assert_eq!(label(&spaced).content_size().height, (line * 2.0 + line * 0.5 + line * 1.5).ceil());
 

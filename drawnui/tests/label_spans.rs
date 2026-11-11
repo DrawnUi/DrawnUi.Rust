@@ -73,7 +73,8 @@ const WEIGHT_TEXT: &str = "Regular 400 the family default";
 
 /// (name, content size in pixels, lines of runs: text, width, font (0 its own, k the k-th
 /// fallback alias), span (-1 none)), from the React probe; heights with every line rounded to whole
-/// pixels on its own (2026-11-11). The `spans_*` and `rich_*` rows follow C#
+/// pixels on its own (2026-11-11), paragraphs without spacing as the probe ran (`paragraph_spacing(0)`
+/// on the cases with '\n'). The `spans_*` and `rich_*` rows follow C#
 /// for spaces since 2026-10-30: a space keeps the style of the span it was written in, and two spans
 /// that both have a space keep both (React gives one space, in the style of the next word).
 type Case = (&'static str, (f32, f32), &'static [&'static [(&'static str, f32, usize, i32)]]);
@@ -154,7 +155,7 @@ fn case_label(name: &str) -> Option<(Build<SkiaLabel>, f32, f32)> {
         "emoji" => SkiaLabel::new(EMOJI_TEXT).font_size(16).font_family_fallback("FontEmoji"),
         "lorem2" => SkiaLabel::new(LOREM).font_size(15).max_lines(2),
         "titlecase" => SkiaLabel::new("Titlecase transform applied at layout time").font_size(14).text_transform(TextTransform::Titlecase),
-        "multiline" => return Some((SkiaLabel::new("Line one\nLine two is a bit longer\nLine three").font_size(14), 400.0, 1.0)),
+        "multiline" => return Some((SkiaLabel::new("Line one\nLine two is a bit longer\nLine three").font_size(14).paragraph_spacing(0), 400.0, 1.0)),
         "weight" => {
             let label = SkiaLabel::new(WEIGHT_TEXT).font_size(16);
             let label = match a {
@@ -212,7 +213,7 @@ fn rich_labels_lay_out_as_the_react_engine() {
         let mut parts = case.0.split('_').skip(1);
         let width: f32 = parts.next().unwrap().parse().unwrap();
         let scale: f32 = parts.next().unwrap().parse().unwrap();
-        let rich = SkiaRichLabel::new(MARKDOWN).font_size(15).font_family_fallback("FontSymbols,FontSymbols2");
+        let rich = SkiaRichLabel::new(MARKDOWN).font_size(15).paragraph_spacing(0).font_family_fallback("FontSymbols,FontSymbols2");
         let host = host_of(|app| SkiaLayout::new().fill().children(rich.width_request(width).assign(&mut app.rich)), width + 8.0, 300.0, scale);
         let rich: &SkiaRichLabel = host.ui.tree.find(host.ui.state.rich).unwrap();
         assert_case(case, rich.label());
@@ -492,7 +493,7 @@ fn selectable_text_gets_the_lines_and_their_css_font() {
     let expected: Vec<(String, f32)> = label(&host).lines().map(|(t, w)| (t.to_owned(), w / 2.0)).collect();
     let line = label(&host).measured_line_height() / 2.0;
     assert_eq!(lines.iter().map(|l| (l.text.clone(), l.width)).collect::<Vec<_>>(), expected);
-    assert_eq!(lines.iter().map(|l| (l.left, l.top)).collect::<Vec<_>>(), [(10.0, 10.0), (10.0, 10.0 + line)]);
+    assert_eq!(lines.iter().map(|l| (l.left, l.top)).collect::<Vec<_>>(), [(10.0, 10.0), (10.0, 10.0 + line * 1.25)]);
     let l = &lines[0];
     assert_eq!((l.font_family.as_str(), l.font_weight, l.font_size, l.height), ("FontText, FontSymbols, FontSymbols2", 600, 16.0, line));
 }
