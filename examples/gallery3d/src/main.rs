@@ -424,7 +424,9 @@ struct App {
     card_faces: Option<(Texture3D, Texture3D)>,
     // Globe.
     globe: Handle<SkiaModel3D>,
-    pins: [Handle<SkiaShape>; 6],
+    pins: [Handle<SkiaLayout>; 6],
+    /// Each pin's pulse, grown and faded by the frame loop.
+    pulses: [Handle<SkiaShape>; 6],
     pin_names: [Handle<SkiaShape>; 6],
     open_pin: Option<usize>,
     earth: Option<Texture3D>,
@@ -579,22 +581,24 @@ fn positions(model: Option<&SkiaModel3D>, points: &[[f32; 3]]) -> Vec<Option<Poi
 }
 
 /// Places markers and their labels over a model: on the point when it shows, hidden behind it.
-fn place(cx: &mut Cx, on_screen: Vec<Option<PointOnScreen>>, markers: &[Handle<SkiaShape>], notes: &[Handle<SkiaShape>], open: Option<usize>, size: f32) {
+/// Places markers and their notes over a model: a marker's `anchor` (its point, from its top left)
+/// on the 3D point when that shows, hidden behind it; a note `rise` points above the point.
+#[allow(clippy::too_many_arguments)]
+fn place<T: Control>(cx: &mut Cx, on_screen: Vec<Option<PointOnScreen>>, markers: &[Handle<T>], notes: &[Handle<SkiaShape>], open: Option<usize>, anchor: (f32, f32), note_width: f32, rise: f32) {
     for (i, at) in on_screen.into_iter().enumerate() {
         let shown = at.filter(|p| !p.occluded);
         if let Some(mut m) = cx.get_mut(markers[i]) {
             m.set_is_visible(shown.is_some());
             if let Some(p) = shown {
-                m.set_left(p.x - size / 2.0);
-                m.set_top(p.y - size / 2.0);
+                m.set_left(p.x - anchor.0);
+                m.set_top(p.y - anchor.1);
             }
         }
         if let Some(mut n) = cx.get_mut(notes[i]) {
             n.set_is_visible(shown.is_some() && open == Some(i));
             if let Some(p) = shown {
-                // Above the marker, centered on it.
-                n.set_left(p.x - NOTE_WIDTH / 2.0);
-                n.set_top(p.y - size / 2.0 - 58.0);
+                n.set_left(p.x - note_width / 2.0);
+                n.set_top(p.y - rise);
             }
         }
     }
@@ -615,7 +619,7 @@ fn place_spots(app: &App, cx: &mut Cx, model: Option<&SkiaModel3D>) {
         Some(m) => positions(Some(m), &points),
         None => positions(cx.find(app.viewer), &points),
     };
-    place(cx, on_screen, &app.spots[..n], &app.notes[..n], app.open_spot, 26.0);
+    place(cx, on_screen, &app.spots[..n], &app.notes[..n], app.open_spot, (13.0, 13.0), NOTE_WIDTH, 71.0);
     for i in n..3 {
         for h in [app.spots[i], app.notes[i]] {
             if let Some(mut m) = cx.get_mut(h) {
@@ -938,13 +942,50 @@ fn turn_to_city(app: &mut App, cx: &mut Cx, city: usize) {
     place_pins(app, cx, None);
 }
 
+/// A pin's point from its top left (the tip), and how far above the point its label sits.
+const PIN_ANCHOR: (f32, f32) = (16.0, 43.0);
+const PIN_LABEL_RISE: f32 = 78.0;
+const PIN_RED: Color = Color::from_rgb(234, 67, 53);
+/// The city label's width: labels are centered before their first layout.
+const CHIP_WIDTH: f32 = 130.0;
+
+/// A map pin for a city: a glossy teardrop with a soft shadow and a white dot inside, and a ring
+/// pulsing where it stands (its handle goes to `pulse`).
+fn pin(name: &str, pulse: &mut Handle<SkiaShape>) -> Build<SkiaLayout> {
+    SkiaLayout::new().is_visible(false).accessibility_role(Aria::BUTTON).accessibility_label(name).width_request(32).height_request(48).children((
+        SkiaShape::new().shape_type(ShapeType::Ellipse).width_request(30).height_request(10).left(1).top(38).stroke_color(PIN_RED).stroke_width(2).assign(pulse),
+        SkiaShape::new()
+            .shape_type(ShapeType::Path)
+            .path_data("M16 0 C7.2 0 0 7 0 15.6 C0 27 16 43 16 43 C16 43 32 27 32 15.6 C32 7 24.8 0 16 0 Z")
+            .width_request(32)
+            .height_request(43)
+            .background_color(PIN_RED)
+            .fill_gradient(SkiaGradient::new(GradientType::Linear, [Color::from_rgb(255, 112, 96), Color::from_rgb(200, 40, 32)]).start_x_ratio(0.3).start_y_ratio(0.0).end_x_ratio(0.7).end_y_ratio(1.0))
+            .shadows(SkiaShadow::new(Color::BLACK).x(0).y(3).blur(5).opacity(0.45)),
+        SkiaShape::new().shape_type(ShapeType::Circle).width_request(12).height_request(12).left(10).top(10).background_color(Color::WHITE),
+        SkiaShape::new().shape_type(ShapeType::Ellipse).width_request(10).height_request(5).left(8).top(4).background_color(Color::from_argb(90, 255, 255, 255)),
+    ))
+}
+
+/// A clean label chip for a city.
+fn chip_label(name: &str) -> Build<SkiaShape> {
+    SkiaShape::new()
+        .width_request(CHIP_WIDTH)
+        .height_request(30)
+        .corner_radius(15)
+        .background_color(Color::from_rgb(250, 250, 252))
+        .shadows(SkiaShadow::new(Color::BLACK).x(0).y(2).blur(6).opacity(0.35))
+        .is_visible(false)
+        .children((SkiaLabel::new(name).font_size(14).text_color(Color::from_rgb(30, 32, 44)).horizontal_options(LayoutOptions::Center).vertical_options(LayoutOptions::Center),))
+}
+
 fn place_pins(app: &App, cx: &mut Cx, model: Option<&SkiaModel3D>) {
     let points: Vec<[f32; 3]> = CITIES.iter().map(|c| on_globe(c.1, c.2)).collect();
     let on_screen = match model {
         Some(m) => positions(Some(m), &points),
         None => positions(cx.find(app.globe), &points),
     };
-    place(cx, on_screen, &app.pins, &app.pin_names, app.open_pin, 18.0);
+    place(cx, on_screen, &app.pins, &app.pin_names, app.open_pin, PIN_ANCHOR, CHIP_WIDTH, PIN_LABEL_RISE);
 }
 
 fn globe_with_pins(app: &mut App) -> Build<SkiaShape> {
@@ -963,19 +1004,18 @@ fn globe_with_pins(app: &mut App) -> Build<SkiaShape> {
             .fill()
             .assign(&mut app.globe)
             .on_view_changed(|me, app: &mut App, cx| place_pins(app, cx, Some(me.control_mut()))),
-        SkiaLayout::new().fill().children(
+        // The pins, then their labels over every pin.
+        SkiaLayout::new().fill().children((
             (0..CITIES.len())
-                .flat_map(|i| {
-                    [
-                        marker(18.0, DANGER, CITIES[i].0, None).assign(&mut app.pins[i]).on_tapped(move |_me, app: &mut App, cx| {
-                            app.open_pin = if app.open_pin == Some(i) { None } else { Some(i) };
-                            place_pins(app, cx, None);
-                        }),
-                        note(CITIES[i].0, &format!("{:.1}°, {:.1}°", CITIES[i].1, CITIES[i].2)).assign(&mut app.pin_names[i]),
-                    ]
+                .map(|i| {
+                    pin(CITIES[i].0, &mut app.pulses[i]).assign(&mut app.pins[i]).on_tapped(move |_me, app: &mut App, cx| {
+                        app.open_pin = if app.open_pin == Some(i) { None } else { Some(i) };
+                        place_pins(app, cx, None);
+                    })
                 })
                 .collect::<Vec<_>>(),
-        ),
+            (0..CITIES.len()).map(|i| chip_label(CITIES[i].0).assign(&mut app.pin_names[i])).collect::<Vec<_>>(),
+        )),
     ));
     panel(
         "Globe with pins",
@@ -1159,6 +1199,16 @@ fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
         && let Some(mut spinner) = cx.get_mut(app.spinner)
     {
         spinner.set_value1((t * 360.0) % 360.0);
+    }
+    for (i, pulse) in app.pulses.iter().enumerate() {
+        // Each pin's pulse grows and fades over 1.6 s, the pins out of step.
+        let phase = (t / 1.6 + i as f32 * 0.17).fract();
+        if let Some(mut ring) = cx.get_mut(*pulse) {
+            let grow = 0.4 + phase;
+            ring.set_scale_x(grow);
+            ring.set_scale_y(grow);
+            ring.set_opacity(1.0 - phase);
+        }
     }
     let drawn = app.thumbs.iter().filter(|h| !cx.visible_rect(**h).is_empty()).count();
     if drawn != app.thumbs_drawn {
