@@ -3,10 +3,6 @@ gift.glb    "Chest" by Quaternius                         https://poly.pizza/m/e
 avatar.glb  "Animated Platformer Character" by Quaternius https://poly.pizza/m/kKtL4zvS3n
 mob.glb     "Pink Slime" by Quaternius                    https://poly.pizza/m/AyP8sQmDLh
 
-Kenney Furniture Kit 2.0, Public Domain (CC0 1.0), https://kenney.nl/assets/furniture-kit:
-loungeDesignChair.glb, lampRoundFloor.glb, loungeSofa.glb, radio.glb, plantSmall2.glb,
-televisionVintage.glb
-
 Poly Haven, Public Domain (CC0 1.0), https://polyhaven.com:
 sofa.glb     "Sofa 01" (https://polyhaven.com/a/Sofa_01), re-packed as one GLB with two materials,
              "upholstery" and "frame" (the wood keeps the model's own image, 512 px)
@@ -14,6 +10,12 @@ leather.jpg  "Brown Leather" (https://polyhaven.com/a/brown_leather), diffuse, 5
 wool.jpg     "Poly Wool Herringbone" (https://polyhaven.com/a/poly_wool_herringbone), diffuse, 512 px
 velvet.jpg   "Velour Velvet" (https://polyhaven.com/a/velour_velvet), diffuse, 512 px
 linen.jpg    "Rough Linen" (https://polyhaven.com/a/rough_linen), diffuse, 512 px
+lounge_chair.glb    "Mid Century Lounge Chair" (https://polyhaven.com/a/mid_century_lounge_chair)
+armchair.glb        "Arm Chair 01" (https://polyhaven.com/a/ArmChair_01)
+ottoman.glb         "Ottoman 01" (https://polyhaven.com/a/Ottoman_01)
+coffee_table.glb    "Modern Coffee Table 01" (https://polyhaven.com/a/modern_coffee_table_01)
+drawer_cabinet.glb  "Vintage Wooden Drawer 01" (https://polyhaven.com/a/vintage_wooden_drawer_01)
+                    each its 1k glTF with only the base color image, 512 px, in one GLB
 
 earth.jpg: NASA Blue Marble, "Land_ocean_ice_2048.jpg", public domain (NASA Goddard Space Flight
 Center, Visible Earth), https://commons.wikimedia.org/wiki/File:Land_ocean_ice_2048.jpg

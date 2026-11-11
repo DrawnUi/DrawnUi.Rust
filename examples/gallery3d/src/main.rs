@@ -27,12 +27,11 @@ use glam::{EulerRot, Quat};
 const CHEST: &[u8] = include_bytes!("../assets/gift.glb");
 const AVATAR: &[u8] = include_bytes!("../assets/avatar.glb");
 const MOB: &[u8] = include_bytes!("../assets/mob.glb");
-const CHAIR: &[u8] = include_bytes!("../assets/loungeDesignChair.glb");
-const LAMP: &[u8] = include_bytes!("../assets/lampRoundFloor.glb");
-const SOFA: &[u8] = include_bytes!("../assets/loungeSofa.glb");
-const RADIO: &[u8] = include_bytes!("../assets/radio.glb");
-const PLANT: &[u8] = include_bytes!("../assets/plantSmall2.glb");
-const TV: &[u8] = include_bytes!("../assets/televisionVintage.glb");
+const LOUNGE_CHAIR: &[u8] = include_bytes!("../assets/lounge_chair.glb");
+const ARMCHAIR: &[u8] = include_bytes!("../assets/armchair.glb");
+const OTTOMAN: &[u8] = include_bytes!("../assets/ottoman.glb");
+const COFFEE_TABLE: &[u8] = include_bytes!("../assets/coffee_table.glb");
+const DRAWER_CABINET: &[u8] = include_bytes!("../assets/drawer_cabinet.glb");
 const EARTH: &[u8] = include_bytes!("../assets/earth.jpg");
 const SOFA_HQ: &[u8] = include_bytes!("../assets/sofa.glb");
 const LEATHER: &[u8] = include_bytes!("../assets/leather.jpg");
@@ -139,14 +138,15 @@ fn product_box() -> Model3D {
 /// A bank card's outline, 85.6 x 54 mm as 856 x 540 path units, round corners.
 fn card_outline() -> Path {
     let mut b = PathBuilder::new();
-    b.add_rrect(RRect::new_rect_xy(Rect::from_wh(856.0, 540.0), 38.0, 38.0), None, None);
+    b.add_rrect(RRect::new_rect_xy(Rect::from_wh(1024.0, 646.0), 46.0, 46.0), None, None);
     b.detach()
 }
 
 /// A card: a front and a back half, each showing its own image, the back half turned round so its
 /// image reads the right way from behind.
 fn card() -> Model3D {
-    let s = 0.004;
+    // 8.56 x 5.4 units, as the .NET card.
+    let s = 8.56 / 1024.0;
     Model3D::new()
         .part("front", Mesh3D::extrude(&card_outline(), 4.0), Color::WHITE)
         .scaled(s, s, s)
@@ -186,8 +186,18 @@ fn linear(from: (f32, f32), to: (f32, f32), a: Color, b: Color) -> Paint {
 
 /// Text at `x` (left, or centered when `center`), its baseline at `y`.
 fn text(canvas: &Canvas, text: &str, x: f32, y: f32, size: f32, color: Color, center: bool) {
+    styled_text(canvas, text, x, y, size, color, center, false);
+}
+
+/// `text`, optionally slanted like italic. Subpixel-positioned and antialiased.
+#[allow(clippy::too_many_arguments)]
+fn styled_text(canvas: &Canvas, text: &str, x: f32, y: f32, size: f32, color: Color, center: bool, italic: bool) {
     let Some(typeface) = FontMgr::new().new_from_data(Data::new_copy(FONT), None) else { return };
-    let font = Font::from_typeface(typeface, size);
+    let mut font = Font::from_typeface(typeface, size);
+    font.set_subpixel(true).set_edging(skia::font::Edging::AntiAlias);
+    if italic {
+        font.set_skew_x(-0.22);
+    }
     let paint = fill(color);
     let (width, _) = font.measure_str(text, Some(&paint));
     canvas.draw_str(text, (if center { x - width / 2.0 } else { x }, y), &font, &paint);
@@ -216,46 +226,56 @@ fn labels() -> Vec<Texture3D> {
     ]
 }
 
-/// The card's two faces.
+/// The card's two faces, 1024 x 646, as the .NET card: "Drawn Rewards Gold".
 fn card_faces() -> (Texture3D, Texture3D) {
-    let front = painted(856, 540, |c, w, h| {
-        c.draw_rect(Rect::from_wh(w, h), &linear((0.0, 0.0), (w, h), Color::from_rgb(40, 32, 120), Color::from_rgb(124, 58, 237)));
-        c.draw_circle((w * 0.86, h * 0.1), 260.0, &fill(Color::from_argb(40, 255, 255, 255)));
-        c.draw_circle((w * 0.1, h * 1.05), 200.0, &fill(Color::from_argb(28, 255, 255, 255)));
-        text(c, "DrawnUI Bank", 56.0, 92.0, 42.0, Color::WHITE, false);
+    let hex = |rgb: u32| Color::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8);
+    let front = painted(1024, 646, |c, w, h| {
+        let colors = [Color4f::from(hex(0x261E5C)), Color4f::from(hex(0x7C6CF2)), Color4f::from(hex(0xFF6384))];
+        let gradient = Gradient::new(gradient::Colors::new(&colors, None, TileMode::Clamp, None), Interpolation::default());
+        let mut paint = Paint::default();
+        paint.set_shader(gradient::shaders::linear_gradient((Point::new(0.0, 0.0), Point::new(w, h)), &gradient, None));
+        c.draw_rect(Rect::from_wh(w, h), &paint);
+        // A soft white glow at the top right.
+        let glow = [Color4f::from(Color::from_argb(90, 255, 255, 255)), Color4f::from(Color::from_argb(0, 255, 255, 255))];
+        let glow = Gradient::new(gradient::Colors::new(&glow, None, TileMode::Clamp, None), Interpolation::default());
+        let mut soft = Paint::default();
+        soft.set_shader(gradient::shaders::radial_gradient((Point::new(w * 0.84, h * 0.1), 330.0), &glow, None));
+        c.draw_rect(Rect::from_wh(w, h), &soft);
+        // Two white rings and the name, top left; the tier, top right.
+        let mut ring = fill(Color::WHITE);
+        ring.set_style(skia::PaintStyle::Stroke).set_stroke_width(5.0);
+        c.draw_circle((84.0, 92.0), 24.0, &ring);
+        c.draw_circle((114.0, 92.0), 24.0, &ring);
+        text(c, "DRAWN REWARDS", 158.0, 106.0, 38.0, Color::WHITE, false);
+        let gold = hex(0xFFD678);
+        let (gw, _) = Font::from_typeface(FontMgr::new().new_from_data(Data::new_copy(FONT), None).expect("the gallery font"), 44.0).measure_str("GOLD", None);
+        text(c, "GOLD", w - 64.0 - gw, 108.0, 44.0, gold, false);
         // The chip.
-        c.draw_round_rect(Rect::from_xywh(56.0, 170.0, 118.0, 88.0), 16.0, 16.0, &linear((56.0, 170.0), (174.0, 258.0), GOLD_LIGHT, GOLD));
-        let mut lines = fill(Color::from_argb(120, 120, 80, 0));
+        c.draw_round_rect(Rect::from_xywh(64.0, 196.0, 136.0, 104.0), 18.0, 18.0, &linear((64.0, 196.0), (200.0, 300.0), GOLD_LIGHT, GOLD));
+        let mut lines = fill(Color::from_argb(130, 120, 80, 0));
         lines.set_style(skia::PaintStyle::Stroke).set_stroke_width(3.0);
-        c.draw_round_rect(Rect::from_xywh(86.0, 190.0, 58.0, 48.0), 8.0, 8.0, &lines);
-        // Contactless waves.
-        let mut wave = fill(Color::from_argb(220, 255, 255, 255));
-        wave.set_style(skia::PaintStyle::Stroke).set_stroke_width(6.0).set_stroke_cap(skia::PaintCap::Round);
-        for (i, r) in [22.0, 38.0, 54.0].into_iter().enumerate() {
-            let _ = i;
-            c.draw_arc(Rect::from_xywh(212.0 - r, 214.0 - r, r * 2.0, r * 2.0), -45.0, 90.0, false, &wave);
-        }
-        text(c, "4242  4242  4242  4242", 56.0, 350.0, 50.0, Color::WHITE, false);
-        text(c, "CARD HOLDER", 56.0, 420.0, 20.0, Color::from_argb(180, 255, 255, 255), false);
-        text(c, "ALEX MORGAN", 56.0, 462.0, 34.0, Color::WHITE, false);
-        text(c, "VALID THRU", 470.0, 420.0, 20.0, Color::from_argb(180, 255, 255, 255), false);
-        text(c, "12/29", 470.0, 462.0, 34.0, Color::WHITE, false);
-        // The bank's mark: a star in a ring.
-        c.draw_circle((w - 110.0, h - 100.0), 58.0, &fill(Color::from_argb(60, 255, 255, 255)));
-        let mut mark = star(5, 34.0, 15.0);
-        mark = mark.make_offset((w - 110.0, h - 100.0));
-        c.draw_path(&mark, &fill(GOLD));
+        c.draw_round_rect(Rect::from_xywh(98.0, 220.0, 68.0, 56.0), 10.0, 10.0, &lines);
+        c.draw_line((64.0, 248.0), (98.0, 248.0), &lines);
+        c.draw_line((166.0, 248.0), (200.0, 248.0), &lines);
+        text(c, "4821  0730  5512  9046", 64.0, 420.0, 60.0, Color::WHITE, false);
+        let dim = Color::from_argb(190, 255, 255, 255);
+        text(c, "MEMBER", 64.0, 520.0, 24.0, dim, false);
+        text(c, "ALEX MORGAN", 64.0, 568.0, 40.0, Color::WHITE, false);
+        text(c, "VALID THRU", 700.0, 520.0, 24.0, dim, false);
+        text(c, "08/29", 700.0, 568.0, 40.0, Color::WHITE, false);
     });
-    let back = painted(856, 540, |c, w, h| {
-        c.draw_rect(Rect::from_wh(w, h), &linear((0.0, 0.0), (w, h), Color::from_rgb(52, 44, 140), Color::from_rgb(40, 32, 120)));
-        c.draw_rect(Rect::from_xywh(0.0, 56.0, w, 96.0), &fill(Color::from_rgb(18, 16, 28)));
-        c.draw_round_rect(Rect::from_xywh(56.0, 200.0, 520.0, 72.0), 8.0, 8.0, &fill(Color::from_rgb(236, 234, 244)));
-        text(c, "Alex Morgan", 76.0, 248.0, 34.0, Color::from_rgb(60, 60, 90), false);
-        c.draw_round_rect(Rect::from_xywh(596.0, 200.0, 120.0, 72.0), 8.0, 8.0, &fill(Color::WHITE));
-        text(c, "123", 656.0, 248.0, 34.0, Color::from_rgb(30, 30, 50), true);
-        text(c, "Customer service +1 555 0100  ·  drawnui.net", 56.0, 350.0, 26.0, Color::from_argb(200, 255, 255, 255), false);
-        text(c, "This card is a demo drawn in code.", 56.0, 392.0, 26.0, Color::from_argb(160, 255, 255, 255), false);
-        c.draw_round_rect(Rect::from_xywh(w - 196.0, h - 150.0, 140.0, 94.0), 12.0, 12.0, &linear((w - 196.0, h - 150.0), (w - 56.0, h - 56.0), Color::from_rgb(180, 230, 255), Color::from_rgb(255, 180, 230)));
+    let back = painted(1024, 646, |c, w, h| {
+        c.draw_rect(Rect::from_wh(w, h), &fill(hex(0x1E1A3E)));
+        // The magnetic stripe.
+        c.draw_rect(Rect::from_xywh(0.0, 60.0, w, 112.0), &fill(Color::from_rgb(10, 10, 14)));
+        // The signature strip and the CVV.
+        c.draw_round_rect(Rect::from_xywh(64.0, 226.0, 620.0, 84.0), 8.0, 8.0, &fill(Color::from_rgb(232, 228, 240)));
+        styled_text(c, "Alex Morgan", 92.0, 282.0, 40.0, Color::from_rgb(52, 48, 84), false, true);
+        c.draw_round_rect(Rect::from_xywh(708.0, 226.0, 140.0, 84.0), 8.0, 8.0, &fill(Color::WHITE));
+        text(c, "123", 778.0, 282.0, 40.0, Color::from_rgb(30, 28, 52), true);
+        text(c, "12,480 points", 64.0, 420.0, 52.0, Color::WHITE, false);
+        text(c, "Show this card at checkout to collect points.", 64.0, 478.0, 30.0, Color::from_argb(200, 255, 255, 255), false);
+        text(c, "drawnui.net", 64.0, h - 64.0, 34.0, hex(0xFFD678), false);
     });
     (front, back)
 }
@@ -302,10 +322,24 @@ fn dollars(amount: f32) -> String {
 }
 
 /// A row of the list: model, name, kind, price.
-const PRODUCTS: [(&[u8], &str, &str); 6] =
-    [(CHAIR, "Lounge chair", "Seating"), (LAMP, "Floor lamp", "Lighting"), (SOFA, "Sofa", "Seating"), (RADIO, "Radio", "Audio"), (PLANT, "Potted plant", "Decor"), (TV, "Vintage TV", "Audio & video")];
+/// The shop's furniture (Poly Haven, CC0): model, name, detail, price in its first finish.
+const PRODUCTS: [(&[u8], &str, &str, u32); 6] = [
+    (SOFA_HQ, "Walnut sofa", "Three-seater, carved walnut frame", 1190),
+    (LOUNGE_CHAIR, "Lounge chair", "Leather on a bent plywood shell", 890),
+    (ARMCHAIR, "Armchair", "Carved frame, linen seat", 640),
+    (OTTOMAN, "Ottoman", "Soft leather on wooden feet", 290),
+    (COFFEE_TABLE, "Coffee table", "Stone top on an oak frame", 420),
+    (DRAWER_CABINET, "Drawer cabinet", "Six drawers with brass pulls", 760),
+];
 const ROWS: usize = 30;
-const FINISHES: [&str; 5] = ["Classic", "Oak", "Studio", "Nordic", "Loft"];
+/// Finishes: name, the tint over the model's own colors (`None` = as it is), what it adds to the price.
+const FINISHES: [(&str, Option<Color>, u32); 5] = [
+    ("Natural", None, 0),
+    ("Honey", Some(Color::from_rgb(255, 232, 196)), 20),
+    ("Smoke", Some(Color::from_rgb(190, 196, 210)), 40),
+    ("Sage", Some(Color::from_rgb(204, 232, 210)), 60),
+    ("Espresso", Some(Color::from_rgb(150, 134, 122)), 80),
+];
 
 /// Cities on the globe: name, latitude, longitude.
 const CITIES: [(&str, f32, f32); 6] = [("Tokyo", 35.7, 139.7), ("Sydney", -33.9, 151.2), ("Cape Town", -33.9, 18.4), ("London", 51.5, -0.1), ("New York", 40.7, -74.0), ("Rio de Janeiro", -22.9, -43.2)];
@@ -377,6 +411,11 @@ struct App {
     price_shown: f32,
     // List.
     added: Vec<bool>,
+    thumbs: Vec<Handle<SkiaModel3D>>,
+    /// Rows whose finish tint is on.
+    tinted: Vec<usize>,
+    /// Thumbnails on screen now.
+    thumbs_drawn: usize,
     // Card.
     card: Handle<SkiaModel3D>,
     back_shown: bool,
@@ -772,45 +811,75 @@ fn product_viewer(app: &mut App) -> Build<SkiaShape> {
 
 fn product_list(app: &mut App) -> Build<SkiaShape> {
     app.added = vec![false; ROWS];
+    app.thumbs = vec![Handle::default(); ROWS];
     let rows: Vec<Build<SkiaLayout>> = (0..ROWS)
         .map(|i| {
-            let (model, name, kind) = PRODUCTS[i % PRODUCTS.len()];
-            let finish = FINISHES[(i / PRODUCTS.len()) % FINISHES.len()];
-            let price = 49 + (i * 37) % 400;
-            SkiaLayout::row().fill_x().spacing(16).padding((12.0, 10.0)).children((
-                SkiaShape::new().corner_radius(12).background_color(STAGE).width_request(96).height_request(96).children((SkiaModel3D::new(model)
-                    .view_angles(30.0 + i as f32 * 25.0, 18.0)
-                    .auto_rotate(24.0)
-                    .lock_pitch(true)
-                    .fill(),)),
-                SkiaLayout::column().spacing(4).vertical_options(LayoutOptions::Center).children((
-                    SkiaLabel::new(format!("{name} · {finish}")).font_size(16).text_color(INK),
-                    SkiaLabel::new(kind).font_size(13).text_color(MUTED),
-                    SkiaLabel::new(format!("${price}")).font_size(15).text_color(ACCENT),
-                )),
-                SkiaButton::new("Add to cart")
-                    .width_request(130)
-                    .horizontal_options(LayoutOptions::End)
-                    .vertical_options(LayoutOptions::Center)
-                    .observe(move |me, app: &App| {
-                        let added = app.added.get(i).copied().unwrap_or(false);
-                        me.set_text(if added { "Added" } else { "Add to cart" });
-                        me.set_background_color(if added { STAGE } else { BUTTON });
-                    })
-                    .on_tapped(move |_me, app: &mut App, _cx| {
-                        if let Some(added) = app.added.get_mut(i) {
-                            *added = !*added;
+            let (model, name, detail, price) = PRODUCTS[i % PRODUCTS.len()];
+            let (finish, tint, extra) = FINISHES[i / PRODUCTS.len()];
+            let mut thumb = SkiaModel3D::new(model).view_angles(32.0, 14.0).lock_pitch(true).fill().assign(&mut app.thumbs[i]);
+            if let Some(tint) = tint {
+                // Every piece is one material: the finish tints all of it.
+                thumb = thumb.on_view_changed(move |me, app: &mut App, _cx| {
+                    if !app.tinted.contains(&i) {
+                        app.tinted.push(i);
+                        if let Some(material) = me.control_mut().material_names().first().cloned() {
+                            me.set_material_color(&material, Some(tint));
                         }
-                    }),
-            ))
+                    }
+                });
+            }
+            SkiaLayout::row()
+                .fill_x()
+                .height_request(84)
+                .spacing(16)
+                .padding((12.0, 8.0))
+                .on_hovered(move |_me, app: &mut App, cx, on| {
+                    // A row turns its piece while it is pointed at.
+                    if let Some(mut thumb) = cx.get_mut(app.thumbs[i]) {
+                        thumb.set_auto_rotate(if on { 40.0 } else { 0.0 });
+                    }
+                })
+                .children((
+                    SkiaShape::new().corner_radius(10).background_color(STAGE).width_request(68).height_request(68).vertical_options(LayoutOptions::Center).children((thumb,)),
+                    SkiaLayout::column().spacing(2).vertical_options(LayoutOptions::Center).children((
+                        SkiaLabel::new(format!("{name}, {finish}")).font_size(15).text_color(INK),
+                        SkiaLabel::new(if i >= 15 { format!("{detail} · large") } else { detail.to_owned() }).font_size(12).text_color(MUTED),
+                        SkiaLabel::new(dollars((price + extra + if i >= 15 { 120 } else { 0 }) as f32)).font_size(14).text_color(ACCENT),
+                    )),
+                    SkiaButton::new("Add")
+                        .width_request(120)
+                        .horizontal_options(LayoutOptions::End)
+                        .vertical_options(LayoutOptions::Center)
+                        .observe(move |me, app: &App| {
+                            let added = app.added.get(i).copied().unwrap_or(false);
+                            me.set_text(if added { "In the cart" } else { "Add" });
+                            me.set_background_color(if added { STAGE } else { BUTTON });
+                        })
+                        .on_tapped(move |_me, app: &mut App, _cx| {
+                            if let Some(added) = app.added.get_mut(i) {
+                                *added = !*added;
+                            }
+                        }),
+                ))
         })
         .collect();
     panel(
         "3D in a scrolling list",
-        "Thirty rows with a 3D thumbnail each. A thumbnail turns only while it is on screen; drag it sideways to turn it, up or down to scroll.",
-        (SkiaShape::new().corner_radius(12).background_color(PAGE).fill_x().height_request(420).is_clipped_to_bounds(true).children((SkiaScroll::new()
-            .fill()
-            .content(SkiaLayout::column().fill_x().spacing(2).children(rows)),)),),
+        "Thirty pieces of furniture, each with a live 3D thumbnail: point at a row to turn it, or drag a thumbnail sideways. Rows off screen draw nothing.",
+        (
+            SkiaLayout::row().fill_x().margin((0.0, 0.0, 0.0, 8.0)).children((
+                SkiaLabel::new("Shop").font_size(18).text_color(INK),
+                SkiaLabel::new("")
+                    .font_size(13)
+                    .text_color(MUTED)
+                    .horizontal_options(LayoutOptions::End)
+                    .vertical_options(LayoutOptions::Center)
+                    .observe(|me, app: &App| me.set_text(format!("3D thumbnails drawn now: {} of {ROWS}", app.thumbs_drawn))),
+            )),
+            SkiaShape::new().corner_radius(12).background_color(PAGE).fill_x().height_request(440).is_clipped_to_bounds(true).children((SkiaScroll::new()
+                .fill()
+                .content(SkiaLayout::column().fill_x().spacing(2).children(rows)),)),
+        ),
     )
 }
 
@@ -832,7 +901,7 @@ fn card_flip(app: &mut App) -> Build<SkiaShape> {
         (SkiaLayout::row().spacing(24).fill_x().children((
             SkiaShape::new().corner_radius(14).background_color(STAGE).width_request(VIEW.0).height_request(VIEW.1).children((SkiaModel3D::from_model(&card())
                 .view_angles(0.0, 0.0)
-                .zoom(0.9)
+                .zoom(0.74)
                 .tilt_to_pointer(14.0)
                 .antialias(true)
                 .material_image("front", front)
@@ -843,6 +912,7 @@ fn card_flip(app: &mut App) -> Build<SkiaShape> {
             SkiaLayout::column().spacing(12).fill_x().children((
                 SkiaLabel::new("Drawn Rewards Gold").font_size(24).text_color(INK),
                 SkiaLabel::new("12,480 points · member since 2021").font_size(14).text_color(MUTED),
+                SkiaLabel::new("Both faces are images drawn in code with Skia and put on the card's two halves.").font_size(13).text_color(MUTED),
                 button("Show the back").width_request(170).observe(|me, app: &App| me.set_text(if app.back_shown { "Show the front" } else { "Show the back" })).on_tapped(|_me, app: &mut App, _cx| flip(app)),
             )),
         )),),
@@ -1089,6 +1159,10 @@ fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
         && let Some(mut spinner) = cx.get_mut(app.spinner)
     {
         spinner.set_value1((t * 360.0) % 360.0);
+    }
+    let drawn = app.thumbs.iter().filter(|h| !cx.visible_rect(**h).is_empty()).count();
+    if drawn != app.thumbs_drawn {
+        app.thumbs_drawn = drawn;
     }
     let price = SWATCHES[app.swatch].4;
     if app.price_shown != price {

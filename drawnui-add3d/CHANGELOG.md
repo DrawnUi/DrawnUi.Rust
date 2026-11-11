@@ -29,6 +29,8 @@
 - The shaded look lights with a key light, a soft fill from the other side and the sky, and gives
   smooth materials a highlight by their glTF roughness; `set_material_roughness` changes it per
   material (leather shines, linen does not).
+- Images on 3D surfaces use anisotropic filtering where the device has it, so text and fine lines stay
+  sharp on a surface seen at an angle.
 - `antialias(true)` / `set_antialias` on `SkiaModel3D` and `SkiaScene3D`: smooth edges with 4x multisampling (or
   the most the device offers). Off by default; on uses more GPU memory per pixel of the control, the same CPU time.
 - Images on materials: `Texture3D` (from PNG / JPEG / WebP bytes, or any Skia image in memory), put on a material by

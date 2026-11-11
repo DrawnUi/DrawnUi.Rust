@@ -186,6 +186,9 @@ void main() {
         fn glBindTexture(target: u32, texture: u32);
         fn glTexImage2D(target: u32, level: i32, internal: i32, w: i32, h: i32, border: i32, format: u32, kind: u32, data: *const u8);
         fn glTexParameteri(target: u32, name: u32, value: i32);
+        fn glTexParameterf(target: u32, name: u32, value: f32);
+        fn glGetString(name: u32) -> *const u8;
+        fn glGetFloatv(name: u32, out: *mut f32);
         fn glGenerateMipmap(target: u32);
         fn glActiveTexture(unit: u32);
         fn glGenFramebuffers(n: i32, out: *mut u32);
@@ -391,6 +394,28 @@ void main() {
         }
     }
 
+    /// How sharp a texture stays seen at a slant (anisotropic filtering, up to 8 samples); 0 when the
+    /// device has no such filtering. Asked once.
+    fn anisotropy() -> f32 {
+        thread_local! {
+            static MAX: std::cell::Cell<Option<f32>> = const { std::cell::Cell::new(None) };
+        }
+        MAX.with(|max| {
+            *max.get().get_or_insert_with(|| {
+                // SAFETY: as `shader`; GL_EXTENSIONS is a NUL-terminated string the GL keeps.
+                unsafe {
+                    let list = glGetString(0x1F03);
+                    let has = !list.is_null() && std::ffi::CStr::from_ptr(list.cast()).to_string_lossy().contains("texture_filter_anisotropic");
+                    let mut most = 0.0;
+                    if has {
+                        glGetFloatv(0x84FF, &mut most); // MAX_TEXTURE_MAX_ANISOTROPY_EXT
+                    }
+                    most.min(8.0)
+                }
+            })
+        })
+    }
+
     /// One RGBA image as a mipmapped texture.
     fn texture((rgba, w, h): &(Vec<u8>, u32, u32)) -> u32 {
         // SAFETY: as `shader`.
@@ -403,6 +428,11 @@ void main() {
             glGenerateMipmap(TEXTURE_2D);
             glTexParameteri(TEXTURE_2D, 0x2801, 0x2703); // MIN_FILTER LINEAR_MIPMAP_LINEAR
             glTexParameteri(TEXTURE_2D, 0x2800, 0x2601); // MAG_FILTER LINEAR
+            // Text and fine lines on a surface at an angle (a tilted card) stay sharp.
+            let most = anisotropy();
+            if most > 1.0 {
+                glTexParameterf(TEXTURE_2D, 0x84FE, most); // TEXTURE_MAX_ANISOTROPY_EXT
+            }
             t
         }
     }
