@@ -981,9 +981,13 @@ fn pose_mascot(app: &App, cx: &mut Cx) {
     }
 }
 
-/// The head's turn toward the caret: -60 degrees at the start of a field, -30 at 30 letters.
+/// The mascot's view yaw: its body already faces the form.
+const MASCOT_YAW: f32 = 32.0;
+
+/// The head's turn toward the caret, on top of the body's: -30 degrees at the start of a field
+/// (its left end, farther away), -10 at 30 letters.
 fn along(letters: usize) -> f32 {
-    -60.0 + 30.0 * (letters as f32 / 30.0).min(1.0)
+    -30.0 + 20.0 * (letters as f32 / 30.0).min(1.0)
 }
 
 /// What stops a sign-up, if anything.
@@ -1058,7 +1062,8 @@ fn sign_up(app: &mut App) -> Build<SkiaShape> {
             form,
             SkiaShape::new().corner_radius(14).background_color(STAGE).fill_x().height_request(VIEW.1).children((SkiaModel3D::new(AVATAR)
                 .animation("CharacterArmature|Idle")
-                .view_angles(-28.0, 8.0)
+                // Seen from its left: it faces the form, which is to the left on screen.
+                .view_angles(MASCOT_YAW, 8.0)
                 .orbit(false)
                 .fill()
                 .assign(&mut app.mascot),)),
