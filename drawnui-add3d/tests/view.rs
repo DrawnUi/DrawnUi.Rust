@@ -224,3 +224,24 @@ fn a_model_from_a_url_tells_loading_then_ready_or_failed() {
     assert_eq!(model(&host).load_state(), LoadState3D::Ready);
     assert_eq!(host.ui.state.loads.last(), Some(&LoadState3D::Ready));
 }
+
+#[test]
+fn tilt_to_pointer_turns_toward_the_mouse_and_back_home_when_it_leaves() {
+    let mut host = single(SkiaModel3D::from_model(&ball()).view_angles(0.0, 0.0).tilt_to_pointer(20.0));
+    host.hover(190.0, 100.0);
+    let (yaw, pitch, _) = model(&host).view();
+    assert!(yaw < -15.0 && pitch.abs() < 1.0, "the face turns right toward the mouse: {yaw} {pitch}");
+    host.hover(100.0, 10.0);
+    let (yaw, pitch, _) = model(&host).view();
+    assert!(yaw.abs() < 1.0 && pitch < -15.0, "and up: {yaw} {pitch}");
+    host.leave();
+    host.settle();
+    let (yaw, pitch, _) = model(&host).view();
+    assert!(yaw.abs() < 0.01 && pitch.abs() < 0.01, "home again: {yaw} {pitch}");
+    // A drag does not spin it round: it only leans toward where the pointer is (x 140 of 200 =
+    // 40% right of the middle, y 140 = 40% down).
+    host.pan((60.0, 100.0), (140.0, 140.0), 160.0, 8);
+    host.settle();
+    let (yaw, pitch, _) = model(&host).view();
+    assert!((yaw + 8.0).abs() < 0.01 && (pitch - 8.0).abs() < 0.01, "{yaw} {pitch}");
+}

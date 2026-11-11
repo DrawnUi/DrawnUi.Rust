@@ -168,6 +168,8 @@ pub struct SkiaModel3D {
     reset_on_double_tap: bool,
     last_tap_ms: Option<f64>,
     lock_pitch: bool,
+    /// Degrees the model turns toward the pointer or finger at the control's edge (0 = off).
+    tilt_to_pointer: f32,
     /// The drag under way: `None` until its first move decides, then whether it turns the model.
     drag: Option<bool>,
     /// The view the app heard last (`on_view_changed`).
@@ -241,6 +243,7 @@ impl SkiaModel3D {
             reset_on_double_tap: false,
             last_tap_ms: None,
             lock_pitch: false,
+            tilt_to_pointer: 0.0,
             drag: None,
             reported_view: (20.0, 10.0, 1.0),
             on_view_changed: None,
@@ -371,6 +374,16 @@ impl SkiaModel3D {
     /// Glides back to the home view.
     fn start_glide(&mut self) {
         self.glide = Some((self.view(), 0.0));
+    }
+
+    /// Turns toward a point of the control (pixels from its corner), from home.
+    fn tilt_toward(&mut self, x: f32, y: f32, size: (f32, f32)) {
+        let (nx, ny) = ((x / size.0.max(1.0)) * 2.0 - 1.0, (y / size.1.max(1.0)) * 2.0 - 1.0);
+        let (nx, ny) = (nx.clamp(-1.0, 1.0), ny.clamp(-1.0, 1.0));
+        // The face turns to the pointer: the camera goes the other way.
+        self.yaw = self.home.0 - nx * self.tilt_to_pointer;
+        self.pitch = self.home.1 + ny * self.tilt_to_pointer;
+        self.glide = None;
     }
 
     fn set_zoom_clamped(&mut self, zoom: f32) {
@@ -536,6 +549,19 @@ impl Control for SkiaModel3D {
                 self.glide = None;
                 Handled::Yes
             }
+            GestureKind::Pointer | GestureKind::Panning if self.tilt_to_pointer > 0.0 && !self.orbit => {
+                let rect = cx.base().rect;
+                self.tilt_toward(cx.point.x - rect.left, cx.point.y - rect.top, (rect.width(), rect.height()));
+                Handled::Yes
+            }
+            GestureKind::PointerExit if self.tilt_to_pointer > 0.0 => {
+                self.start_glide();
+                Handled::Yes
+            }
+            GestureKind::Up if self.tilt_to_pointer > 0.0 && gesture.touch => {
+                self.start_glide();
+                Handled::No
+            }
             GestureKind::Panning if self.orbit => {
                 // A drag that starts up or down is the scroll's when only turning is allowed.
                 let turns = *self.drag.get_or_insert(!self.lock_pitch || gesture.total.x.abs() >= gesture.total.y.abs());
@@ -574,11 +600,15 @@ impl Control for SkiaModel3D {
             }
             _ => Handled::No,
         };
-        if handled != Handled::No {
+        if handled != Handled::No || self.glide.is_some() {
             cx.invalidate(Dirty::DRAW);
             self.update_ticking(&mut cx.cx());
         }
         handled
+    }
+
+    fn receives_hover(&self) -> bool {
+        self.tilt_to_pointer > 0.0
     }
 
     fn paint(&self, cx: &mut PaintCx) {
@@ -653,6 +683,11 @@ pub trait Model3DBuild: Sized {
     /// Drags turn the model around its vertical axis only, and a drag that starts up or down is
     /// left to the scroll around it (3D in a list). Off by default.
     fn lock_pitch(self, on: bool) -> Self;
+
+    /// The model turns toward the mouse over it, or the finger on it, up to `degrees` at the
+    /// control's edge, and glides back home when the pointer leaves or the finger lifts (a card
+    /// that follows the hand). Drags no longer turn it. 0 = off (the default).
+    fn tilt_to_pointer(self, degrees: f32) -> Self;
 
     /// Runs once per frame in which the view moved (a drag, a pinch, auto-rotate, a reset, code):
     /// move labels anchored with `screen_position` here.
@@ -765,6 +800,13 @@ impl Model3DBuild for Build<SkiaModel3D> {
 
     fn lock_pitch(mut self, on: bool) -> Self {
         self.control_mut().lock_pitch = on;
+        self
+    }
+
+    fn tilt_to_pointer(mut self, degrees: f32) -> Self {
+        let model = self.control_mut();
+        model.tilt_to_pointer = degrees.max(0.0);
+        model.orbit &= degrees <= 0.0;
         self
     }
 
