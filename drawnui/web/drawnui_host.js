@@ -151,7 +151,12 @@ window.DrawnUi = {
     // the browser would then resample the whole canvas, softening every glyph.
     let devicePixels = null;
     const size = () => {
-      const scale = window.devicePixelRatio || 1;
+      // The scale is the device pixels per CSS pixel: devicePixelRatio, unless the device box says
+      // otherwise (an emulated ratio over a scaled display), then the box, so the canvas is laid
+      // out in the points the page shows.
+      const ratio = window.devicePixelRatio || 1;
+      const boxed = devicePixels && canvas.clientWidth > 0 ? devicePixels[0] / canvas.clientWidth : ratio;
+      const scale = Math.abs(boxed - ratio) > 0.02 * ratio ? boxed : ratio;
       canvas.width = Math.max(1, devicePixels ? devicePixels[0] : Math.round(canvas.clientWidth * scale));
       canvas.height = Math.max(1, devicePixels ? devicePixels[1] : Math.round(canvas.clientHeight * scale));
       return scale;
