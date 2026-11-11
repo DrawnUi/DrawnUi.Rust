@@ -60,8 +60,11 @@ pub(super) fn draw(_target: &mut Option<Target>, _gpu: &mut Gpu, _items: &[Item]
     None
 }
 
+#[cfg(not(target_os = "emscripten"))]
+pub(super) fn start_program() {}
+
 #[cfg(target_os = "emscripten")]
-pub(super) use gl::draw;
+pub(super) use gl::{draw, start_program};
 
 #[cfg(target_os = "emscripten")]
 mod gl {
@@ -259,13 +262,22 @@ void main() {
     const TEXTURE0: u32 = 0x84C0;
     const UNPACK_ALIGNMENT: u32 = 0x0CF5;
 
-    fn shader(kind: u32, source: &str) -> u32 {
+    /// A shader handed to the GL to compile; its status is not asked (asking waits for the compile).
+    fn compile(kind: u32, source: &str) -> u32 {
         // SAFETY: GL calls on the current WebGL2 context, with valid pointers.
         unsafe {
             let s = glCreateShader(kind);
             let (ptr, len) = (source.as_ptr(), source.len() as i32);
             glShaderSource(s, 1, &ptr, &len);
             glCompileShader(s);
+            s
+        }
+    }
+
+    /// Logs a shader that did not compile.
+    fn check(s: u32) -> u32 {
+        // SAFETY: as `compile`.
+        unsafe {
             let mut ok = 0;
             glGetShaderiv(s, 0x8B81, &mut ok);
             if ok == 0 {
@@ -360,13 +372,43 @@ void main() {
         static CONTEXT: RefCell<Option<Context>> = const { RefCell::new(None) };
     }
 
-    fn program() -> (u32, Uniforms) {
-        // SAFETY: as `shader`.
+    thread_local! {
+        /// The program handed to the GL early (`start_program`), with its two shaders.
+        static STARTED: std::cell::Cell<Option<(u32, u32, u32)>> = const { std::cell::Cell::new(None) };
+    }
+
+    /// Hands the program to the GL to compile and link, without waiting: the browser compiles it
+    /// in its GPU process while the page loads, and the first 3D frame only collects it (on Chrome
+    /// for Windows the link takes about 180 ms). Called when a 3D control gets its properties,
+    /// before anything is laid out; nothing when the program is there or started.
+    pub(in super::super) fn start_program() {
+        if CONTEXT.with_borrow(|c| c.is_some()) || STARTED.get().is_some() {
+            return;
+        }
+        // SAFETY: as `compile`; creating, compiling and linking change no binding.
         unsafe {
+            let (vs, fs) = (compile(0x8B31, VS), compile(0x8B30, FS));
             let program = glCreateProgram();
-            glAttachShader(program, shader(0x8B31, VS));
-            glAttachShader(program, shader(0x8B30, FS));
+            glAttachShader(program, vs);
+            glAttachShader(program, fs);
             glLinkProgram(program);
+            STARTED.set(Some((program, vs, fs)));
+        }
+    }
+
+    fn program() -> (u32, Uniforms) {
+        // SAFETY: as `compile`.
+        unsafe {
+            let (program, vs, fs) = STARTED.take().unwrap_or_else(|| {
+                let (vs, fs) = (compile(0x8B31, VS), compile(0x8B30, FS));
+                let program = glCreateProgram();
+                glAttachShader(program, vs);
+                glAttachShader(program, fs);
+                glLinkProgram(program);
+                (program, vs, fs)
+            });
+            check(vs);
+            check(fs);
             let mut ok = 0;
             glGetProgramiv(program, 0x8B82, &mut ok);
             if ok == 0 {

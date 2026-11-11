@@ -252,6 +252,7 @@ fn tick(id: ControlId, time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> Fr
 
 impl Control for SkiaScene3D {
     fn on_props_changed(&mut self, cx: &mut Cx) {
+        render::start_program();
         self.update_ticking(cx);
     }
 

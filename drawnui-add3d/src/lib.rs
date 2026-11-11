@@ -552,6 +552,7 @@ impl SkiaModel3D {
 
 impl Control for SkiaModel3D {
     fn on_props_changed(&mut self, cx: &mut Cx) {
+        render::start_program();
         if let Some(name) = self.start_animation.take()
             && let Some(animation) = self.animation_named(&name)
         {
