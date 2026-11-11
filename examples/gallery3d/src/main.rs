@@ -15,6 +15,7 @@
 
 use std::f32::consts::TAU;
 
+use drawnui::Detached;
 use drawnui::prelude::*;
 use drawnui::skia::{
     self, Canvas, Color4f, Data, Font, FontMgr, Paint, Path, PathBuilder, Point, RRect, Rect, TileMode,
@@ -463,6 +464,9 @@ struct App {
     avatar: Handle<SkiaModel3D>,
     // Games.
     field: Handle<SkiaScene3D>,
+    /// The side-scroller's moving layers, far to near, and how far it has panned.
+    scenery: [[Handle<SkiaLayout>; 2]; 4],
+    pan: f32,
     walkers: Vec<Walker>,
     mobs: usize,
     dice: Dice,
@@ -1280,7 +1284,7 @@ fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
         app.walkers.clear();
         for i in 0..app.mobs {
             let d = &mut app.dice;
-            let w = Walker { x: d.next() * FIELD.0, y: 70.0 + d.next() * (FIELD.1 - 80.0), speed: (if d.next() < 0.5 { -1.0 } else { 1.0 }) * (30.0 + d.next() * 50.0) };
+            let w = Walker { x: d.next() * FIELD.0, y: GROUND.0 + 10.0 + d.next() * (GROUND.1 - GROUND.0 - 10.0), speed: (if d.next() < 0.5 { -1.0 } else { 1.0 }) * (30.0 + d.next() * 50.0) };
             let name = format!("m{i}");
             field.add(&name, "slime", w.x, w.y, 46.0);
             field.play(&name, "CharacterArmature|Walk");
@@ -1289,16 +1293,115 @@ fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
             app.walkers.push(w);
         }
     }
+    // The scene pans: every layer slides by its share, the ground (and the mobs on it) the most.
+    app.pan += PAN_SPEED * delta;
+    for (pair, share) in app.scenery.iter().zip(PARALLAX) {
+        let shift = (app.pan * share).rem_euclid(FIELD.0);
+        for (copy, layer) in pair.iter().enumerate() {
+            if let Some(mut layer) = cx.get_mut(*layer) {
+                layer.set_translation_x(copy as f32 * FIELD.0 - shift);
+            }
+        }
+    }
     if let Some(mut field) = cx.get_mut(app.field) {
         for (i, w) in app.walkers.iter_mut().enumerate() {
-            w.x += w.speed * delta;
-            if w.x < -30.0 || w.x > FIELD.0 + 30.0 {
-                w.speed = -w.speed;
-                field.set_facing(&format!("m{i}"), if w.speed > 0.0 { 90.0 } else { -90.0 });
+            // Walking on the ground, which moves with the pan; off one side, back in at the other.
+            w.x += (w.speed - PAN_SPEED) * delta;
+            if w.x < -40.0 {
+                w.x += FIELD.0 + 80.0;
+            } else if w.x > FIELD.0 + 40.0 {
+                w.x -= FIELD.0 + 80.0;
             }
             field.set_position(&format!("m{i}"), w.x, w.y);
         }
     }
+}
+
+// ---------------------------------------------------------------- the mobs' side-scroller
+
+/// Where the mobs walk: the top and bottom of the ground band, field points.
+const GROUND: (f32, f32) = (196.0, 262.0);
+/// How fast the scene pans, points per second, and each layer's share of it (far ones move less).
+const PAN_SPEED: f32 = 22.0;
+const PARALLAX: [f32; 4] = [0.08, 0.2, 0.45, 1.0];
+
+/// A ridge line across the field (1000 points) down to `bottom`, as a shape: its waves repeat every
+/// 1000 points, so two copies side by side join seamlessly. A shape stretches its path's own box over
+/// its rect, so the rect is set to exactly that box.
+fn ridge(base: f32, waves: &[(f32, f32, f32)], bottom: f32, colors: (Color, Color)) -> Build<SkiaShape> {
+    let y = |x: f32| base - waves.iter().map(|(amp, period, phase)| amp * (x / period * TAU + phase).sin()).sum::<f32>();
+    let points: Vec<(f32, f32)> = (0..=100).map(|i| (i as f32 * 10.0, y(i as f32 * 10.0))).collect();
+    let top = points.iter().map(|p| p.1).fold(bottom, f32::min);
+    let mut d = format!("M0 {bottom}");
+    for (x, y) in &points {
+        d.push_str(&format!(" L{x:.0} {y:.1}"));
+    }
+    d.push_str(&format!(" L1000 {bottom} Z"));
+    SkiaShape::new()
+        .shape_type(ShapeType::Path)
+        .path_data(d)
+        .width_request(FIELD.0)
+        .height_request(bottom - top)
+        .top(top)
+        .background_color(colors.0)
+        .fill_gradient(gradient(colors.0, colors.1))
+}
+
+/// A layer the field's size, cached as one picture: the frame loop only slides it (with its twin
+/// beside it).
+fn layer(children: impl IntoChildren) -> Build<SkiaLayout> {
+    SkiaLayout::new().width_request(FIELD.0).height_request(FIELD.1).use_cache(CacheType::Operations).children(children)
+}
+
+fn gradient(from: Color, to: Color) -> SkiaGradient {
+    SkiaGradient::new(GradientType::Linear, [from, to]).start_x_ratio(0.5).start_y_ratio(0.0).end_x_ratio(0.5).end_y_ratio(1.0)
+}
+
+/// One copy of each moving layer, far to near: clouds, far hills, near hills, the ground and its path.
+fn scenery_layers() -> [Build<SkiaLayout>; 4] {
+    let h = FIELD.1;
+    let cloud = |x: f32, y: f32, k: f32| {
+        SkiaLayout::new().left(x).top(y).children((
+            SkiaShape::new().shape_type(ShapeType::Ellipse).width_request(90.0 * k).height_request(30.0 * k).top(14.0 * k).background_color(Color::from_argb(220, 255, 255, 255)),
+            SkiaShape::new().shape_type(ShapeType::Circle).width_request(44.0 * k).height_request(44.0 * k).left(18.0 * k).background_color(Color::from_argb(230, 255, 255, 255)),
+            SkiaShape::new().shape_type(ShapeType::Circle).width_request(32.0 * k).height_request(32.0 * k).left(46.0 * k).top(8.0 * k).background_color(Color::from_argb(230, 255, 255, 255)),
+        ))
+    };
+    [
+        layer([(60.0, 26.0, 1.0), (340.0, 52.0, 0.7), (610.0, 18.0, 1.2), (860.0, 60.0, 0.8)].map(|(x, y, k)| cloud(x, y, k)).into_iter().collect::<Vec<_>>()),
+        layer((ridge(150.0, &[(22.0, 1000.0, 0.3), (12.0, 500.0, 1.7), (5.0, 250.0, 0.4)], h, (Color::from_rgb(150, 190, 196), Color::from_rgb(176, 210, 210))),)),
+        layer((ridge(190.0, &[(26.0, 1000.0, 2.1), (14.0, 333.33, 0.9), (6.0, 200.0, 2.5)], h, (Color::from_rgb(98, 160, 104), Color::from_rgb(70, 128, 80))),)),
+        layer((
+            // Grass, a lighter rim along its top, and the dirt path the mobs walk on.
+            ridge(GROUND.0 - 6.0, &[(3.0, 500.0, 0.0), (2.0, 125.0, 1.3)], h, (Color::from_rgb(112, 178, 72), Color::from_rgb(64, 120, 48))),
+            ridge(GROUND.0 + 22.0, &[(4.0, 1000.0, 0.8), (3.0, 250.0, 2.2)], GROUND.1 + 4.0, (Color::from_rgb(214, 182, 128), Color::from_rgb(190, 152, 98))),
+        )),
+    ]
+}
+
+/// Sky and sun standing still, then each moving layer twice, side by side (their handles go to
+/// `layers`), painted with gradients and smooth outlines.
+fn side_scroller(layers: &mut [[Handle<SkiaLayout>; 2]; 4]) -> Vec<Detached> {
+    let mut children: Vec<Detached> = vec![
+        SkiaShape::new().fill().background_color(Color::from_rgb(120, 190, 240)).fill_gradient(gradient(Color::from_rgb(92, 164, 232), Color::from_rgb(214, 238, 250))).into(),
+        SkiaShape::new()
+            .shape_type(ShapeType::Circle)
+            .width_request(70)
+            .height_request(70)
+            .left(760)
+            .top(34)
+            .background_color(Color::from_rgb(255, 236, 170))
+            .shadows(SkiaShadow::new(Color::from_rgb(255, 230, 150)).x(0).y(0).blur(26).opacity(0.9))
+            .into(),
+    ];
+    // Far layers first, the two copies of each depth together.
+    let (mut left, mut right) = (scenery_layers().into_iter(), scenery_layers().into_iter());
+    for handles in layers.iter_mut() {
+        let (a, b) = (left.next().expect("four layers"), right.next().expect("four layers"));
+        children.push(a.assign(&mut handles[0]).into());
+        children.push(b.translation_x(FIELD.0).assign(&mut handles[1]).into());
+    }
+    children
 }
 
 fn medal_colors(app: &App, cx: &mut Cx) {
@@ -1418,14 +1521,17 @@ fn build(app: &mut App) -> Build<DrawnGame> {
         "Mobs on a 2D field",
         "Many 3D monsters from one model, moved like sprites and drawn by one layer in one pass. Tap one to hit it.",
         (
-            SkiaShape::new().width_request(FIELD.0).height_request(FIELD.1).corner_radius(10).background_color(Color::from_rgb(58, 98, 74)).children((SkiaScene3D::new()
-                .model("slime", MOB)
-                .tilt(30.0)
-                .fill()
-                .assign(&mut app.field)
-                .on_tapped_3d(|me, _app: &mut App, _cx, hit| {
-                    me.play_once(&hit.object, "CharacterArmature|HitRecieve");
-                }),)),
+            SkiaShape::new().width_request(FIELD.0).height_request(FIELD.1).corner_radius(10).is_clipped_to_bounds(true).background_color(Color::from_rgb(120, 190, 240)).children((
+                SkiaLayout::new().fill().children(side_scroller(&mut app.scenery)),
+                SkiaScene3D::new()
+                    .model("slime", MOB)
+                    .tilt(30.0)
+                    .fill()
+                    .assign(&mut app.field)
+                    .on_tapped_3d(|me, _app: &mut App, _cx, hit| {
+                        me.play_once(&hit.object, "CharacterArmature|HitRecieve");
+                    }),
+            )),
             SkiaLayout::row().spacing(8).margin((0.0, 10.0, 0.0, 0.0)).children(
                 [10usize, 40, 100].into_iter().map(|n| chip(&format!("{n} mobs"), move |app| app.mobs == n).width_request(110).on_tapped(move |_me, app: &mut App, _cx| app.mobs = n)).collect::<Vec<_>>(),
             ),
