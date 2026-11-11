@@ -179,6 +179,8 @@ fn each_line_takes_its_own_height() {
     let (a40, d40, _) = metrics(ORBITRON_BLACK, 40.0);
     let two = draw(0.0, "", |l| l.font_size(10).spans(vec![TextSpan::new("GA").font_size(44), TextSpan::new("ME").font_size(40)]));
     assert_eq!(two.1, (a44.max(a40) + d44.max(d40)).round() as i32);
+    // The label's own font is a strut: a line of a small span is at least its line (48 px).
+    assert_eq!(draw(0.0, "", |l| l.spans(vec![TextSpan::new("go").font_size(12)])).1, 48);
 }
 
 #[test]

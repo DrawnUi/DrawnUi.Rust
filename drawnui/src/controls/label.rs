@@ -466,6 +466,8 @@ pub struct SkiaLabel {
     line_boxes: Vec<f32>,
     /// The main font's leading, the gap between lines when it has one.
     leading: f32,
+    /// The main font's ascent and descent: no line is shorter than the label's own (a strut).
+    strut: (f32, f32),
     /// Pixels the glyphs can reach above the ascent, below the descent and, slanted, right of
     /// their advance (top, bottom, right).
     overshoot: (f32, f32, f32),
@@ -546,9 +548,9 @@ impl SkiaLabel {
         })
     }
 
-    /// Height of the first line in pixels, from the last measure.
+    /// Height of the tallest line in pixels, from the last measure.
     pub fn measured_line_height(&self) -> f32 {
-        self.line_boxes.first().copied().unwrap_or(0.0)
+        self.line_boxes.iter().fold(0.0, |most: f32, &h| most.max(h))
     }
 
     /// The height `count` lines take, pixels, the gaps and paragraph spaces between them included;
@@ -576,10 +578,15 @@ impl SkiaLabel {
         index > 0 && matches!((chars.next(), chars.next()), (Some(before), Some(after)) if can_break_between(before, after))
     }
 
-    /// A line's height: the largest ascent plus the largest descent of its spans, times
-    /// `line_height`, rounded to whole pixels.
-    fn own_line_box(line: &Line, line_height: f32) -> f32 {
-        ((line.ascent + line.descent) * line_height).round()
+    /// A line's descent: the largest of its spans' and the label font's.
+    fn line_descent(line: &Line, strut: (f32, f32)) -> f32 {
+        line.descent.max(strut.1)
+    }
+
+    /// A line's height: the largest ascent plus the largest descent of its spans and the label's
+    /// own font, times `line_height`, rounded to whole pixels.
+    fn own_line_box(line: &Line, strut: (f32, f32), line_height: f32) -> f32 {
+        ((line.ascent.max(strut.0) + Self::line_descent(line, strut)) * line_height).round()
     }
 
     /// The gap after a line of `line_box`: the font's leading times `line_spacing` when it has one,
@@ -598,11 +605,13 @@ impl SkiaLabel {
         Self::gap_after(self.leading, line_box, self.p.line_spacing)
     }
 
-    /// The baseline from the top of a line of `line_box`: the line's descent above its bottom, the
-    /// room a line height above 1 adds split above and below the text.
+    /// The baseline from the top of a line of `line_box`: the line's descent above its bottom (the
+    /// label font's when every line is as tall as the tallest), the room a line height above 1 adds
+    /// split above and below the text.
     fn baseline_in(&self, line: &Line, line_box: f32) -> f32 {
         let room = if self.p.line_height > 0.0 { line_box - line_box / self.p.line_height } else { 0.0 };
-        line_box - room / 2.0 - line.descent
+        let descent = if self.p.line_height_uniform { self.strut.1 } else { Self::line_descent(line, self.strut) };
+        line_box - room / 2.0 - descent
     }
 
     /// Where the lines go inside `inner` (the rect minus the padding): each with its top-left in
@@ -1873,6 +1882,8 @@ impl Control for SkiaLabel {
         let main_style = &layout.styles[main];
         // DrawnUi.Net: LineHeightPixels, the main font's rounded line; paragraphs part by it and its gap.
         self.leading = main_style.leading;
+        self.strut = (main_style.ascent, main_style.descent);
+        let strut = self.strut;
         let main_box = ((main_style.ascent + main_style.descent) * p.line_height).round();
         self.paragraph_space = (main_box + Self::gap_after(self.leading, main_box, p.line_spacing)) * p.paragraph_spacing;
         let prm = Params {
@@ -1897,8 +1908,8 @@ impl Control for SkiaLabel {
             kept = kept.min(prm.max_lines as usize);
         }
         let (uniform, leading) = (p.line_height_uniform, self.leading);
-        let tallest = |lines: &[Line]| lines.iter().fold(0f32, |most, l| most.max(Self::own_line_box(l, prm.line_height)));
-        let box_of = |l: &Line, tallest: f32| if uniform { tallest } else { Self::own_line_box(l, prm.line_height) };
+        let tallest = |lines: &[Line]| lines.iter().fold(0f32, |most, l| most.max(Self::own_line_box(l, strut, prm.line_height)));
+        let box_of = |l: &Line, tallest: f32| if uniform { tallest } else { Self::own_line_box(l, strut, prm.line_height) };
         let all = tallest(&layout.lines);
         let (mut used, mut fit, mut gap) = (0.0, 0, 0.0);
         for (i, l) in layout.lines.iter().enumerate() {
