@@ -17,6 +17,14 @@
 - `Model3D` / `Mesh3D`: shapes made in code (`cylinder`, `sphere`, `torus`, `cuboid`, `lathe`, `extrude` of any
   2D path) put together as named, colored parts; `SkiaModel3D::from_model`, `SkiaScene3D::model_from`.
 - `look(Look::Lit | Look::Toon | Look::Flat)` and `outline(width, color)`.
+- `SkiaModel3D` for real screens: `from_url` / `set_source` load a model by url with `load_state` and
+  `on_load_state` (Loading, Ready, Failed); `screen_position` tells where a point of the scene is on
+  screen and whether the model covers it (anchored labels, pins hidden on the far side);
+  `on_view_changed` runs once per frame in which the view moved; `pinch_zoom` (two fingers and the
+  mouse wheel) within `min_zoom` / `max_zoom`; `reset_view` glides back to the view the app set,
+  `reset_on_double_tap` does it on two taps; `lock_pitch` turns around the vertical axis only and
+  leaves vertical drags to the scroll around it. A model with nothing on screen stands still and
+  asks for no frames until it is scrolled back into view.
 - `antialias(true)` / `set_antialias` on `SkiaModel3D` and `SkiaScene3D`: smooth edges with 4x multisampling (or
   the most the device offers). Off by default; on uses more GPU memory per pixel of the control, the same CPU time.
 - Images on materials: `Texture3D` (from PNG / JPEG / WebP bytes, or any Skia image in memory), put on a material by

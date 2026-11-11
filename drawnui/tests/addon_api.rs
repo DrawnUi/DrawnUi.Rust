@@ -89,3 +89,42 @@ fn an_add_on_control_runs_its_own_frame_loop_and_calls_the_app() {
     assert!(!host.ui.needs_frame(), "a stopped loop asks for nothing");
     assert_eq!(host.ui.state.told, [7]);
 }
+
+/// Bytes an add-on control asked for (`Cx::fetch_bytes`) reach it on the frame thread, found by id
+/// (`Cx::find_mut`); a failed load arrives empty.
+#[test]
+fn an_add_on_control_loads_bytes_by_url() {
+    #[derive(Default)]
+    struct Loads {
+        bytes: Vec<u8>,
+        failed: bool,
+    }
+    impl Control for Loads {}
+    #[derive(Default)]
+    struct App {
+        loader: Handle<Loads>,
+    }
+    let ui = Ui::new(App::default(), |app: &mut App| {
+        SkiaLayout::new().fill().children((
+            Build::new(Loads::default()).assign(&mut app.loader),
+            SkiaShape::new().width_request(50).height_request(50).on_tapped(|_me, app: &mut App, cx| {
+                let id: ControlId = app.loader.into();
+                for url in ["model.glb", "missing.glb"] {
+                    cx.fetch_bytes(url, move |cx, bytes| {
+                        if let Some(mut me) = cx.find_mut::<Loads>(id) {
+                            if bytes.is_empty() { me.control_mut().failed = true } else { me.control_mut().bytes = bytes }
+                        }
+                    });
+                }
+            }),
+        ))
+    });
+    let mut host = Headless::new(ui, 100, 100, 1.0);
+    host.settle();
+    host.tap(25.0, 25.0);
+    let asked = host.deliver_assets(|url| (url == "model.glb").then(|| vec![1, 2, 3]));
+    assert_eq!(asked, ["model.glb", "missing.glb"]);
+    let loader = host.ui.tree.find::<Loads>(host.ui.state.loader).unwrap();
+    assert_eq!(loader.bytes, [1, 2, 3]);
+    assert!(loader.failed);
+}

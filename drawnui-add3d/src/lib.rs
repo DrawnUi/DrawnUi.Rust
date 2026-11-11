@@ -21,11 +21,12 @@ mod shapes;
 
 pub use layer::{Scene3DBuild, Scene3DSet, SceneHit, SkiaScene3D};
 pub use scene::Texture3D;
+
 pub use shapes::{Mesh3D, Model3D};
 
 /// Everything an app uses: the controls, their build and set traits, the shapes and the looks.
 pub mod prelude {
-    pub use crate::{Look, Mesh3D, Model3D, Model3DBuild, Model3DSet, ModelHit, Scene3DBuild, Scene3DSet, SceneHit, SkiaModel3D, SkiaScene3D, Texture3D};
+    pub use crate::{LoadState3D, Look, Mesh3D, Model3D, Model3DBuild, Model3DSet, ModelHit, PointOnScreen, Scene3DBuild, Scene3DSet, SceneHit, SkiaModel3D, SkiaScene3D, Texture3D};
 }
 
 /// How 3D is drawn (`look` on `SkiaModel3D` and `SkiaScene3D`).
@@ -47,9 +48,31 @@ use std::rc::Rc;
 use glam::{Mat4, Quat, Vec3};
 use drawnui::skia::{Color, ISize, Paint, Rect, SamplingOptions};
 
-use drawnui::{Build, Control, ControlId, Cx, Dirty, FrameTick, Gesture, GestureCx, GestureKind, Handled, Mut, PaintCx, downcast_state};
+use drawnui::{Build, Control, ControlId, Cx, Dirty, FrameTick, Gesture, GestureCx, GestureKind, Handled, LayoutCx, Mut, PaintCx, downcast_state};
 use player::Player;
 use scene::{MaterialOverride, Scene};
+
+/// Where a point of the scene is on screen (`screen_position`): in the control's points from its
+/// top left, and whether the model's own surface lies in front of it (a pin on the far side of a
+/// globe, a hotspot behind the model).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PointOnScreen {
+    pub x: f32,
+    pub y: f32,
+    pub occluded: bool,
+}
+
+/// Where loading a model from a url stands (`source`, `load_state`, `on_load_state`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LoadState3D {
+    /// Asked for, not here yet.
+    Loading,
+    /// Read and shown.
+    #[default]
+    Ready,
+    /// Missing or not a model; `error()` says why.
+    Failed,
+}
 
 /// What a tap on the scene hit (`on_tapped_3d`): the node and the material under the finger, and
 /// the point in the scene.
@@ -65,6 +88,8 @@ pub struct ModelHit {
 
 type EndedHandler = Box<dyn FnMut(&mut Mut<'_, SkiaModel3D>, &mut dyn Any, &mut Cx<'_>, &str)>;
 type TappedHandler = Box<dyn FnMut(&mut Mut<'_, SkiaModel3D>, &mut dyn Any, &mut Cx<'_>, &ModelHit)>;
+type ViewHandler = Box<dyn FnMut(&mut Mut<'_, SkiaModel3D>, &mut dyn Any, &mut Cx<'_>)>;
+type LoadHandler = Box<dyn FnMut(&mut Mut<'_, SkiaModel3D>, &mut dyn Any, &mut Cx<'_>, LoadState3D)>;
 
 /// A node's own transform set from code (`set_node_translation` and the rest): it replaces what
 /// the file and the animations give that part.
@@ -79,7 +104,16 @@ struct NodeOverride {
 enum Event {
     Ended(String),
     Tapped(ModelHit),
+    LoadState(LoadState3D),
 }
+
+/// A view: yaw, pitch (degrees) and zoom.
+type View = (f32, f32, f32);
+
+/// Two taps on the control closer than this reset the view (`reset_on_double_tap`).
+const DOUBLE_TAP_MS: f64 = 300.0;
+/// `reset_view` glides back home in this long, seconds.
+const GLIDE_S: f32 = 0.3;
 
 /// An outline color for the shader: sRGB, as given.
 fn outline_color(c: Color) -> [f32; 4] {
@@ -124,6 +158,30 @@ pub struct SkiaModel3D {
     outline: (f32, Color),
     /// Smooth edges (multisampling).
     antialias: bool,
+    /// The view the app set last (build, `set_view_angles`, `set_zoom`): `reset_view` goes back
+    /// to it; drags and pinches never change it.
+    home: View,
+    /// A glide back home (`reset_view`): where it started, seconds into it.
+    glide: Option<(View, f32)>,
+    pinch_zoom: bool,
+    zoom_range: (f32, f32),
+    reset_on_double_tap: bool,
+    last_tap_ms: Option<f64>,
+    lock_pitch: bool,
+    /// The drag under way: `None` until its first move decides, then whether it turns the model.
+    drag: Option<bool>,
+    /// The view the app heard last (`on_view_changed`).
+    reported_view: View,
+    on_view_changed: Option<ViewHandler>,
+    /// Size in pixels and pixels per point at the last layout (`screen_position`).
+    laid_out: (f32, f32, f32),
+    /// Nothing of it is on screen: time stands still and no frames are asked for, until a scroll
+    /// brings it back.
+    off_screen: bool,
+    /// A url asked for (`source`), loaded at the next props change.
+    source: Option<String>,
+    load_state: LoadState3D,
+    on_load_state: Option<LoadHandler>,
 }
 
 impl SkiaModel3D {
@@ -137,6 +195,15 @@ impl SkiaModel3D {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(glb: &[u8]) -> Build<SkiaModel3D> {
         SkiaModel3D::with_scene(scene::shared(glb))
+    }
+
+    /// A scene loaded from a url (the browser fetches it; desktop reads it as a file path): nothing
+    /// is drawn while it loads, `load_state` and `on_load_state` tell how it went.
+    pub fn from_url(url: impl Into<String>) -> Build<SkiaModel3D> {
+        let mut build = SkiaModel3D::with_scene(Err(String::new()));
+        let model = build.control_mut();
+        (model.error, model.source, model.load_state) = (None, Some(url.into()), LoadState3D::Loading);
+        build
     }
 
     fn with_scene(read: Result<Rc<Scene>, String>) -> Build<SkiaModel3D> {
@@ -167,6 +234,21 @@ impl SkiaModel3D {
             look: Look::Lit,
             outline: (0.0, Color::BLACK),
             antialias: false,
+            home: (20.0, 10.0, 1.0),
+            glide: None,
+            pinch_zoom: false,
+            zoom_range: (0.5, 2.5),
+            reset_on_double_tap: false,
+            last_tap_ms: None,
+            lock_pitch: false,
+            drag: None,
+            reported_view: (20.0, 10.0, 1.0),
+            on_view_changed: None,
+            laid_out: (0.0, 0.0, 1.0),
+            off_screen: false,
+            source: None,
+            load_state: LoadState3D::Ready,
+            on_load_state: None,
         };
         let mut build = Build::new(model);
         let id = build.id();
@@ -187,6 +269,41 @@ impl SkiaModel3D {
     /// Smooth edges on (`antialias`).
     pub fn antialias(&self) -> bool {
         self.antialias
+    }
+
+    /// Where loading from a url stands (`Ready` for a model given as bytes or made in code).
+    pub fn load_state(&self) -> LoadState3D {
+        self.load_state
+    }
+
+    /// The view now: yaw, pitch (degrees) and zoom.
+    pub fn view(&self) -> (f32, f32, f32) {
+        (self.yaw, self.pitch, self.zoom)
+    }
+
+    /// Where a point of the scene (scene units, as `ModelHit::point`) is on screen now, in the
+    /// control's points from its top left, and whether the model's surface lies in front of it.
+    /// `None` before the model and the control's size are there, or for a point behind the camera.
+    pub fn screen_position(&self, point: [f32; 3]) -> Option<PointOnScreen> {
+        let scene = self.scene.as_ref()?;
+        let (width, height, scale) = self.laid_out;
+        if width <= 0.0 || height <= 0.0 {
+            return None;
+        }
+        let camera = self.camera(scene, (width, height));
+        let p = Vec3::from(point);
+        let clip = camera * p.extend(1.0);
+        if clip.w <= 1e-6 {
+            return None;
+        }
+        let (fx, fy) = ((clip.x / clip.w + 1.0) / 2.0, (1.0 - clip.y / clip.w) / 2.0);
+        let (from, dir) = scene::ray(camera, fx, fy);
+        let pose = scene.world(&self.locals(scene));
+        let (lo, hi) = scene.bounds;
+        // A hit closer than the point by more than a hair of the scene's size covers it.
+        let epsilon = (hi - lo).length().max(1e-3) * 1e-3;
+        let occluded = scene.ray_hit(&pose, &self.hidden(scene), &self.materials, from, dir).is_some_and(|(_, _, t)| t < (p - from).dot(dir) - epsilon);
+        Some(PointOnScreen { x: fx * width / scale, y: fy * height / scale, occluded })
     }
 
     /// The names of the scene's materials (its parts by look), in file order.
@@ -217,7 +334,47 @@ impl SkiaModel3D {
     }
 
     fn wants_frames(&self) -> bool {
-        self.scene.is_some() && (!self.events.is_empty() || self.auto_rotate != 0.0 || self.player.busy())
+        let moving = !self.off_screen && (self.auto_rotate != 0.0 || self.player.busy() || self.glide.is_some());
+        let unreported = self.on_view_changed.is_some() && self.view() != self.reported_view;
+        !self.events.is_empty() || (self.scene.is_some() && (moving || unreported))
+    }
+
+    /// The bytes of the url arrived (empty = it failed).
+    fn loaded(&mut self, bytes: &[u8]) {
+        let read = if bytes.is_empty() { Err("the url could not be loaded".to_owned()) } else { Scene::load(bytes).map(Rc::new) };
+        match read {
+            Ok(scene) => {
+                self.player = Player::new(Some(&scene));
+                self.nodes = vec![NodeOverride::default(); scene.nodes.len()];
+                self.materials = vec![MaterialOverride::default(); scene.materials.len()];
+                (self.scene, self.error, self.load_state) = (Some(scene), None, LoadState3D::Ready);
+            }
+            Err(why) => (self.scene, self.error, self.load_state) = (None, Some(why), LoadState3D::Failed),
+        }
+        self.events.push(Event::LoadState(self.load_state));
+    }
+
+    /// Starts loading the url asked for, if any.
+    fn load_source(&mut self, cx: &mut Cx) {
+        let Some(url) = self.source.take() else { return };
+        self.load_state = LoadState3D::Loading;
+        self.events.push(Event::LoadState(LoadState3D::Loading));
+        let id = self.id;
+        cx.fetch_bytes(&url, move |cx, bytes| {
+            if let Some(mut me) = cx.find_mut::<SkiaModel3D>(id) {
+                me.control_mut().loaded(&bytes);
+                me.mark(Dirty::DRAW_APPLY);
+            }
+        });
+    }
+
+    /// Glides back to the home view.
+    fn start_glide(&mut self) {
+        self.glide = Some((self.view(), 0.0));
+    }
+
+    fn set_zoom_clamped(&mut self, zoom: f32) {
+        self.zoom = zoom.clamp(self.zoom_range.0, self.zoom_range.1);
     }
 
     fn update_ticking(&mut self, cx: &mut Cx) {
@@ -235,6 +392,16 @@ impl SkiaModel3D {
     fn advance(&mut self, delta: f32) {
         let Some(scene) = self.scene.clone() else { return };
         self.yaw = (self.yaw + self.auto_rotate * delta) % 360.0;
+        if let Some((from, t)) = self.glide {
+            let t = (t + delta / GLIDE_S).min(1.0);
+            let v = 1.0 - (1.0 - t).powi(3);
+            // The short way round to the home yaw.
+            let turn = (self.home.0 - from.0 + 540.0).rem_euclid(360.0) - 180.0;
+            self.yaw = from.0 + turn * v;
+            self.pitch = from.1 + (self.home.1 - from.1) * v;
+            self.zoom = from.2 + (self.home.2 - from.2) * v;
+            self.glide = (t < 1.0).then_some((from, t));
+        }
         if let Some(ended) = self.player.advance(&scene, delta) {
             self.events.push(Event::Ended(scene.animations[ended].name.clone()));
         }
@@ -278,11 +445,15 @@ impl SkiaModel3D {
 
 /// One frame: time moves on, then the app hears what happened (an animation ended, a tap).
 fn tick(id: ControlId, time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> FrameTick {
+    let off_screen = cx.visible_rect(id).is_empty();
     cx.with_control::<SkiaModel3D, _>(id, state, |me, state, cx| {
         let model = me.control_mut();
         let delta = model.last_ms.map_or(0.0, |last| ((time_ms - last) / 1000.0) as f32);
         model.last_ms = Some(time_ms);
-        model.advance(delta);
+        model.off_screen = off_screen;
+        if !off_screen {
+            model.advance(delta);
+        }
         let events = std::mem::take(&mut model.events);
         let mut touched = false;
         for event in events {
@@ -301,7 +472,22 @@ fn tick(id: ControlId, time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> Fr
                         touched = true;
                     }
                 }
+                Event::LoadState(load) => {
+                    if let Some(mut handler) = me.control_mut().on_load_state.take() {
+                        handler(me, state, cx, load);
+                        me.control_mut().on_load_state.get_or_insert(handler);
+                        touched = true;
+                    }
+                }
             }
+        }
+        let view = me.control_mut().view();
+        if view != std::mem::replace(&mut me.control_mut().reported_view, view)
+            && let Some(mut handler) = me.control_mut().on_view_changed.take()
+        {
+            handler(me, state, cx);
+            me.control_mut().on_view_changed.get_or_insert(handler);
+            touched = true;
         }
         let model = me.control_mut();
         let keep = model.wants_frames();
@@ -323,32 +509,76 @@ impl Control for SkiaModel3D {
             self.player.fade_now();
             self.player.playing = playing;
         }
+        self.load_source(cx);
         self.update_ticking(cx);
     }
 
+    fn arrange(&mut self, cx: &mut LayoutCx) {
+        let rect = cx.base().rect;
+        self.laid_out = (rect.width(), rect.height(), cx.scale.max(0.01));
+        // A scroll moving it back into view starts its time again.
+        cx.track_viewport();
+        if self.off_screen && !cx.visible_rect().is_empty() {
+            self.off_screen = false;
+            self.update_ticking(&mut cx.cx());
+        }
+    }
+
     fn on_gesture(&mut self, cx: &mut GestureCx, gesture: &Gesture) -> Handled {
-        match gesture.kind {
-            GestureKind::Down => Handled::Yes,
-            GestureKind::Panning if self.orbit => {
-                let scale = cx.base().scale.max(0.1);
-                self.yaw += gesture.delta.x / scale * 0.5;
-                self.pitch = (self.pitch + gesture.delta.y / scale * 0.3).clamp(-60.0, 80.0);
-                cx.invalidate(Dirty::DRAW);
+        let handled = match gesture.kind {
+            GestureKind::Down => {
+                self.drag = None;
                 Handled::Yes
             }
-            GestureKind::Tapped if self.on_tapped.is_some() => {
+            GestureKind::Panning if self.pinch_zoom && gesture.manipulation.is_some() => {
+                let pinch = gesture.manipulation.as_ref().map_or(0.0, |m| m.scale);
+                self.set_zoom_clamped(self.zoom / (1.0 + pinch).max(0.1));
+                self.glide = None;
+                Handled::Yes
+            }
+            GestureKind::Panning if self.orbit => {
+                // A drag that starts up or down is the scroll's when only turning is allowed.
+                let turns = *self.drag.get_or_insert(!self.lock_pitch || gesture.total.x.abs() >= gesture.total.y.abs());
+                if !turns {
+                    return Handled::No;
+                }
+                let scale = cx.base().scale.max(0.1);
+                self.yaw += gesture.delta.x / scale * 0.5;
+                if !self.lock_pitch {
+                    self.pitch = (self.pitch + gesture.delta.y / scale * 0.3).clamp(-60.0, 80.0);
+                }
+                self.glide = None;
+                Handled::Yes
+            }
+            GestureKind::Wheel if self.pinch_zoom && !gesture.wheel_horizontal => {
+                self.set_zoom_clamped(self.zoom * 0.9f32.powf(gesture.wheel));
+                self.glide = None;
+                Handled::Yes
+            }
+            GestureKind::Tapped => {
+                let double = self.reset_on_double_tap && self.last_tap_ms.is_some_and(|t| gesture.time_ms - t < DOUBLE_TAP_MS);
+                self.last_tap_ms = if double { None } else { Some(gesture.time_ms) };
+                if double {
+                    self.start_glide();
+                }
                 let rect = cx.base().rect;
-                match self.hit(cx.point.x - rect.left, cx.point.y - rect.top, (rect.width(), rect.height())) {
+                let hit = if self.on_tapped.is_some() { self.hit(cx.point.x - rect.left, cx.point.y - rect.top, (rect.width(), rect.height())) } else { None };
+                match hit {
                     Some(hit) => {
                         self.events.push(Event::Tapped(hit));
-                        self.update_ticking(&mut cx.cx());
                         Handled::Tapped
                     }
+                    None if double => Handled::Tapped,
                     None => Handled::No,
                 }
             }
             _ => Handled::No,
+        };
+        if handled != Handled::No {
+            cx.invalidate(Dirty::DRAW);
+            self.update_ticking(&mut cx.cx());
         }
+        handled
     }
 
     fn paint(&self, cx: &mut PaintCx) {
@@ -407,6 +637,31 @@ pub trait Model3DBuild: Sized {
     /// 28 more bytes of GPU memory per pixel of the control; the CPU time stays the same.
     fn antialias(self, on: bool) -> Self;
 
+    /// Two fingers pinch to zoom, and the mouse wheel zooms (it is left to the scroll around
+    /// otherwise). Off by default.
+    fn pinch_zoom(self, on: bool) -> Self;
+
+    /// The closest zoom a pinch or the wheel reaches (0.5 by default; 1 = the model fits).
+    fn min_zoom(self, zoom: f32) -> Self;
+
+    /// The farthest zoom a pinch or the wheel reaches (2.5 by default).
+    fn max_zoom(self, zoom: f32) -> Self;
+
+    /// Two taps glide back to the home view (`Model3DSet::reset_view`). Off by default.
+    fn reset_on_double_tap(self, on: bool) -> Self;
+
+    /// Drags turn the model around its vertical axis only, and a drag that starts up or down is
+    /// left to the scroll around it (3D in a list). Off by default.
+    fn lock_pitch(self, on: bool) -> Self;
+
+    /// Runs once per frame in which the view moved (a drag, a pinch, auto-rotate, a reset, code):
+    /// move labels anchored with `screen_position` here.
+    fn on_view_changed<S: Any>(self, f: impl FnMut(&mut Mut<'_, SkiaModel3D>, &mut S, &mut Cx<'_>) + 'static) -> Self;
+
+    /// Runs when loading from a url (`SkiaModel3D::from_url`, `set_source`) starts, succeeds or
+    /// fails.
+    fn on_load_state<S: Any>(self, f: impl FnMut(&mut Mut<'_, SkiaModel3D>, &mut S, &mut Cx<'_>, LoadState3D) + 'static) -> Self;
+
     /// Starts with an image on a material (see `Model3DSet::set_material_image`).
     fn material_image(self, name: &str, image: Texture3D) -> Self;
 
@@ -445,7 +700,10 @@ impl Model3DBuild for Build<SkiaModel3D> {
     }
 
     fn view_angles(mut self, yaw: f32, pitch: f32) -> Self {
-        (self.control_mut().yaw, self.control_mut().pitch) = (yaw, pitch);
+        let model = self.control_mut();
+        (model.yaw, model.pitch) = (yaw, pitch);
+        (model.home.0, model.home.1) = (yaw, pitch);
+        model.reported_view = model.view();
         self
     }
 
@@ -458,7 +716,10 @@ impl Model3DBuild for Build<SkiaModel3D> {
     }
 
     fn zoom(mut self, zoom: f32) -> Self {
-        self.control_mut().zoom = zoom.max(0.05);
+        let model = self.control_mut();
+        model.zoom = zoom.max(0.05);
+        model.home.2 = model.zoom;
+        model.reported_view = model.view();
         self
     }
 
@@ -479,6 +740,41 @@ impl Model3DBuild for Build<SkiaModel3D> {
 
     fn antialias(mut self, on: bool) -> Self {
         self.control_mut().antialias = on;
+        self
+    }
+
+    fn pinch_zoom(mut self, on: bool) -> Self {
+        self.control_mut().pinch_zoom = on;
+        self
+    }
+
+    fn min_zoom(mut self, zoom: f32) -> Self {
+        self.control_mut().zoom_range.0 = zoom.max(0.05);
+        self
+    }
+
+    fn max_zoom(mut self, zoom: f32) -> Self {
+        self.control_mut().zoom_range.1 = zoom.max(0.05);
+        self
+    }
+
+    fn reset_on_double_tap(mut self, on: bool) -> Self {
+        self.control_mut().reset_on_double_tap = on;
+        self
+    }
+
+    fn lock_pitch(mut self, on: bool) -> Self {
+        self.control_mut().lock_pitch = on;
+        self
+    }
+
+    fn on_view_changed<S: Any>(mut self, mut f: impl FnMut(&mut Mut<'_, SkiaModel3D>, &mut S, &mut Cx<'_>) + 'static) -> Self {
+        self.control_mut().on_view_changed = Some(Box::new(move |me, state, cx| f(me, downcast_state::<S>(state), cx)));
+        self
+    }
+
+    fn on_load_state<S: Any>(mut self, mut f: impl FnMut(&mut Mut<'_, SkiaModel3D>, &mut S, &mut Cx<'_>, LoadState3D) + 'static) -> Self {
+        self.control_mut().on_load_state = Some(Box::new(move |me, state, cx, load| f(me, downcast_state::<S>(state), cx, load)));
         self
     }
 
@@ -556,6 +852,21 @@ pub trait Model3DSet {
 
     /// Smooth edges on or off (see `Model3DBuild::antialias`).
     fn set_antialias(&mut self, on: bool);
+
+    /// Distance to the model: 1 = it fits, less = closer. Becomes the home zoom.
+    fn set_zoom(&mut self, zoom: f32);
+
+    /// Glides (300 ms) back to the home view: the angles and zoom the app set last.
+    fn reset_view(&mut self);
+
+    fn set_pinch_zoom(&mut self, on: bool);
+    fn set_min_zoom(&mut self, zoom: f32);
+    fn set_max_zoom(&mut self, zoom: f32);
+    fn set_reset_on_double_tap(&mut self, on: bool);
+    fn set_lock_pitch(&mut self, on: bool);
+
+    /// Loads the model from a url instead (see `SkiaModel3D::from_url`).
+    fn set_source(&mut self, url: &str);
 }
 
 impl Model3DSet for Mut<'_, SkiaModel3D> {
@@ -591,7 +902,10 @@ impl Model3DSet for Mut<'_, SkiaModel3D> {
     fn set_view_angles(&mut self, yaw: f32, pitch: f32) {
         let model = self.control_mut();
         (model.yaw, model.pitch) = (yaw, pitch);
-        self.mark(Dirty::DRAW);
+        (model.home.0, model.home.1) = (yaw, pitch);
+        model.glide = None;
+        // APPLY: a view-changed handler hears it.
+        self.mark(Dirty::DRAW_APPLY);
     }
 
     fn set_auto_rotate(&mut self, degrees_per_second: f32) {
@@ -647,6 +961,46 @@ impl Model3DSet for Mut<'_, SkiaModel3D> {
     fn set_antialias(&mut self, on: bool) {
         self.control_mut().antialias = on;
         self.mark(Dirty::DRAW);
+    }
+
+    fn set_zoom(&mut self, zoom: f32) {
+        let model = self.control_mut();
+        model.zoom = zoom.max(0.05);
+        model.home.2 = model.zoom;
+        model.glide = None;
+        self.mark(Dirty::DRAW_APPLY);
+    }
+
+    fn reset_view(&mut self) {
+        self.control_mut().start_glide();
+        self.mark(Dirty::DRAW_APPLY);
+    }
+
+    fn set_pinch_zoom(&mut self, on: bool) {
+        self.control_mut().pinch_zoom = on;
+    }
+
+    fn set_min_zoom(&mut self, zoom: f32) {
+        self.control_mut().zoom_range.0 = zoom.max(0.05);
+    }
+
+    fn set_max_zoom(&mut self, zoom: f32) {
+        self.control_mut().zoom_range.1 = zoom.max(0.05);
+    }
+
+    fn set_reset_on_double_tap(&mut self, on: bool) {
+        self.control_mut().reset_on_double_tap = on;
+    }
+
+    fn set_lock_pitch(&mut self, on: bool) {
+        self.control_mut().lock_pitch = on;
+    }
+
+    fn set_source(&mut self, url: &str) {
+        let model = self.control_mut();
+        model.source = Some(url.to_owned());
+        model.load_state = LoadState3D::Loading;
+        self.mark(Dirty::DRAW_APPLY);
     }
 }
 

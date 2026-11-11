@@ -403,6 +403,12 @@ pub struct LayoutCx<'a> {
 }
 
 impl LayoutCx<'_> {
+    /// Access to other controls and the frame loop (an add-on control that came back into view
+    /// restarts its loop from `arrange`).
+    pub fn cx(&mut self) -> Cx<'_> {
+        Cx { tree: self.tree }
+    }
+
     pub fn base(&self) -> &Base {
         &self.tree.node(self.id).expect("control is mounted").base
     }

@@ -10,8 +10,10 @@ version before it. Commits in parentheses.
 
 - An add-on API: controls made in other crates (add-ons such as `drawnui-add3d`) run their own frame
   loop (`Cx::start_frame_loop` with a `FrameFn` answering a `FrameTick`, `Cx::stop_frame_loop`) and
-  call the handlers the app gave them with the app state (`Cx::with_control`, `downcast_state`).
-  Nothing changes for apps that do not use it.
+  call the handlers the app gave them with the app state (`Cx::with_control`, `downcast_state`),
+  load bytes by url (`Cx::fetch_bytes`), reach a control by id (`Cx::find_mut`) and restart their
+  loop from layout when scrolled back into view (`LayoutCx::cx`). Nothing changes for apps that do
+  not use it.
 
 ## 0.1.0-preview.37 (crates.io, 2026-11-08)
 

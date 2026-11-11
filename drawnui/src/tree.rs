@@ -1228,6 +1228,19 @@ impl Cx<'_> {
         self.tree.find(id)
     }
 
+    /// Typed write access by id (an add-on control reaching itself from a callback).
+    pub fn find_mut<T: Control>(&mut self, id: impl Into<ControlId>) -> Option<Mut<'_, T>> {
+        self.tree.find_mut(id)
+    }
+
+    /// For add-on controls: asks for the bytes of `url`; `deliver` runs on the frame thread when
+    /// they arrive, empty when the load failed. The browser fetches the url; desktop reads it as a
+    /// file path relative to the working directory.
+    pub fn fetch_bytes(&mut self, url: &str, deliver: impl FnOnce(&mut Cx<'_>, Vec<u8>) + 'static) {
+        self.tree.assets.fetch(url, move |tree, bytes| deliver(&mut Cx { tree }, bytes));
+        self.tree.needs_frame = true;
+    }
+
     /// Write access to the common properties of a control of any type.
     pub fn any_mut(&mut self, id: impl Into<ControlId>) -> Option<Mut<'_, dyn Control>> {
         self.tree.any_mut(id)
