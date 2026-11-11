@@ -285,14 +285,21 @@ enum Source {
     Broken,
 }
 
-/// Upholstery swatches: name, the image on the "upholstery" material (CC0 textures from Poly Haven),
-/// how matte it is (glTF roughness: leather shines a little), the swatch's color.
-const SWATCHES: [(&str, &[u8], f32, Color); 4] = [
-    ("Leather", LEATHER, 0.42, Color::from_rgb(92, 52, 26)),
-    ("Wool", WOOL, 0.95, Color::from_rgb(122, 120, 114)),
-    ("Velvet", VELVET, 0.7, Color::from_rgb(180, 40, 62)),
-    ("Linen", LINEN, 1.0, Color::from_rgb(140, 172, 206)),
+/// Upholstery swatches, cheapest first: name, the image on the "upholstery" material (CC0 textures
+/// from Poly Haven), how matte it is (glTF roughness: leather shines a little), the swatch's color,
+/// the sofa's price in it.
+const SWATCHES: [(&str, &[u8], f32, Color, f32); 4] = [
+    ("Linen", LINEN, 1.0, Color::from_rgb(140, 172, 206), 1190.0),
+    ("Wool", WOOL, 0.95, Color::from_rgb(122, 120, 114), 1290.0),
+    ("Velvet", VELVET, 0.7, Color::from_rgb(180, 40, 62), 1490.0),
+    ("Leather", LEATHER, 0.42, Color::from_rgb(92, 52, 26), 1890.0),
 ];
+
+/// "$1,290".
+fn dollars(amount: f32) -> String {
+    let n = amount.round() as u32;
+    if n >= 1000 { format!("${},{:03}", n / 1000, n % 1000) } else { format!("${n}") }
+}
 
 /// A row of the list: model, name, kind, price.
 const PRODUCTS: [(&[u8], &str, &str); 6] =
@@ -366,6 +373,8 @@ struct App {
     fabrics: Vec<Texture3D>,
     /// The viewer's model wears the chosen swatch.
     dressed: bool,
+    /// The price on the label: it counts to the chosen fabric's.
+    price_shown: f32,
     // List.
     added: Vec<bool>,
     // Card.
@@ -711,7 +720,7 @@ fn product_viewer(app: &mut App) -> Build<SkiaShape> {
     let side = SkiaLayout::column().spacing(12).fill_x().children((
         SkiaLabel::new("Walnut sofa").font_size(24).text_color(INK),
         SkiaLabel::new("Three-seater, carved walnut frame").font_size(13).text_color(MUTED),
-        SkiaLabel::new("$1,290").font_size(18).text_color(ACCENT),
+        SkiaLabel::new(dollars(SWATCHES[0].4)).font_size(18).text_color(ACCENT).observe(|me, app: &App| me.set_text(dollars(app.price_shown))),
         SkiaLabel::new("FABRIC").font_size(12).text_color(MUTED).margin((0.0, 8.0, 0.0, 0.0)),
         SkiaLayout::row().spacing(14).children(
             (0..SWATCHES.len())
@@ -1081,6 +1090,12 @@ fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
     {
         spinner.set_value1((t * 360.0) % 360.0);
     }
+    let price = SWATCHES[app.swatch].4;
+    if app.price_shown != price {
+        // Counts at 2,800 dollars a second: the largest jump (Linen to Leather) takes a quarter second.
+        let step = (price - app.price_shown).signum() * (700.0 * 4.0 * delta).max(1.0);
+        app.price_shown = if (price - app.price_shown).abs() <= step.abs() { price } else { app.price_shown + step };
+    }
     if let Some((from, to, s)) = app.globe_glide {
         let s = (s + delta / 0.6).min(1.0);
         let v = ease_in_out(s);
@@ -1183,6 +1198,7 @@ fn build(app: &mut App) -> Build<DrawnGame> {
     (app.mobs, app.dice, app.spin) = (40, Dice(7), 1.0);
     (app.labels, app.card_faces, app.earth) = (labels(), Some(card_faces()), Texture3D::decode(EARTH));
     app.fabrics = SWATCHES.iter().filter_map(|s| Texture3D::decode(s.1)).collect();
+    app.price_shown = SWATCHES[0].4;
     let micro = SkiaLayout::wrap().spacing(16).horizontal_options(LayoutOptions::Center).children((
         tile(
             "Like",
