@@ -117,8 +117,11 @@ props!(@table LabelProps, LabelBuild, LabelSet {
     line_break_mode / set_line_break_mode: LineBreakMode = LineBreakMode::TailTruncation, MEASURE;
     /// Multiplies the step from one line to the next.
     line_spacing / set_line_spacing: f32 = 1.0, MEASURE;
-    /// Multiplies the height of a line (ascent + descent); the text sits at the top of it.
+    /// Multiplies the height of a line (ascent + descent, rounded to whole pixels as DrawnUi.Net's
+    /// LineHeightPixels); the text sits a little above the middle of the extra room, as there.
     line_height / set_line_height: f32 = 1.0, MEASURE;
+    /// Every line as tall as the tallest one; off (the default), each line takes its own height.
+    line_height_uniform / set_line_height_uniform: bool = false, MEASURE;
     /// Extra space above a paragraph (a line after `\n`), in line heights with spacing. Upstream
     /// C# defaults to 0.25; DrawnUi.React has none, so 0 here.
     paragraph_spacing / set_paragraph_spacing: f32 = 0.0, MEASURE;
@@ -334,6 +337,8 @@ struct Style {
     fallbacks: Range<usize>,
     ascent: f32,
     descent: f32,
+    /// The font's recommended gap between lines (its leading).
+    leading: f32,
     size_px: f32,
     /// Advance of a space in the main font.
     space: f32,
@@ -457,6 +462,10 @@ pub struct SkiaLabel {
     /// Pixels the stroke and the shadow add to the block: width, height, and the stroke alone.
     extra: (f32, f32, f32),
     paragraph_space: f32,
+    /// The height of each line of the last measure, whole pixels.
+    line_boxes: Vec<f32>,
+    /// The main font's leading, the gap between lines when it has one.
+    leading: f32,
     /// Pixels the glyphs can reach above the ascent, below the descent and, slanted, right of
     /// their advance (top, bottom, right).
     overshoot: (f32, f32, f32),
@@ -539,7 +548,17 @@ impl SkiaLabel {
 
     /// Height of the first line in pixels, from the last measure.
     pub fn measured_line_height(&self) -> f32 {
-        self.layout.lines.first().map_or(0.0, |l| self.line_height(l))
+        self.line_boxes.first().copied().unwrap_or(0.0)
+    }
+
+    /// The height `count` lines take, pixels, the gaps between them included; lines past the
+    /// measured ones are as tall as the last.
+    pub fn lines_height(&self, count: usize) -> f32 {
+        let last = self.line_boxes.last().copied().unwrap_or(0.0);
+        (0..count).fold(0.0, |h, i| {
+            let line = self.line_boxes.get(i).copied().unwrap_or(last);
+            h + line + if i + 1 < count { self.line_gap(line) } else { 0.0 }
+        })
     }
 
     /// Size of the text block in pixels, padding excluded, from the last measure.
@@ -556,8 +575,33 @@ impl SkiaLabel {
         index > 0 && matches!((chars.next(), chars.next()), (Some(before), Some(after)) if can_break_between(before, after))
     }
 
-    fn line_height(&self, line: &Line) -> f32 {
-        (line.ascent + line.descent) * self.p.line_height
+    /// A line's height: the largest ascent plus the largest descent of its spans, times
+    /// `line_height`, rounded to whole pixels.
+    fn own_line_box(line: &Line, line_height: f32) -> f32 {
+        ((line.ascent + line.descent) * line_height).round()
+    }
+
+    /// The gap after a line of `line_box`: the font's leading times `line_spacing` when it has one,
+    /// else the line times `line_spacing - 1`.
+    fn gap_after(leading: f32, line_box: f32, line_spacing: f32) -> f32 {
+        if leading > 0.0 {
+            leading * line_spacing
+        } else if line_spacing != 1.0 {
+            line_box * (line_spacing - 1.0)
+        } else {
+            0.0
+        }
+    }
+
+    fn line_gap(&self, line_box: f32) -> f32 {
+        Self::gap_after(self.leading, line_box, self.p.line_spacing)
+    }
+
+    /// The baseline from the top of a line of `line_box`: the line's descent above its bottom, the
+    /// room a line height above 1 adds split above and below the text.
+    fn baseline_in(&self, line: &Line, line_box: f32) -> f32 {
+        let room = if self.p.line_height > 0.0 { line_box - line_box / self.p.line_height } else { 0.0 };
+        line_box - room / 2.0 - line.descent
     }
 
     /// Where the lines go inside `inner` (the rect minus the padding): each with its top-left in
@@ -587,9 +631,9 @@ impl SkiaLabel {
                     TextAlignment::Center => (inner.width() - width) / 2.0,
                     TextAlignment::End => inner.width() - width,
                 };
-            let height = self.line_height(line);
+            let height = self.line_boxes.get(index).copied().unwrap_or(0.0);
             let top = y;
-            y += height * self.p.line_spacing;
+            y += height + self.line_gap(height);
             (line, Point::new(x, top), height)
         })
     }
@@ -1036,8 +1080,8 @@ impl Layout {
             }
         }
         let fallbacks = first..self.fonts.len();
-        let (ascent, descent, system_faces) = (-metrics.ascent, metrics.descent, Vec::new());
-        let style = Style { font: main, fallbacks, ascent, descent, size_px, space, span, weight, italic, system, system_faces };
+        let (ascent, descent, leading, system_faces) = (-metrics.ascent, metrics.descent, metrics.leading, Vec::new());
+        let style = Style { font: main, fallbacks, ascent, descent, leading, size_px, space, span, weight, italic, system, system_faces };
         self.styles.push(style);
         Some(self.styles.len() - 1)
     }
@@ -1826,8 +1870,10 @@ impl Control for SkiaLabel {
         };
         self.extra = (stroke + shadow_w, stroke + shadow_h, stroke);
         let main_style = &layout.styles[main];
-        let line = (main_style.ascent + main_style.descent) * p.line_height;
-        self.paragraph_space = line * p.line_spacing * p.paragraph_spacing;
+        // DrawnUi.Net: LineHeightPixels, the main font's rounded line; paragraphs part by it and its gap.
+        self.leading = main_style.leading;
+        let main_box = ((main_style.ascent + main_style.descent) * p.line_height).round();
+        self.paragraph_space = (main_box + Self::gap_after(self.leading, main_box, p.line_spacing)) * p.paragraph_spacing;
         let prm = Params {
             wrap: p.line_break_mode != LineBreakMode::NoWrap,
             truncate: matches!(p.line_break_mode, LineBreakMode::TailTruncation | LineBreakMode::HeadTruncation | LineBreakMode::MiddleTruncation),
@@ -1849,9 +1895,15 @@ impl Control for SkiaLabel {
         if prm.max_lines > 0 {
             kept = kept.min(prm.max_lines as usize);
         }
-        let (mut used, mut fit) = (0.0, 0);
+        let (uniform, leading) = (p.line_height_uniform, self.leading);
+        let tallest = |lines: &[Line]| lines.iter().fold(0f32, |most, l| most.max(Self::own_line_box(l, prm.line_height)));
+        let box_of = |l: &Line, tallest: f32| if uniform { tallest } else { Self::own_line_box(l, prm.line_height) };
+        let all = tallest(&layout.lines);
+        let (mut used, mut fit, mut gap) = (0.0, 0, 0.0);
         for (i, l) in layout.lines.iter().enumerate() {
-            used += (l.ascent + l.descent) * prm.line_height * prm.line_spacing;
+            let line_box = box_of(l, all);
+            used += gap + line_box;
+            gap = Self::gap_after(leading, line_box, prm.line_spacing);
             if l.new_paragraph && i > 0 {
                 used += prm.paragraph_space;
             }
@@ -1870,10 +1922,14 @@ impl Control for SkiaLabel {
 
         let lines = &layout.lines;
         let text_width = lines.iter().fold(0f32, |w, l| w.max(l.width));
+        // Each line its own height, or all as tall as the tallest kept one (line_height_uniform).
+        let kept_tallest = tallest(lines);
+        self.line_boxes.clear();
+        self.line_boxes.extend(lines.iter().map(|l| box_of(l, kept_tallest)));
         let mut text_height = 0.0;
         for (i, l) in lines.iter().enumerate() {
-            let lh = (l.ascent + l.descent) * prm.line_height;
-            text_height += if i + 1 < lines.len() { lh * prm.line_spacing } else { lh };
+            let line_box = self.line_boxes[i];
+            text_height += if i + 1 < lines.len() { line_box + Self::gap_after(leading, line_box, prm.line_spacing) } else { line_box };
             if l.new_paragraph && i > 0 {
                 text_height += prm.paragraph_space;
             }
@@ -1979,8 +2035,8 @@ impl Control for SkiaLabel {
                 (fill, stroke)
             };
             if by_lines {
-                for line in &self.layout.lines {
-                    shaders.lines.push(build(Rect::from_wh(line.width, self.line_height(line))));
+                for (line, &line_box) in self.layout.lines.iter().zip(&self.line_boxes) {
+                    shaders.lines.push(build(Rect::from_wh(line.width, line_box)));
                 }
             } else {
                 shaders.lines.push(build(Rect::from_wh(box_size.0, box_size.1)));
@@ -2022,7 +2078,7 @@ impl Control for SkiaLabel {
             canvas.save();
             canvas.translate(shader_origin);
             let (line_x, y) = (origin.x - shader_origin.x, origin.y - shader_origin.y);
-            let baseline = y + line.ascent;
+            let baseline = y + self.baseline_in(line, height);
             for run in &self.layout.runs[line.runs.clone()] {
                 let x = line_x + run.x;
                 let style = &self.layout.styles[run.style];

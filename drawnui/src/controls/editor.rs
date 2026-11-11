@@ -1106,17 +1106,18 @@ impl Control for SkiaEditor {
             cx.measure_child(self.placeholder.id(), inner_w, f32::INFINITY);
         }
         let label = cx.tree.find::<SkiaLabel>(self.label).map_or((0.0, 1), |l| (l.measured_line_height(), l.lines_count()));
-        let mut line = label.0;
-        if line <= 0.0 {
-            line = (self.p.font_size.max(1.0) * 1.2 * self.p.line_height.max(1.0)).ceil() * scale;
-        }
         let mut lines = if self.p.max_lines > 0 { self.p.max_lines as usize } else { 1 };
         if self.p.auto_height && multiline {
             let actual = label.1.max(1);
             lines = if self.p.max_lines > 0 { actual.min(self.p.max_lines as usize) } else { actual };
         }
+        // The label's own line heights and gaps; a guess from the font size before it has a line.
+        let height = match cx.tree.find::<SkiaLabel>(self.label) {
+            Some(l) if label.0 > 0.0 => l.lines_height(lines),
+            _ => (self.p.font_size.max(1.0) * 1.2 * self.p.line_height.max(1.0)).ceil() * scale * lines as f32,
+        };
         let w = if width.is_finite() { width } else { text.width + px };
-        Size::new(w, (line * lines as f32).ceil() + py)
+        Size::new(w, height.ceil() + py)
     }
 
     /// The label at the padded box, aligned there when it is smaller, scrolled by the content
