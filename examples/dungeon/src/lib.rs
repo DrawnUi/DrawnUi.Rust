@@ -949,7 +949,8 @@ fn pause_dialog(app: &mut App) -> Build<SkiaLayout> {
     dialog(
         app,
         "PAUSED",
-        SkiaRow::new().spacing(14).horizontal_options(LayoutOptions::End).margin((0, 12, 0, 0)).children((
+        // A wrap: on a narrow screen what does not fit goes to the next line, nothing squeezed.
+        SkiaWrap::new().spacing(14).horizontal_options(LayoutOptions::Center).margin((0, 12, 0, 0)).children((
             ghost("HELP").on_tapped(|_me, app: &mut App, cx| {
                 cx.close_popup(app.shell, false);
                 open_dialog(app, cx, help_dialog);
