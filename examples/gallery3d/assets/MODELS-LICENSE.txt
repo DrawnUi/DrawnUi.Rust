@@ -2,6 +2,7 @@ Quaternius models, Public Domain (CC0 1.0), from poly.pizza:
 gift.glb    "Chest" by Quaternius                         https://poly.pizza/m/eEcIqgJzJ1
 avatar.glb  "Animated Platformer Character" by Quaternius https://poly.pizza/m/kKtL4zvS3n
 mob.glb     "Pink Slime" by Quaternius                    https://poly.pizza/m/AyP8sQmDLh
+dragon.glb  "Dragon Evolved" by Quaternius (Ultimate Monsters) https://poly.pizza/m/LlwD0QNUPj
 
 Poly Haven, Public Domain (CC0 1.0), https://polyhaven.com:
 sofa.glb     "Sofa 01" (https://polyhaven.com/a/Sofa_01), re-packed as one GLB with two materials,

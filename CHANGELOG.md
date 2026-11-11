@@ -13,10 +13,10 @@ version before it. Commits in parentheses.
   text and lines stay sharp. Browsers without that box keep the rounded size.
 - Text lines, the same in every DrawnUI engine: each line is as tall as its own spans and at least
   the label font's own line: the largest ascent plus the largest descent (times `line_height`)
-  rounded to whole pixels; the baseline sits the line's descent above its bottom, and the room a `line_height` above 1 adds is split above and
-  below the text; a font with a leading puts leading x `line_spacing` between lines. Labels, rich
-  labels, editors and button captions follow it; text can move by a pixel and multi-line blocks
-  can change height by a few pixels.
+  rounded to whole pixels; the baseline sits the line's descent above its bottom, and the room a
+  `line_height` above 1 adds is split above and below the text; a font with a leading puts
+  leading x `line_spacing` between lines. Labels, rich labels, editors and button captions follow
+  it; text can move by a pixel and multi-line blocks can change height by a few pixels.
 - Paragraphs: a quarter of the label font's line between paragraphs by default
   (`paragraph_spacing` 0.25, as in every DrawnUI engine), so text with `\n` grows a little taller;
   `paragraph_spacing(0)` keeps paragraphs tight. An auto-height editor counts the paragraph space

@@ -10,6 +10,9 @@
 //! - 3D next to normal UI: a sign-up form with a mascot that watches the field, covers its eyes for
 //!   the password and waves on submit.
 //! - Micro-interactions, images on 3D, model files and games (a field of walking mobs).
+//!
+//! A header with two tabs: the gallery and the boss fight (a glTF dragon with its animations,
+//! driven by the app: moves, a tap that hits it, skin and eyes recolored by material name).
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -28,6 +31,7 @@ use glam::{EulerRot, Quat};
 const CHEST: &[u8] = include_bytes!("../assets/gift.glb");
 const AVATAR: &[u8] = include_bytes!("../assets/avatar.glb");
 const MOB: &[u8] = include_bytes!("../assets/mob.glb");
+const DRAGON: &[u8] = include_bytes!("../assets/dragon.glb");
 const LOUNGE_CHAIR: &[u8] = include_bytes!("../assets/lounge_chair.glb");
 const ARMCHAIR: &[u8] = include_bytes!("../assets/armchair.glb");
 const OTTOMAN: &[u8] = include_bytes!("../assets/ottoman.glb");
@@ -56,6 +60,10 @@ const MUTED: Color = Color::from_rgb(154, 152, 176);
 const BUTTON: Color = Color::from_rgb(124, 108, 242);
 const ACCENT: Color = Color::from_rgb(255, 196, 61);
 const DANGER: Color = Color::from_rgb(255, 99, 132);
+const HEADER: Color = Color::from_rgb(19, 21, 32);
+/// The header tabs: the shown one in the accent, the other quiet.
+const TAB_ON: Color = Color::from_rgb(124, 108, 242);
+const TAB_OFF: Color = Color::from_rgb(52, 56, 78);
 /// The medal's resting turn: it spins from here and lands here.
 const MEDAL_YAW: f32 = 20.0;
 const GOLD: Color = Color::from_rgb(255, 196, 61);
@@ -393,6 +401,18 @@ enum Field {
 #[derive(Default)]
 struct App {
     time: f32,
+    /// The screen shown: 0 the gallery, 1 the boss fight.
+    tab: usize,
+    game: Handle<DrawnGame>,
+    // Boss fight.
+    boss: Handle<SkiaModel3D>,
+    /// The looping move, by caption.
+    boss_looping: &'static str,
+    boss_skin: &'static str,
+    boss_rage: bool,
+    boss_turning: bool,
+    /// What just happened, for the status line.
+    boss_news: String,
     // Product viewer.
     viewer_slot: Handle<SkiaLayout>,
     spinner: Handle<SkiaShape>,
@@ -1423,7 +1443,255 @@ fn next_label(app: &mut App, cx: &mut Cx) {
 
 // ---------------------------------------------------------------- the page
 
-fn build(app: &mut App) -> Build<DrawnGame> {
+/// The boss fight's dragon: idle and hit animations.
+const BOSS_IDLE: &str = "CharacterArmature|Flying_Idle";
+const BOSS_HIT: &str = "CharacterArmature|HitReact";
+
+/// How a move plays.
+#[derive(Clone, Copy, PartialEq)]
+enum MoveKind {
+    /// Loops until another move.
+    Loop,
+    /// Plays once, then back to the loop.
+    Once,
+    /// Plays once and stays on its last frame.
+    Hold,
+}
+
+/// The boss's moves: the caption, the glTF animation and how it plays, in the order of a fight.
+const MOVES: [(&str, &str, MoveKind); 7] = [
+    ("Idle", BOSS_IDLE, MoveKind::Loop),
+    ("Fly", "CharacterArmature|Fast_Flying", MoveKind::Loop),
+    ("Punch", "CharacterArmature|Punch", MoveKind::Once),
+    ("Headbutt", "CharacterArmature|Headbutt", MoveKind::Once),
+    ("Yes", "CharacterArmature|Yes", MoveKind::Once),
+    ("No", "CharacterArmature|No", MoveKind::Once),
+    ("Death", "CharacterArmature|Death", MoveKind::Hold),
+];
+
+/// Skin colors for the dragon's main material; `None` = the file's own.
+const SKINS: [(&str, Option<Color>); 4] = [
+    ("Ember", None),
+    ("Frost", Some(Color::from_rgb(70, 150, 230))),
+    ("Venom", Some(Color::from_rgb(90, 190, 80))),
+    ("Shadow", Some(Color::from_rgb(70, 60, 90))),
+];
+
+const EMBER: Color = Color::from_rgb(190, 70, 30);
+const BOSS_BUTTON: Color = Color::from_rgb(44, 40, 52);
+const MOVES_ACCENT: Color = Color::from_rgb(255, 122, 69);
+const BOSS_TOGGLE: Color = Color::from_rgb(60, 54, 72);
+const RAGE: Color = Color::from_rgb(200, 30, 40);
+const BOSS_MUTED: Color = Color::from_rgb(190, 180, 200);
+
+fn move_caption(animation: &str) -> &'static str {
+    MOVES.iter().find(|m| m.1 == animation).map_or(if animation == BOSS_HIT { "Hit" } else { "Move" }, |m| m.0)
+}
+
+fn boss_caption(text: &str) -> Build<SkiaLabel> {
+    SkiaLabel::new(text).font_size(13).text_color(BOSS_MUTED).horizontal_options(LayoutOptions::Center).accessibility_role(Aria::HEADING)
+}
+
+fn move_button((caption, animation, kind): (&'static str, &'static str, MoveKind)) -> Build<SkiaButton> {
+    SkiaButton::new(caption)
+        .width_request(100)
+        .background_color(BOSS_BUTTON)
+        .observe(move |me, app: &App| me.set_background_color(if app.boss_looping == caption { MOVES_ACCENT } else { BOSS_BUTTON }))
+        .on_tapped(move |_me, app: &mut App, cx| {
+            if let Some(mut boss) = cx.get_mut(app.boss) {
+                match kind {
+                    MoveKind::Loop => {
+                        boss.play(animation);
+                        app.boss_looping = caption;
+                    }
+                    MoveKind::Once => {
+                        boss.play_once(animation);
+                    }
+                    MoveKind::Hold => {
+                        boss.hold(animation);
+                        app.boss_looping = caption;
+                    }
+                }
+            }
+            app.boss_news = format!("{caption}…");
+        })
+}
+
+fn skin_button((caption, color): (&'static str, Option<Color>)) -> Build<SkiaButton> {
+    let swatch = color.unwrap_or(EMBER);
+    SkiaButton::new(caption)
+        .width_request(100)
+        .background_color(BOSS_BUTTON)
+        .stroke_color(swatch)
+        .stroke_width(2)
+        .accessibility_role(Aria::RADIO)
+        .observe(move |me, app: &App| {
+            let on = app.boss_skin == caption;
+            me.set_background_color(if on { swatch } else { BOSS_BUTTON });
+            me.set_accessibility_is_pressed(Some(on));
+        })
+        .on_tapped(move |_me, app: &mut App, cx| {
+            if let Some(mut boss) = cx.get_mut(app.boss) {
+                boss.set_material_color("Dragon_Main", color);
+            }
+            app.boss_skin = caption;
+        })
+}
+
+/// The boss fight: a 3D dragon in a DrawnUI screen, driven by the app (the .NET gallery's BossPage).
+fn boss_page(app: &mut App) -> Build<SkiaLayout> {
+    (app.boss_looping, app.boss_skin) = ("Idle", "Ember");
+    app.boss_news = "Tap the dragon to hit it.".into();
+    SkiaLayout::new().fill().children((
+        // The arena: a warm light behind the boss, drawn on the GPU once and kept there.
+        SkiaShape::new().fill().background_color(Color::from_rgb(18, 14, 22)).use_cache(CacheType::GPU).fill_gradient(SkiaGradient {
+            start_x_ratio: 0.5,
+            start_y_ratio: 0.42,
+            ..SkiaGradient::new(GradientType::Circular, vec![Color::from_rgb(92, 38, 30), Color::from_rgb(18, 14, 22)])
+        }),
+        SkiaGrid::new().fill().padding(20).row_spacing(10).row_definitions("Auto,*,Auto,Auto").children((
+            SkiaLayout::column().spacing(8).fill_x().use_cache(CacheType::Image).row(0).children((
+                SkiaLabel::new("BOSS FIGHT").font_size(30).text_color(Color::WHITE).horizontal_options(LayoutOptions::Center).accessibility_role(Aria::HEADING),
+                SkiaLabel::new("A glTF model drawn in 3D inside DrawnUI, driven by the app. Drag it to turn it, tap it to hit it.")
+                    .font_size(15)
+                    .text_color(BOSS_MUTED)
+                    .horizontal_text_alignment(TextAlignment::Center)
+                    .horizontal_options(LayoutOptions::Center),
+            )),
+            SkiaModel3D::new(DRAGON)
+                .animation(BOSS_IDLE)
+                .view_angles(30.0, 8.0)
+                .zoom(0.75)
+                .fill()
+                .row(1)
+                .assign(&mut app.boss)
+                .on_tapped_3d(|me, app: &mut App, _cx, hit| {
+                    // A hit plays once and goes back to the loop; a dead dragon does not react.
+                    if app.boss_looping != "Death" {
+                        me.play_once(BOSS_HIT);
+                    }
+                    app.boss_news = format!("Hit on {}", hit.material.replace('_', " "));
+                })
+                .on_animation_ended(|_me, app: &mut App, _cx, name| app.boss_news = format!("{} finished", move_caption(name))),
+            SkiaLabel::new("")
+                .font_size(15)
+                .text_color(Color::WHITE)
+                .horizontal_options(LayoutOptions::Center)
+                .accessibility_live(Aria::LIVE_POLITE)
+                .row(2)
+                .observe(|me, app: &App| me.set_text(app.boss_news.clone())),
+            SkiaLayout::column().spacing(10).fill_x().use_cache(CacheType::Image).row(3).children((
+                boss_caption("MOVES"),
+                SkiaLayout::wrap()
+                    .spacing(8)
+                    .horizontal_options(LayoutOptions::Center)
+                    .accessibility_role(Aria::TOOLBAR)
+                    .accessibility_label("Moves")
+                    .children(MOVES.iter().copied().map(move_button).collect::<Vec<_>>()),
+                boss_caption("SKIN AND EYES (materials by name)"),
+                SkiaLayout::wrap().spacing(8).horizontal_options(LayoutOptions::Center).accessibility_role(Aria::TOOLBAR).accessibility_label("Skin and eyes").children((
+                    SKINS.iter().copied().map(skin_button).collect::<Vec<_>>(),
+                    SkiaButton::new("Rage: off")
+                        .width_request(124)
+                        .background_color(BOSS_TOGGLE)
+                        .observe(|me, app: &App| {
+                            me.set_text(if app.boss_rage { "Rage: on" } else { "Rage: off" });
+                            me.set_background_color(if app.boss_rage { RAGE } else { BOSS_TOGGLE });
+                            me.set_accessibility_is_pressed(Some(app.boss_rage));
+                        })
+                        .on_tapped(|_me, app: &mut App, cx| {
+                            app.boss_rage = !app.boss_rage;
+                            if let Some(mut boss) = cx.get_mut(app.boss) {
+                                boss.set_material_color("Eye_White", app.boss_rage.then_some(Color::from_rgb(255, 40, 30)));
+                            }
+                        }),
+                    SkiaButton::new("Turn: off")
+                        .width_request(124)
+                        .background_color(BOSS_TOGGLE)
+                        .observe(|me, app: &App| {
+                            me.set_text(if app.boss_turning { "Turn: on" } else { "Turn: off" });
+                            me.set_accessibility_is_pressed(Some(app.boss_turning));
+                        })
+                        .on_tapped(|_me, app: &mut App, cx| {
+                            app.boss_turning = !app.boss_turning;
+                            if let Some(mut boss) = cx.get_mut(app.boss) {
+                                boss.set_auto_rotate(if app.boss_turning { 30.0 } else { 0.0 });
+                            }
+                        }),
+                )),
+            )),
+        )),
+    ))
+}
+
+/// A header tab: filled when its screen shows; the hidden screen asks for no frames.
+fn tab(caption: &str, index: usize) -> Build<SkiaButton> {
+    SkiaButton::new(caption)
+        .width_request(120)
+        .background_color(if index == 0 { TAB_ON } else { TAB_OFF })
+        .accessibility_role(Aria::TAB)
+        .observe(move |me, app: &App| {
+            me.set_background_color(if app.tab == index { TAB_ON } else { TAB_OFF });
+            me.set_accessibility_is_pressed(Some(app.tab == index));
+        })
+        .on_tapped(move |_me, app: &mut App, cx| {
+            app.tab = index;
+            if let Some(mut game) = cx.get_mut(app.game) {
+                if index == 0 { game.start_loop(0.0) } else { game.stop_loop() }
+            }
+        })
+}
+
+/// The whole app: a header with the two screens' tabs over one drawing surface, the frame rate in
+/// a corner (the .NET gallery's GalleryRoot).
+fn build(app: &mut App) -> Build<SkiaLayout> {
+    SkiaLayout::new().fill().background_color(PAGE).children((
+        SkiaGrid::new().fill().row_spacing(0).row_definitions("Auto,*").children((
+            // Static chrome over screens that draw every frame: blitted, not drawn again.
+            SkiaLayout::new().fill_x().height_request(64).padding((24, 0)).background_color(HEADER).use_cache(CacheType::Image).row(0).children((
+                SkiaLayout::row().spacing(12).vertical_options(LayoutOptions::Center).children((
+                    SkiaShape::new()
+                        .corner_radius(8)
+                        .width_request(32)
+                        .height_request(32)
+                        .vertical_options(LayoutOptions::Center)
+                        .fill_gradient(SkiaGradient {
+                            start_x_ratio: 0.0,
+                            start_y_ratio: 0.0,
+                            end_x_ratio: 1.0,
+                            end_y_ratio: 1.0,
+                            ..SkiaGradient::new(GradientType::Linear, vec![TAB_ON, Color::from_rgb(255, 99, 132)])
+                        })
+                        .children(SkiaLabel::new("3D").font_size(13).text_color(Color::WHITE).center()),
+                    SkiaLayout::column().spacing(0).vertical_options(LayoutOptions::Center).children((
+                        SkiaLabel::new("DrawnUI 3D").font_size(17).text_color(INK).accessibility_role(Aria::HEADING),
+                        SkiaLabel::new("The drawnui-add3d add-on for DrawnUI for Rust").font_size(12).text_color(MUTED),
+                    )),
+                )),
+                SkiaLayout::row()
+                    .spacing(8)
+                    .horizontal_options(LayoutOptions::End)
+                    .vertical_options(LayoutOptions::Center)
+                    .accessibility_role(Aria::TAB_LIST)
+                    .accessibility_label("Screens")
+                    .children((tab("Gallery", 0), tab("Boss fight", 1))),
+            )),
+            SkiaLayout::new().fill().row(1).children((
+                gallery(app).assign(&mut app.game).observe(|me, app: &App| me.set_is_visible(app.tab == 0)),
+                boss_page(app).is_visible(false).observe(|me, app: &App| me.set_is_visible(app.tab == 1)),
+            )),
+        )),
+        SkiaLabelFps::new()
+            .vertical_options(LayoutOptions::End)
+            .horizontal_options(LayoutOptions::End)
+            .margin((0, 0, 8, 8))
+            .background_color(Color::from_rgb(139, 0, 0))
+            .text_color(Color::WHITE),
+    ))
+}
+
+/// The gallery screen.
+fn gallery(app: &mut App) -> Build<DrawnGame> {
     (app.mobs, app.dice, app.spin) = (40, Dice(7), 1.0);
     (app.labels, app.card_faces, app.earth) = (labels(), Some(card_faces()), Texture3D::decode(EARTH));
     app.fabrics = SWATCHES.iter().filter_map(|s| Texture3D::decode(s.1)).collect();
@@ -1565,12 +1833,6 @@ fn build(app: &mut App) -> Build<DrawnGame> {
                 )),
             )),
         ),
-        SkiaLabelFps::new()
-            .vertical_options(LayoutOptions::End)
-            .horizontal_options(LayoutOptions::End)
-            .margin((0, 0, 8, 8))
-            .background_color(Color::from_rgb(139, 0, 0))
-            .text_color(Color::WHITE),
     ))
 }
 
