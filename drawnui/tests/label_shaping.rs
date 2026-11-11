@@ -207,3 +207,36 @@ fn a_bracket_in_a_right_to_left_paragraph_mirrors() {
         .unwrap();
     assert!(differing <= 3, "{differing} of {width} columns of \"(End)\" differ: the brackets do not mirror");
 }
+
+/// The lit pixels (red above 100) of the whole screen.
+fn lit(host: &mut Host) -> Vec<(i32, i32)> {
+    let mut out = Vec::new();
+    for y in 0..200 {
+        for x in 0..600 {
+            if host.pixel(x, y).r() > 100 {
+                out.push((x, y));
+            }
+        }
+    }
+    out
+}
+
+/// DrawnUi.Net draws shaped text at a whole pixel: an Arabic run after a Latin one of a fractional
+/// width starts at a whole x, so its pixels are the ones it draws alone, moved by whole pixels (at a
+/// fractional x the antialiasing would differ).
+#[test]
+fn a_shaped_run_sits_on_a_whole_pixel() {
+    let latin = width("a", "");
+    assert!(latin.fract() > 0.05 && latin.fract() < 0.95, "{latin}");
+    let word = "\u{0633}\u{0644}\u{0627}\u{0645}";
+    // The Latin letter in black: only the Arabic word lights up.
+    let mut after = host(SkiaLabel::new("").font_family_fallback("FontArabic").spans(vec![TextSpan::new("a").text_color(Color::BLACK), TextSpan::new(word)]));
+    let mut alone = host(SkiaLabel::new(word).font_family_fallback("FontArabic").margin((latin.round(), 0.0, 0.0, 0.0)));
+    let from_left = |lit: Vec<(i32, i32)>| {
+        let left = lit.iter().map(|p| p.0).min().unwrap_or(0);
+        lit.into_iter().map(|(x, y)| (x - left, y)).collect::<Vec<_>>()
+    };
+    let drawn = from_left(lit(&mut after));
+    assert!(!drawn.is_empty());
+    assert_eq!(drawn, from_left(lit(&mut alone)));
+}

@@ -305,12 +305,15 @@ struct Run {
     /// Where the ink of its first and last glyph starts and ends, pixels from the run's start
     /// (empty run: none). A side bearing or an italic slant puts it outside the run's advances.
     ink: Option<(f32, f32)>,
+    /// Shaped (right to left, emoji, complex scripts): drawn at a whole pixel, as DrawnUi.Net draws
+    /// shaped text.
+    shaped: bool,
 }
 
 impl Run {
     /// The run as `segment` measures it: no glyphs or ink yet.
     fn measured(&self) -> Run {
-        Run { text: self.text.clone(), style: self.style, font: self.font, width: self.width, blob: None, x: self.x, level: self.level, chars: self.chars.clone(), ink: None }
+        Run { text: self.text.clone(), style: self.style, font: self.font, width: self.width, blob: None, x: self.x, level: self.level, chars: self.chars.clone(), ink: None, shaped: self.shaped }
     }
 }
 
@@ -1254,7 +1257,7 @@ impl Layout {
                 && shaping::shape(&fonts[font], part, part.chars().any(shaping::is_rtl), spacing, shaped).is_some()
             {
                 word_widths.extend_from_slice(&shaped.advances);
-                word_runs.push(Run { text, style: token.style, font, width: shaped.width, blob: None, x: 0.0, level: 0, chars: 0..0, ink: None });
+                word_runs.push(Run { text, style: token.style, font, width: shaped.width, blob: None, x: 0.0, level: 0, chars: 0..0, ink: None, shaped: false });
                 return;
             }
             let ids = &glyphs[face * count + from.0..face * count + to.0];
@@ -1270,7 +1273,7 @@ impl Layout {
                 word_widths.push(w + spacing);
                 width += w + spacing;
             }
-            word_runs.push(Run { text, style: token.style, font, width, blob: None, x: 0.0, level: 0, chars: 0..0, ink: None });
+            word_runs.push(Run { text, style: token.style, font, width, blob: None, x: 0.0, level: 0, chars: 0..0, ink: None, shaped: false });
         };
         for (i, (at, c)) in word.char_indices().enumerate() {
             // A joiner, a variation selector or a skin tone stays with the glyph before it: an
@@ -1331,7 +1334,7 @@ impl Layout {
                 last.text.end = self.text.len();
                 last.width += width;
             }
-            _ => self.runs.push(Run { text: start..self.text.len(), style, font, width, blob: None, x: 0.0, level: 0, chars: 0..0, ink: None }),
+            _ => self.runs.push(Run { text: start..self.text.len(), style, font, width, blob: None, x: 0.0, level: 0, chars: 0..0, ink: None, shaped: false }),
         }
         open.width += width;
         let st = &self.styles[style];
@@ -1589,11 +1592,11 @@ impl Layout {
                     let at = run.text.start + b;
                     let next = level_at(at);
                     if next != level {
-                        self.runs.push(Run { text: from..at, style: run.style, font: run.font, width: 0.0, blob: None, x: 0.0, level, chars: 0..0, ink: None });
+                        self.runs.push(Run { text: from..at, style: run.style, font: run.font, width: 0.0, blob: None, x: 0.0, level, chars: 0..0, ink: None, shaped: false });
                         (from, level) = (at, next);
                     }
                 }
-                self.runs.push(Run { text: from..run.text.end, style: run.style, font: run.font, width: 0.0, blob: None, x: 0.0, level, chars: 0..0, ink: None });
+                self.runs.push(Run { text: from..run.text.end, style: run.style, font: run.font, width: 0.0, blob: None, x: 0.0, level, chars: 0..0, ink: None, shaped: false });
             }
             self.lines[li].runs = start..self.runs.len();
         }
@@ -1618,6 +1621,7 @@ impl Layout {
                     advances.extend_from_slice(&shaped.advances);
                     run.chars.end = advances.len();
                     run.width = shaped.width;
+                    run.shaped = true;
                     if !shaped.glyphs.is_empty() {
                         run.ink = glyph_ink(font, &shaped.glyphs, shaped.positions.first().map_or(0.0, |p| p.x), shaped.positions.last().map_or(0.0, |p| p.x));
                         let mut builder = TextBlobBuilder::new();
@@ -1821,7 +1825,7 @@ impl Control for SkiaLabel {
             let italic = p.font_attributes.is_italic();
             let weight = if p.font_weight > 0 { p.font_weight } else if bold { BOLD } else { 0 };
             let system = p.system_font_fallback;
-            let Some(main) = layout.add_style(cx.fonts, &p.font_family, &p.font_family_fallback, weight, italic, p.font_size * scale, None, system) else {
+            let Some(main) = layout.add_style(cx.fonts, &p.font_family, &p.font_family_fallback, weight, italic, (p.font_size * scale).round(), None, system) else {
                 return Size::new(px, py);
             };
             let (mut top, mut bottom) = (0f32, 0f32);
@@ -1841,7 +1845,7 @@ impl Control for SkiaLabel {
                         weight
                     };
                     let family = span.font_family.as_deref().unwrap_or(&p.font_family);
-                    let size = span.font_size.unwrap_or(p.font_size) * scale;
+                    let size = (span.font_size.unwrap_or(p.font_size) * scale).round();
                     let fallback = &p.font_family_fallback;
                     let Some(style) = layout.add_style(cx.fonts, family, fallback, span_weight, italic || span.is_italic, size, Some(index), system) else { continue };
                     layout.add_tokens(cx.fonts, &span.text, style, p.text_transform, p.fallback_character, keep, wrap);
@@ -2092,7 +2096,12 @@ impl Control for SkiaLabel {
             let (line_x, y) = (origin.x - shader_origin.x, origin.y - shader_origin.y);
             let baseline = y + self.baseline_in(line, height);
             for run in &self.layout.runs[line.runs.clone()] {
-                let x = line_x + run.x;
+                // A shaped run sits on a whole device pixel, x and baseline (DrawnUi.Net's shaped path).
+                let (x, baseline) = if run.shaped {
+                    ((shader_origin.x + line_x + run.x).round() - shader_origin.x, (shader_origin.y + baseline).round() - shader_origin.y)
+                } else {
+                    (line_x + run.x, baseline)
+                };
                 let style = &self.layout.styles[run.style];
                 let span = style.span.map(|i| &self.spans[i]);
                 let width = run.width - sp;

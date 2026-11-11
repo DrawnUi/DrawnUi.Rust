@@ -196,3 +196,38 @@ fn a_font_with_leading_puts_it_between_lines() {
     // No leading: LineSpacing 1.5 adds half a line.
     assert_eq!(draw(0.0, "GAME\nOVER", move |l| two(l).line_spacing(1.5)).1, 48 * 2 + 24);
 }
+
+/// The lit pixels (red above 128) of "GAME" drawn by Skia alone in Orbitron-Black at `size` px, at
+/// (`x`, `baseline`), on a `w` x `h` canvas.
+fn skia_ink(size: f32, x: f32, baseline: f32, w: i32, h: i32) -> Vec<(i32, i32)> {
+    let typeface = FontMgr::new().new_from_data(Data::new_copy(ORBITRON_BLACK), None).expect("the font");
+    let mut font = Font::from_typeface(typeface, size);
+    font.set_subpixel(true).set_linear_metrics(true).set_edging(skia::font::Edging::SubpixelAntiAlias);
+    let mut surface = skia::surfaces::raster_n32_premul((w, h)).expect("a surface");
+    surface.canvas().clear(Color::BLACK);
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true).set_color(Color::WHITE);
+    surface.canvas().draw_str("GAME", (x, baseline), &font, &paint);
+    let info = skia::ImageInfo::new((w, h), skia::ColorType::RGBA8888, skia::AlphaType::Premul, None);
+    let mut pixels = vec![0u8; (w * h * 4) as usize];
+    assert!(surface.image_snapshot().read_pixels(&info, &mut pixels, (w * 4) as usize, (0, 0), skia::image::CachingHint::Disallow));
+    (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| pixels[((y * w + x) * 4) as usize] > 128).collect()
+}
+
+#[test]
+fn a_fractional_font_size_draws_at_whole_pixels() {
+    // DrawnUi.Net: Math.Round(FontSize * scale): 13.7 at scale 1.25 is a 17 px font, not 17.125.
+    let ui = Ui::new(App, |_app: &mut App| {
+        SkiaLayout::new().fill().children((SkiaLabel::new("GAME").font_family("Orbitron").font_size(13.7).text_color(Color::WHITE).left(8),))
+    })
+    .font_bytes("Orbitron", ORBITRON_BLACK)
+    .background(Color::BLACK);
+    let mut host = Headless::new(ui, 300, 100, 1.25);
+    host.settle();
+    let drawn: Vec<(i32, i32)> = (0..100).flat_map(|y| (0..300).map(move |x| (x, y))).filter(|&(x, y)| host.pixel(x, y).r() > 128).collect();
+    let (a, d, _) = metrics(ORBITRON_BLACK, 17.0);
+    let baseline = (a + d).round() - d;
+    let whole = skia_ink(17.0, 10.0, baseline, 300, 100);
+    assert_ne!(whole, skia_ink(17.125, 10.0, baseline, 300, 100), "the two sizes draw apart");
+    assert_eq!(drawn, whole);
+}
