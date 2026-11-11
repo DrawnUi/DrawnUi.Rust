@@ -6,6 +6,12 @@ version before it. Commits in parentheses.
 
 ## Unreleased
 
+### Changed
+
+- Web: the canvas takes the exact device pixels the browser reports for it (ResizeObserver
+  device-pixel-content-box), so it maps 1:1 to the screen at every window size and display scale and
+  text and lines stay sharp. Browsers without that box keep the rounded size.
+
 ### Added
 
 - An add-on API: controls made in other crates (add-ons such as `drawnui-add3d`) run their own frame

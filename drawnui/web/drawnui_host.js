@@ -145,10 +145,15 @@ window.DrawnUi = {
       canvas.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
     }
 
+    // The device pixels the canvas covers, as the browser reports them (ResizeObserver
+    // device-pixel-content-box). A fractional scale times the rounded CSS size can be a pixel off
+    // (701.3 x 333.3 CSS px at 1.25 cover 877 x 417 device px, the rounded size gave 878 x 418), and
+    // the browser would then resample the whole canvas, softening every glyph.
+    let devicePixels = null;
     const size = () => {
       const scale = window.devicePixelRatio || 1;
-      canvas.width = Math.max(1, Math.round(canvas.clientWidth * scale));
-      canvas.height = Math.max(1, Math.round(canvas.clientHeight * scale));
+      canvas.width = Math.max(1, devicePixels ? devicePixels[0] : Math.round(canvas.clientWidth * scale));
+      canvas.height = Math.max(1, devicePixels ? devicePixels[1] : Math.round(canvas.clientHeight * scale));
       return scale;
     };
     const scale = size();
@@ -273,7 +278,9 @@ window.DrawnUi = {
     };
 
     // Resize draws at once, so the canvas never shows a blank frame.
-    new ResizeObserver(() => {
+    const resizes = new ResizeObserver((entries) => {
+      const box = entries[0]?.devicePixelContentBoxSize?.[0];
+      if (box) devicePixels = [box.inlineSize, box.blockSize];
       if (lost) return; // the size is taken when the context is back
       const scale = size();
       module._dui_resize(app, canvas.width, canvas.height, scale);
@@ -281,7 +288,13 @@ window.DrawnUi = {
       if (pending) cancelAnimationFrame(pending);
       pending = 0;
       draw(performance.now());
-    }).observe(canvas);
+    });
+    // Browsers without the device-pixel box (Safari) take the rounded size.
+    try {
+      resizes.observe(canvas, { box: "device-pixel-content-box" });
+    } catch {
+      resizes.observe(canvas);
+    }
 
     const toCanvas = (e) => {
       const rect = canvas.getBoundingClientRect();
