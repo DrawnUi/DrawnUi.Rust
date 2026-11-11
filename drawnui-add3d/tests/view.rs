@@ -105,6 +105,7 @@ fn reset_view_glides_back_to_the_view_the_app_set_and_two_taps_do_it_too() {
 fn a_set_view_becomes_home_and_the_app_hears_it() {
     let mut host = single(SkiaModel3D::from_model(&ball()));
     let views = host.ui.state.views;
+    assert_eq!(views, 1, "heard once at the first layout, to place anchored labels");
     host.ui.tree.get_mut(host.ui.state.model).unwrap().set_view_angles(90.0, 0.0);
     host.settle();
     assert_eq!(host.ui.state.views, views + 1, "one change, heard once");

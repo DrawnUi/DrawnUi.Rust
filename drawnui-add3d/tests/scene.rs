@@ -131,6 +131,9 @@ fn an_image_goes_on_a_material_by_name() {
     assert_eq!(drawn.size(), (8, 4));
     assert!(Texture3D::decode(b"not an image").is_none());
     let mut boss = host.ui.tree.get_mut(boss).unwrap();
+    assert!(boss.set_material_roughness("Dragon_Main", Some(0.4)));
+    assert!(boss.set_material_roughness("Dragon_Main", None));
+    assert!(!boss.set_material_roughness("Nothing", None));
     assert!(boss.set_material_image("Dragon_Main", Some(drawn)));
     assert!(boss.set_material_image("Dragon_Main", None));
     assert!(!boss.set_material_image("Nothing", None));

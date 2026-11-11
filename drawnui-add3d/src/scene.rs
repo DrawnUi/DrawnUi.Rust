@@ -24,6 +24,7 @@ pub(super) struct MaterialOverride {
     pub(super) color: Option<[f32; 4]>,
     pub(super) hidden: bool,
     pub(super) image: Option<Texture3D>,
+    pub(super) roughness: Option<f32>,
 }
 
 /// An image to put on a material (`set_material_image`): a PNG / JPEG / WebP file, or any Skia
@@ -97,6 +98,8 @@ pub(super) struct Primitive {
 pub(super) struct Material {
     pub(super) name: String,
     pub(super) color: [f32; 4],
+    /// glTF roughness: 1 = matte (no shine), toward 0 = a tighter, brighter highlight.
+    pub(super) roughness: f32,
     pub(super) texture: Option<usize>,
     pub(super) double_sided: bool,
     pub(super) blend: bool,
@@ -174,6 +177,7 @@ impl Scene {
                 Material {
                     name: m.name().unwrap_or_default().to_owned(),
                     color: pbr.base_color_factor(),
+                    roughness: pbr.roughness_factor(),
                     texture: pbr.base_color_texture().map(|t| t.texture().source().index()),
                     double_sided: m.double_sided(),
                     blend: m.alpha_mode() == gltf::material::AlphaMode::Blend,

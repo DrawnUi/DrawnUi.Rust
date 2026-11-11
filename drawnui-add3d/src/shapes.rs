@@ -369,6 +369,7 @@ impl Model3D {
             .map(|p| Material {
                 name: p.name.clone(),
                 color: [linear(p.color.r()), linear(p.color.g()), linear(p.color.b()), p.color.a() as f32 / 255.0],
+                roughness: 1.0,
                 texture: None,
                 double_sided: false,
                 blend: p.color.a() < 255,

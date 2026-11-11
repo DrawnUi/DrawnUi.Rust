@@ -92,6 +92,7 @@ uniform bool u_skinned;
 uniform float u_outline;
 uniform vec2 u_viewport;
 out vec3 v_nrm;
+out vec3 v_pos;
 out vec2 v_uv;
 void main() {
     mat4 skin = mat4(1.0);
@@ -102,7 +103,9 @@ void main() {
     mat4 m = u_model * skin;
     v_nrm = mat3(m) * a_nrm;
     v_uv = a_uv;
-    gl_Position = u_view_proj * m * vec4(a_pos, 1.0);
+    vec4 world = m * vec4(a_pos, 1.0);
+    v_pos = world.xyz;
+    gl_Position = u_view_proj * world;
     if (u_outline > 0.0) {
         // The outline pass: the back faces pushed out along their smoothed normals (one per
         // position, so hard edges do not split), a fixed number of pixels on screen.
@@ -117,8 +120,11 @@ void main() {
     const FS: &str = "#version 300 es
 precision mediump float;
 in vec3 v_nrm;
+in vec3 v_pos;
 in vec2 v_uv;
 uniform vec4 u_color;
+uniform float u_rough;
+uniform vec4 u_eye;
 uniform bool u_textured;
 uniform sampler2D u_texture;
 uniform vec3 u_light;
@@ -139,7 +145,18 @@ void main() {
     vec3 lit;
     if (u_look == 2) lit = c.rgb;                                  // flat: the color as it is
     else if (u_look == 1) lit = c.rgb * (sun > 0.35 ? 1.0 : 0.62);  // toon: lit and shade, two tones
-    else lit = c.rgb * (0.30 + 0.25 * sky + 0.70 * sun);
+    else {
+        // A key light, a soft fill from the other side, the sky; a highlight as glossy as the
+        // material is smooth (glTF roughness 1 = none).
+        float fill = max(dot(n, normalize(vec3(-u_light.x, 0.3, -u_light.z))), 0.0);
+        lit = c.rgb * (0.24 + 0.20 * sky + 0.68 * sun + 0.22 * fill);
+        float gloss = 1.0 - clamp(u_rough, 0.0, 1.0);
+        if (gloss > 0.01 && sun > 0.0) {
+            vec3 v = u_eye.w > 0.5 ? normalize(u_eye.xyz - v_pos) : normalize(u_eye.xyz);
+            float s = pow(max(dot(n, normalize(u_light + v)), 0.0), mix(6.0, 90.0, gloss * gloss));
+            lit += vec3(0.55 * gloss * gloss * s);
+        }
+    }
     o_color = vec4(pow(lit, vec3(1.0 / 2.2)) * c.a, c.a);
 }";
 
@@ -309,6 +326,8 @@ void main() {
         textured: i32,
         texture: i32,
         light: i32,
+        rough: i32,
+        eye: i32,
         look: i32,
         outline: i32,
         viewport: i32,
@@ -360,6 +379,8 @@ void main() {
                 textured: loc("u_textured"),
                 texture: loc("u_texture"),
                 light: loc("u_light"),
+                rough: loc("u_rough"),
+                eye: loc("u_eye"),
                 look: loc("u_look"),
                 outline: loc("u_outline"),
                 viewport: loc("u_viewport"),
@@ -567,6 +588,10 @@ void main() {
                 glUseProgram(context.program);
                 glUniformMatrix4fv(u.view_proj, 1, 0, view_proj.to_cols_array().as_ptr());
                 glUniform3fv(u.light, 1, light.to_array().as_ptr());
+                // Where the camera is (w 1), or the way it looks for a camera without a place (w 0).
+                let toward = view_proj.inverse() * glam::Vec4::new(0.0, 0.0, 1.0, 0.0);
+                let eye = if toward.w.abs() > 1e-6 { (toward.truncate() / toward.w).extend(1.0) } else { (-toward.truncate()).normalize_or_zero().extend(0.0) };
+                glUniform4fv(u.eye, 1, eye.to_array().as_ptr());
                 glUniform1i(u.texture, 0);
                 glUniform1i(u.look, style.look as i32);
                 glUniform2f(u.viewport, size.width as f32, size.height as f32);
@@ -609,6 +634,7 @@ void main() {
                                     continue;
                                 }
                                 let color = changed.and_then(|c| c.color).unwrap_or(material.map_or([0.8, 0.8, 0.8, 1.0], |m| m.color));
+                                glUniform1f(u.rough, changed.and_then(|c| c.roughness).unwrap_or(material.map_or(1.0, |m| m.roughness)));
                                 let texture = match changed.and_then(|c| c.image.as_ref()) {
                                     Some(image) => context.images.get(&(Rc::as_ptr(&image.0) as usize)).map(|e| &e.1),
                                     None => material.and_then(|m| m.texture).and_then(|t| gl.textures.get(t)),

@@ -1038,6 +1038,7 @@ dependencies = [
  "drawnui",
  "drawnui-add3d",
  "embed-resource",
+ "glam",
 ]
 
 [[package]]

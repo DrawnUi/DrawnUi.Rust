@@ -528,7 +528,12 @@ impl Control for SkiaModel3D {
 
     fn arrange(&mut self, cx: &mut LayoutCx) {
         let rect = cx.base().rect;
-        self.laid_out = (rect.width(), rect.height(), cx.scale.max(0.01));
+        let laid_out = (rect.width(), rect.height(), cx.scale.max(0.01));
+        if std::mem::replace(&mut self.laid_out, laid_out) != laid_out && self.on_view_changed.is_some() {
+            // Points on screen moved with the size: the app hears it as a view change.
+            self.reported_view = (f32::NAN, f32::NAN, f32::NAN);
+            self.update_ticking(&mut cx.cx());
+        }
         // A scroll moving it back into view starts its time again.
         cx.track_viewport();
         if self.off_screen && !cx.visible_rect().is_empty() {
@@ -689,8 +694,9 @@ pub trait Model3DBuild: Sized {
     /// that follows the hand). Drags no longer turn it. 0 = off (the default).
     fn tilt_to_pointer(self, degrees: f32) -> Self;
 
-    /// Runs once per frame in which the view moved (a drag, a pinch, auto-rotate, a reset, code):
-    /// move labels anchored with `screen_position` here.
+    /// Runs once per frame in which the view moved (a drag, a pinch, auto-rotate, a reset, code)
+    /// or the control got a new size, the first layout included: move labels anchored with
+    /// `screen_position` here.
     fn on_view_changed<S: Any>(self, f: impl FnMut(&mut Mut<'_, SkiaModel3D>, &mut S, &mut Cx<'_>) + 'static) -> Self;
 
     /// Runs when loading from a url (`SkiaModel3D::from_url`, `set_source`) starts, succeeds or
@@ -886,6 +892,10 @@ pub trait Model3DSet {
     /// Shows or hides every surface with this material. False when there is none such.
     fn set_material_visible(&mut self, name: &str, visible: bool) -> bool;
 
+    /// How matte a material is, glTF roughness: 1 = no shine, lower = a brighter, tighter highlight
+    /// (0.4 for leather); `None` = the file's. False when there is no such material.
+    fn set_material_roughness(&mut self, name: &str, roughness: Option<f32>) -> bool;
+
     /// Puts an image on a material (a skin, a label, a photo, a pattern), in place of the file's
     /// own; `None` = the file's again. The image is multiplied by the material's color: a white
     /// material (or `set_material_color(name, Some(Color::WHITE))`) shows it as it is. False when
@@ -988,6 +998,14 @@ impl Model3DSet for Mut<'_, SkiaModel3D> {
         let model = self.control_mut();
         let Some(i) = model.material_named(name) else { return false };
         model.materials[i].hidden = !visible;
+        self.mark(Dirty::DRAW);
+        true
+    }
+
+    fn set_material_roughness(&mut self, name: &str, roughness: Option<f32>) -> bool {
+        let model = self.control_mut();
+        let Some(i) = model.material_named(name) else { return false };
+        model.materials[i].roughness = roughness.map(|r| r.clamp(0.0, 1.0));
         self.mark(Dirty::DRAW);
         true
     }

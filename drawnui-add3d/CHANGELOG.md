@@ -23,8 +23,12 @@
   `on_view_changed` runs once per frame in which the view moved; `pinch_zoom` (two fingers and the
   mouse wheel) within `min_zoom` / `max_zoom`; `reset_view` glides back to the view the app set,
   `reset_on_double_tap` does it on two taps; `lock_pitch` turns around the vertical axis only and
-  leaves vertical drags to the scroll around it. A model with nothing on screen stands still and
+  leaves vertical drags to the scroll around it; `tilt_to_pointer` leans the model toward the mouse
+  or finger and back home when it leaves. A model or layer with nothing on screen stands still and
   asks for no frames until it is scrolled back into view.
+- The shaded look lights with a key light, a soft fill from the other side and the sky, and gives
+  smooth materials a highlight by their glTF roughness; `set_material_roughness` changes it per
+  material (leather shines, linen does not).
 - `antialias(true)` / `set_antialias` on `SkiaModel3D` and `SkiaScene3D`: smooth edges with 4x multisampling (or
   the most the device offers). Off by default; on uses more GPU memory per pixel of the control, the same CPU time.
 - Images on materials: `Texture3D` (from PNG / JPEG / WebP bytes, or any Skia image in memory), put on a material by
