@@ -253,7 +253,8 @@ pub trait Control: Any {
 
     /// GPU work done ahead of time, after a frame (`LayoutCx::request_idle_gpu`): a control not
     /// on screen yet can render once to upload what it draws. At most one control works after a
-    /// frame; the others wait for the next one.
+    /// frame; the others wait for the next one. Work only when it fits what is left of the frame
+    /// (`IdleGpuCx::fits`), so the frame is not late.
     fn idle_gpu(&mut self, _cx: &mut IdleGpuCx) -> IdleGpu {
         IdleGpu::Done
     }
@@ -264,6 +265,8 @@ pub trait Control: Any {
 pub enum IdleGpu {
     /// Nothing done now (not near the screen yet): asked again after the next frame.
     Wait,
+    /// Near, but no room in this frame: asked again after the next one, which is asked for.
+    Later,
     /// GPU work done: no other control works after this frame. Not asked again.
     Worked,
     /// Nothing to do any more. Not asked again.
@@ -280,6 +283,19 @@ pub struct IdleGpuCx<'a> {
     pub canvas_height: f32,
     /// Pixels per point of the control.
     pub scale: f32,
+    /// Milliseconds of CPU the frame took so far.
+    pub frame_ms: f32,
+}
+
+/// The time a frame has, milliseconds (60 frames a second).
+pub const FRAME_BUDGET_MS: f32 = 1000.0 / 60.0;
+
+impl IdleGpuCx<'_> {
+    /// Work expected to take `cost_ms` fits in the rest of this frame, or the frame did nearly
+    /// nothing (an idle frame: the work could never fit better).
+    pub fn fits(&self, cost_ms: f32) -> bool {
+        self.frame_ms + cost_ms <= FRAME_BUDGET_MS || self.frame_ms < 2.0
+    }
 }
 
 /// `Self` carries the properties part `P`, directly or through its inner chain.

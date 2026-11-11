@@ -277,6 +277,9 @@ impl Control for SkiaScene3D {
             return IdleGpu::Wait;
         }
         let size = ISize::new(cx.rect.width().round() as i32, cx.rect.height().round() as i32);
+        if !cx.fits(super::prefetch_cost_ms(size)) {
+            return IdleGpu::Later;
+        }
         self.prefetch_queued = false;
         if self.render(cx.gpu, size, cx.scale).is_some() { IdleGpu::Worked } else { IdleGpu::Done }
     }

@@ -2360,7 +2360,7 @@ impl<S: 'static> Ui<S> {
             self.fps.draw(canvas, &self.fonts, content.bottom(), scale);
         }
         self.hover_after_frame(time_ms);
-        idle_gpu(&mut self.tree, gpu, height);
+        idle_gpu(&mut self.tree, gpu, height, started.elapsed().as_secs_f32() * 1000.0);
         self.fps.chained = self.needs_frame();
         // The focused control may have moved: the host's keyboard follows it.
         self.update_text_input();
@@ -2788,7 +2788,7 @@ impl Tree {
 
 /// After a frame: the first control waiting for idle GPU work that does some (`Control::idle_gpu`).
 /// Controls under a hidden ancestor are not asked. Nothing at all on the CPU.
-fn idle_gpu(tree: &mut Tree, gpu: &mut Gpu, canvas_height: f32) {
+fn idle_gpu(tree: &mut Tree, gpu: &mut Gpu, canvas_height: f32, frame_ms: f32) {
     if tree.idle_gpu.is_empty() || gpu.backend().is_none() {
         return;
     }
@@ -2806,10 +2806,16 @@ fn idle_gpu(tree: &mut Tree, gpu: &mut Gpu, canvas_height: f32) {
         let rect = tree.screen_rect(id);
         let Some(mut node) = tree.take(id) else { break };
         let scale = node.base.scale;
-        let answer = node.kind.as_deref_mut().map_or(IdleGpu::Done, |control| control.idle_gpu(&mut IdleGpuCx { gpu: &mut *gpu, rect, canvas_height, scale }));
+        let answer = node.kind.as_deref_mut().map_or(IdleGpu::Done, |control| control.idle_gpu(&mut IdleGpuCx { gpu: &mut *gpu, rect, canvas_height, scale, frame_ms }));
         tree.put_back(node);
         match answer {
             IdleGpu::Wait => i += 1,
+            IdleGpu::Later => {
+                // No room for it in this frame: the next frame is asked for; a smaller one behind
+                // it may fit now.
+                tree.needs_frame = true;
+                i += 1;
+            }
             IdleGpu::Done => {
                 tree.idle_gpu.remove(i);
             }

@@ -525,6 +525,13 @@ fn prefetch_near(cx: &IdleGpuCx) -> bool {
     cx.rect.height() > 0.0 && cx.rect.bottom > -h && cx.rect.top < 2.0 * h
 }
 
+/// What rendering ahead is expected to cost, milliseconds: the first render of a target on WebGL
+/// (Chrome, Windows) measured about 1 ms plus 1 ms per 30 000 pixels (85 x 85: 0.2-1.7 ms,
+/// 333 x 238: 0.2-3.6 ms, 775 x 525: 12.8-14.4 ms).
+fn prefetch_cost_ms(size: ISize) -> f32 {
+    1.0 + (size.width * size.height) as f32 / 30_000.0
+}
+
 impl SkiaModel3D {
     /// The scene at `size` pixels, into its own target: on screen and ahead (`idle_gpu`).
     fn render(&self, gpu: &mut Gpu, size: ISize, scale: f32) -> Option<drawnui::skia::Image> {
@@ -587,6 +594,9 @@ impl Control for SkiaModel3D {
             return IdleGpu::Wait;
         }
         let size = ISize::new(cx.rect.width().round() as i32, cx.rect.height().round() as i32);
+        if !cx.fits(prefetch_cost_ms(size)) {
+            return IdleGpu::Later;
+        }
         self.prefetch_queued = false;
         if self.render(cx.gpu, size, cx.scale).is_some() { IdleGpu::Worked } else { IdleGpu::Done }
     }
