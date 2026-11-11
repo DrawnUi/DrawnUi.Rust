@@ -246,3 +246,21 @@ fn tilt_to_pointer_turns_toward_the_mouse_and_back_home_when_it_leaves() {
     let (yaw, pitch, _) = model(&host).view();
     assert!((yaw + 8.0).abs() < 0.01 && (pitch - 8.0).abs() < 0.01, "{yaw} {pitch}");
 }
+
+#[test]
+fn a_drag_moves_the_surface_with_the_finger() {
+    // A point on the near side of the ball, a little off its middle so both axes show.
+    let point = [0.2, 0.2, 0.96];
+    let mut host = single(SkiaModel3D::from_model(&ball()).view_angles(0.0, 0.0));
+    let before = model(&host).screen_position(point).unwrap();
+    host.pan((60.0, 100.0), (100.0, 100.0), 160.0, 8);
+    host.settle();
+    let after = model(&host).screen_position(point).unwrap();
+    assert!(after.x > before.x + 5.0, "a drag to the right moves the surface right: {before:?} -> {after:?}");
+
+    let mut host = single(SkiaModel3D::from_model(&ball()).view_angles(0.0, 0.0));
+    host.pan((100.0, 60.0), (100.0, 100.0), 160.0, 8);
+    host.settle();
+    let after = model(&host).screen_position(point).unwrap();
+    assert!(after.y > before.y + 5.0, "a drag down moves the surface down: {before:?} -> {after:?}");
+}

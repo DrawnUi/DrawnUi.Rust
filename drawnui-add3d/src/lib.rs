@@ -574,7 +574,8 @@ impl Control for SkiaModel3D {
                     return Handled::No;
                 }
                 let scale = cx.base().scale.max(0.1);
-                self.yaw += gesture.delta.x / scale * 0.5;
+                // The surface follows the finger: a drag to the right turns the front to the right.
+                self.yaw -= gesture.delta.x / scale * 0.5;
                 if !self.lock_pitch {
                     self.pitch = (self.pitch + gesture.delta.y / scale * 0.3).clamp(-60.0, 80.0);
                 }
