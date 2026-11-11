@@ -61,6 +61,8 @@ const BUTTON: Color = Color::from_rgb(124, 108, 242);
 const ACCENT: Color = Color::from_rgb(255, 196, 61);
 const DANGER: Color = Color::from_rgb(255, 99, 132);
 const HEADER: Color = Color::from_rgb(19, 21, 32);
+/// Narrower canvases put the tabs under the app's name.
+const HEADER_ONE_LINE: f32 = 560.0;
 /// The header tabs: the shown one in the accent, the other quiet.
 const TAB_ON: Color = Color::from_rgb(124, 108, 242);
 const TAB_OFF: Color = Color::from_rgb(52, 56, 78);
@@ -403,6 +405,8 @@ struct App {
     time: f32,
     /// The screen shown: 0 the gallery, 1 the boss fight.
     tab: usize,
+    /// The canvas width, points: cards and the header follow it.
+    width: f32,
     game: Handle<DrawnGame>,
     // Boss fight.
     boss: Handle<SkiaModel3D>,
@@ -528,11 +532,49 @@ fn panel(title: &str, caption: &str, content: impl IntoChildren) -> Build<SkiaSh
         .stroke_width(1)
         .padding(20)
         .horizontal_options(LayoutOptions::Center)
-        .children((SkiaLayout::column().spacing(10).width_request(PANEL).children((
+        .maximum_width_request(PANEL + 42.0)
+        .children((SkiaLayout::column().spacing(10).fill_x().children((
             SkiaLabel::new(title).font_size(20).text_color(INK),
             SkiaLabel::new(caption).font_size(14).text_color(MUTED),
             SkiaLayout::column().fill_x().margin((0.0, 6.0, 0.0, 0.0)).children(content),
         )),))
+}
+
+/// The width a card's content has on a canvas `width` points wide: the page and card paddings
+/// taken off, at most the desktop card.
+fn card_inner(width: f32) -> f32 {
+    (width - 2.0 * 24.0 - 2.0 * 21.0).min(PANEL)
+}
+
+/// Two-column cards stay side by side while their content is at least this wide; under it the
+/// 3D view goes on top and the panel below, at full width.
+const TWO_COLUMNS: f32 = 720.0;
+
+/// A height for the mascot's view when the form and the mascot stack.
+const STACKED_VIEW: f32 = 320.0;
+
+/// A list row keeps its button beside the text while the card's content is at least this wide;
+/// narrower, the button goes under the text.
+const ROW_BESIDE: f32 = 420.0;
+
+fn two_columns(app: &App) -> bool {
+    app.width <= 0.0 || card_inner(app.width) >= TWO_COLUMNS
+}
+
+/// A two-column card body: a 3D view and its panel side by side, stacked when narrow.
+fn split(view: impl IntoChildren) -> Build<SkiaLayout> {
+    SkiaLayout::row().spacing(24).fill_x().observe(|me, app: &App| me.set_layout_type(if two_columns(app) { LayoutType::Row } else { LayoutType::Column })).children(view)
+}
+
+/// The 3D view of a split card: `width` x `height` beside the panel; when the card stacks, the
+/// full width at the same proportions, so the model is framed as on a desktop.
+fn left_column<T: Control>(b: Build<T>, width: f32, height: f32) -> Build<T> {
+    b.width_request(width).height_request(height).observe(move |me, app: &App| {
+        let wide = two_columns(app);
+        me.set_width_request(if wide { width } else { -1.0 });
+        me.set_horizontal_options(if wide { LayoutOptions::Start } else { LayoutOptions::Fill });
+        me.set_height_request(if wide { height } else { (card_inner(app.width) * height / width).round() });
+    })
 }
 
 fn button(caption: &str) -> Build<SkiaButton> {
@@ -713,11 +755,9 @@ fn set_source(app: &mut App, cx: &mut Cx, source: Source) {
 }
 
 fn product_viewer(app: &mut App) -> Build<SkiaShape> {
-    let stage = SkiaShape::new()
+    let stage = left_column(SkiaShape::new(), VIEW.0, VIEW.1)
         .corner_radius(14)
         .background_color(STAGE)
-        .width_request(VIEW.0)
-        .height_request(VIEW.1)
         .is_clipped_to_bounds(true)
         .children((
             SkiaLayout::new().fill().assign(&mut app.viewer_slot).children((viewer(Source::App, &mut app.viewer),)),
@@ -789,7 +829,7 @@ fn product_viewer(app: &mut App) -> Build<SkiaShape> {
         SkiaLabel::new("Three-seater, carved walnut frame").font_size(13).text_color(MUTED),
         SkiaLabel::new(dollars(SWATCHES[0].4)).font_size(18).text_color(ACCENT).observe(|me, app: &App| me.set_text(dollars(app.price_shown))),
         SkiaLabel::new("FABRIC").font_size(12).text_color(MUTED).margin((0.0, 8.0, 0.0, 0.0)),
-        SkiaLayout::row().spacing(14).children(
+        SkiaLayout::wrap().spacing(14).children(
             (0..SWATCHES.len())
                 .map(|i| {
                     SkiaLayout::column().spacing(4).width_request(56).children((
@@ -831,7 +871,7 @@ fn product_viewer(app: &mut App) -> Build<SkiaShape> {
     panel(
         "Product viewer",
         "A real product model on a shop page: turn it, zoom in, tap the dots, pick a fabric.",
-        (SkiaLayout::row().spacing(24).fill_x().children((stage, side)),),
+        (split((stage, side)),),
     )
 }
 
@@ -858,8 +898,9 @@ fn product_list(app: &mut App) -> Build<SkiaShape> {
             }
             SkiaLayout::row()
                 .fill_x()
-                .height_request(84)
+                .minimum_height_request(84)
                 .spacing(16)
+                .observe(|me, app: &App| me.set_layout_type(if app.width <= 0.0 || card_inner(app.width) >= ROW_BESIDE { LayoutType::Row } else { LayoutType::Wrap }))
                 .padding((12.0, 8.0))
                 .on_hovered(move |_me, app: &mut App, cx, on| {
                     // A row turns its piece while it is pointed at.
@@ -895,7 +936,7 @@ fn product_list(app: &mut App) -> Build<SkiaShape> {
         "3D in a scrolling list",
         "Thirty pieces of furniture, each with a live 3D thumbnail: point at a row to turn it, or drag a thumbnail sideways. Rows off screen draw nothing.",
         (
-            SkiaLayout::row().fill_x().margin((0.0, 0.0, 0.0, 8.0)).children((
+            SkiaLayout::wrap().spacing(8).fill_x().margin((0.0, 0.0, 0.0, 8.0)).children((
                 SkiaLabel::new("Shop").font_size(18).text_color(INK),
                 SkiaLabel::new("")
                     .font_size(13)
@@ -926,8 +967,8 @@ fn card_flip(app: &mut App) -> Build<SkiaShape> {
     panel(
         "Card flip",
         "A loyalty card in 3D: it leans toward the pointer and turns over to show its back.",
-        (SkiaLayout::row().spacing(24).fill_x().children((
-            SkiaShape::new().corner_radius(14).background_color(STAGE).width_request(VIEW.0).height_request(VIEW.1).children((SkiaModel3D::from_model(&card())
+        (split((
+            left_column(SkiaShape::new(), VIEW.0, VIEW.1).corner_radius(14).background_color(STAGE).children((SkiaModel3D::from_model(&card())
                 .view_angles(0.0, 0.0)
                 .zoom(0.74)
                 .tilt_to_pointer(14.0)
@@ -1014,7 +1055,7 @@ fn place_pins(app: &App, cx: &mut Cx, model: Option<&SkiaModel3D>) {
 
 fn globe_with_pins(app: &mut App) -> Build<SkiaShape> {
     let earth = app.earth.clone().expect("decoded at build");
-    let stage = SkiaShape::new().corner_radius(14).background_color(Color::from_rgb(8, 10, 22)).width_request(VIEW.0).height_request(VIEW.1).is_clipped_to_bounds(true).children((
+    let stage = left_column(SkiaShape::new(), VIEW.0, VIEW.1).corner_radius(14).background_color(Color::from_rgb(8, 10, 22)).is_clipped_to_bounds(true).children((
         SkiaModel3D::from_model(&globe())
             .view_angles(-20.0, 15.0)
             .zoom(0.9)
@@ -1044,7 +1085,7 @@ fn globe_with_pins(app: &mut App) -> Build<SkiaShape> {
     panel(
         "Globe with pins",
         "Drag the Earth to turn it. Pins stay on their cities and hide behind the globe; tap one for its name.",
-        (SkiaLayout::row().spacing(24).fill_x().children((
+        (split((
             stage,
             SkiaLayout::column().spacing(10).fill_x().children((
                 SkiaLabel::new("Offices").font_size(24).text_color(INK),
@@ -1168,7 +1209,17 @@ fn form_field(placeholder: &str, which: Field) -> Build<SkiaEditor> {
 }
 
 fn sign_up(app: &mut App) -> Build<SkiaShape> {
-    let form = SkiaShape::new().corner_radius(14).background_color(PAGE).padding(24).width_request(420).children((SkiaLayout::column().spacing(12).fill_x().children((
+    let form = SkiaShape::new()
+        .corner_radius(14)
+        .background_color(PAGE)
+        .padding(24)
+        .width_request(420)
+        .observe(|me, app: &App| {
+            let wide = two_columns(app);
+            me.set_width_request(if wide { 420.0 } else { -1.0 });
+            me.set_horizontal_options(if wide { LayoutOptions::Start } else { LayoutOptions::Fill });
+        })
+        .children((SkiaLayout::column().spacing(12).fill_x().children((
         SkiaLabel::new("Create your account").font_size(22).text_color(INK),
         SkiaLabel::new("It takes a minute. Our mascot will not peek at your password.").font_size(13).text_color(MUTED),
         form_field("Name", Field::Name).on_text_changed(|_me, app: &mut App, cx, text| {
@@ -1201,9 +1252,15 @@ fn sign_up(app: &mut App) -> Build<SkiaShape> {
     panel(
         "3D next to normal UI",
         "A plain sign-up form with a 3D mascot beside it: it watches what you type and looks away from your password.",
-        (SkiaLayout::row().spacing(24).fill_x().children((
+        (split((
             form,
-            SkiaShape::new().corner_radius(14).background_color(STAGE).fill_x().height_request(VIEW.1).children((SkiaModel3D::new(AVATAR)
+            SkiaShape::new()
+                .corner_radius(14)
+                .background_color(STAGE)
+                .fill_x()
+                .height_request(VIEW.1)
+                .observe(|me, app: &App| me.set_height_request(if two_columns(app) { VIEW.1 } else { STACKED_VIEW }))
+                .children((SkiaModel3D::new(AVATAR)
                 .animation("CharacterArmature|Idle")
                 // Seen from its left: it faces the form, which is to the left on screen.
                 .view_angles(MASCOT_YAW, 8.0)
@@ -1648,7 +1705,21 @@ fn build(app: &mut App) -> Build<SkiaLayout> {
     SkiaLayout::new().fill().background_color(PAGE).children((
         SkiaGrid::new().fill().row_spacing(0).row_definitions("Auto,*").children((
             // Static chrome over screens that draw every frame: blitted, not drawn again.
-            SkiaLayout::new().fill_x().height_request(64).padding((24, 0)).background_color(HEADER).use_cache(CacheType::Image).row(0).children((
+            SkiaLayout::new()
+                .fill_x()
+                .height_request(64)
+                .padding((24, 0))
+                .background_color(HEADER)
+                .use_cache(CacheType::Image)
+                .row(0)
+                .observe(|me, app: &App| {
+                    let one_line = app.width <= 0.0 || app.width >= HEADER_ONE_LINE;
+                    me.set_layout_type(if one_line { LayoutType::Absolute } else { LayoutType::Column });
+                    me.set_height_request(if one_line { 64.0 } else { -1.0 });
+                    me.set_padding(if one_line { Thickness::new(24.0, 0.0, 24.0, 0.0) } else { Thickness::new(16.0, 12.0, 16.0, 12.0) });
+                    me.set_spacing(10.0);
+                })
+                .children((
                 SkiaLayout::row().spacing(12).vertical_options(LayoutOptions::Center).children((
                     SkiaShape::new()
                         .corner_radius(8)
@@ -1791,7 +1862,16 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
         "Mobs on a 2D field",
         "Many 3D monsters from one model, moved like sprites and drawn by one layer in one pass. Tap one to hit it.",
         (
-            SkiaShape::new().width_request(FIELD.0).height_request(FIELD.1).corner_radius(10).is_clipped_to_bounds(true).background_color(Color::from_rgb(120, 190, 240)).children((
+            // The whole field scaled down to the card when the card is narrower than it.
+            SkiaShape::new()
+                .fill_x()
+                .maximum_width_request(FIELD.0)
+                .height_request(FIELD.1)
+                .observe(|me, app: &App| me.set_height_request(if app.width <= 0.0 { FIELD.1 } else { (FIELD.1 * card_inner(app.width).min(FIELD.0) / FIELD.0).round() }))
+                .corner_radius(10)
+                .is_clipped_to_bounds(true)
+                .background_color(Color::from_rgb(120, 190, 240))
+                .children((RescalingLayout::new(FIELD.0, FIELD.1).children((
                 SkiaLayout::new().fill().children(side_scroller(&mut app.scenery)),
                 SkiaScene3D::new()
                     .model("slime", MOB)
@@ -1801,8 +1881,8 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
                     .on_tapped_3d(|me, _app: &mut App, _cx, hit| {
                         me.play_once(&hit.object, "CharacterArmature|HitRecieve");
                     }),
-            )),
-            SkiaLayout::row().spacing(8).margin((0.0, 10.0, 0.0, 0.0)).children(
+            )),)),
+            SkiaLayout::wrap().spacing(8).margin((0.0, 10.0, 0.0, 0.0)).children(
                 [10usize, 40, 100].into_iter().map(|n| chip(&format!("{n} mobs"), move |app| app.mobs == n).width_request(110).on_tapped(move |_me, app: &mut App, _cx| app.mobs = n)).collect::<Vec<_>>(),
             ),
         ),
@@ -1837,5 +1917,12 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
 }
 
 fn main() {
-    drawnui::run("DrawnUI 3D Gallery", || Box::new(Ui::new(App::default(), build).font("Default", "assets/OpenSans-Regular.ttf").background(PAGE)));
+    drawnui::run("DrawnUI 3D Gallery", || {
+        Box::new(
+            Ui::new(App::default(), build)
+                .font("Default", "assets/OpenSans-Regular.ttf")
+                .background(PAGE)
+                .on_canvas_resized(|app: &mut App, size, _cx| app.width = size.width),
+        )
+    });
 }
