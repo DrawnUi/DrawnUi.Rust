@@ -34,7 +34,7 @@ mod waker;
 pub use animated_frames::{FramePlayer, FramesBuild, FramesSet};
 pub use animators::{AnimationId, Easing, FrameFn, FrameTick, ValueAnimator, easing};
 pub use bakes::BakeRequest;
-pub use control::{Control, GestureCx, Handled, Has, LayoutCx, PaintCx};
+pub use control::{Control, GestureCx, Handled, Has, IdleGpu, IdleGpuCx, LayoutCx, PaintCx};
 pub use fonts::Fonts;
 pub use gestures::{ContextMenuSource, Gesture, GestureKind, LONG_PRESS_MS, Manipulation, MouseButton, VelocityAccumulator};
 pub use gpu::{GlTarget, Gpu, GpuApi, VulkanHandles};

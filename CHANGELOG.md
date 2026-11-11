@@ -26,6 +26,10 @@ version before it. Commits in parentheses.
 
 ### Added
 
+- Idle GPU work for controls: `LayoutCx::request_idle_gpu` asks for one `Control::idle_gpu` call
+  after a coming frame, with the GPU context and the control's place on the canvas; at most one
+  control works after a frame (add-ons render ahead of being seen with it). Nothing runs while no
+  control asks.
 - `SkiaLabel::line_height_uniform`: every line as tall as the tallest one (off by default).
   `SkiaLabel::lines_height(n)`: the height n lines take, gaps included.
 

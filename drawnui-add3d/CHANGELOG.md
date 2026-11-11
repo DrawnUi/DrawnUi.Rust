@@ -4,6 +4,10 @@
 
 ### Added
 
+- 3D controls render ahead of being seen: a `SkiaModel3D` or `SkiaScene3D` laid out but not drawn yet
+  renders once off screen, after a frame, as soon as it comes within one screen height of the view, one control
+  per frame. Its model, images and drawing target are on the GPU when it scrolls in.
+
 - `SkiaModel3D`: a glTF / GLB scene drawn in 3D inside a DrawnUI screen (depth buffer, a light, base colors and
   color textures, skeleton animations). `play` loops, `play_once` plays once and blends back to the loop, `hold`
   stays on the last frame, `play_layer` runs another animation at the same time, moves cross-fade

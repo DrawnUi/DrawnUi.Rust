@@ -250,6 +250,36 @@ pub trait Control: Any {
             inner.on_props_changed(cx)
         }
     }
+
+    /// GPU work done ahead of time, after a frame (`LayoutCx::request_idle_gpu`): a control not
+    /// on screen yet can render once to upload what it draws. At most one control works after a
+    /// frame; the others wait for the next one.
+    fn idle_gpu(&mut self, _cx: &mut IdleGpuCx) -> IdleGpu {
+        IdleGpu::Done
+    }
+}
+
+/// What a control answers to `Control::idle_gpu`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IdleGpu {
+    /// Nothing done now (not near the screen yet): asked again after the next frame.
+    Wait,
+    /// GPU work done: no other control works after this frame. Not asked again.
+    Worked,
+    /// Nothing to do any more. Not asked again.
+    Done,
+}
+
+/// What `Control::idle_gpu` gets: the frame's GPU context and where the control is.
+pub struct IdleGpuCx<'a> {
+    pub gpu: &'a mut Gpu,
+    /// The control's rect on the canvas, pixels: where it is drawn once scrolled into view
+    /// (ancestors' scroll offsets and transforms applied).
+    pub rect: Rect,
+    /// The canvas height, pixels.
+    pub canvas_height: f32,
+    /// Pixels per point of the control.
+    pub scale: f32,
 }
 
 /// `Self` carries the properties part `P`, directly or through its inner chain.
@@ -422,6 +452,14 @@ impl LayoutCx<'_> {
     /// scroll offsets), in the control's own coordinates. Valid in `arrange`.
     pub fn visible_rect(&self) -> Rect {
         self.tree.visible_rect(self.id)
+    }
+
+    /// Asks for one `Control::idle_gpu` call after a coming frame (again after each frame while it
+    /// answers `IdleGpu::Wait`). Asking twice queues it once.
+    pub fn request_idle_gpu(&mut self) {
+        if !self.tree.idle_gpu.contains(&self.id) {
+            self.tree.idle_gpu.push(self.id);
+        }
     }
 
     /// Asks for an `arrange` whenever an ancestor scrolls. For controls that realize only what is

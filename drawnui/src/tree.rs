@@ -750,6 +750,8 @@ pub struct Tree {
     pub(crate) synthetic_clock: bool,
     /// Controls that arrange by what is visible (`LayoutCx::track_viewport`).
     pub(crate) trackers: Vec<ControlId>,
+    /// Controls waiting for GPU work after a frame (`LayoutCx::request_idle_gpu`), in order.
+    pub(crate) idle_gpu: Vec<ControlId>,
     /// The image manager: loads, the decoded bitmaps by source, `preload`.
     pub images: crate::images::Images,
     /// Asset loads of controls (SVG, Lottie, shader sources): urls out, bytes back.

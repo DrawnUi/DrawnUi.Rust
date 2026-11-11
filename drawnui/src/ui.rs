@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 
 use skia_safe::{Canvas, Color, Matrix, Paint, Point, RRect, Rect, Size};
 
-use crate::control::{GestureCx, Handled, PaintCx};
+use crate::control::{GestureCx, Handled, IdleGpu, IdleGpuCx, PaintCx};
 use crate::fonts::Fonts;
 use crate::gestures::{ContextMenuSource, Gesture, GestureKind, MouseButton, Multitouch, Recognizer};
 use crate::gpu::Gpu;
@@ -2360,6 +2360,7 @@ impl<S: 'static> Ui<S> {
             self.fps.draw(canvas, &self.fonts, content.bottom(), scale);
         }
         self.hover_after_frame(time_ms);
+        idle_gpu(&mut self.tree, gpu, height);
         self.fps.chained = self.needs_frame();
         // The focused control may have moved: the host's keyboard follows it.
         self.update_text_input();
@@ -2782,6 +2783,41 @@ impl Tree {
     #[cfg(feature = "designer")]
     pub fn drawn_rect(&self, id: impl Into<ControlId>) -> Option<Rect> {
         drawn_rect(self, id.into())
+    }
+}
+
+/// After a frame: the first control waiting for idle GPU work that does some (`Control::idle_gpu`).
+/// Controls under a hidden ancestor are not asked. Nothing at all on the CPU.
+fn idle_gpu(tree: &mut Tree, gpu: &mut Gpu, canvas_height: f32) {
+    if tree.idle_gpu.is_empty() || gpu.backend().is_none() {
+        return;
+    }
+    let mut i = 0;
+    while i < tree.idle_gpu.len() {
+        let id = tree.idle_gpu[i];
+        if tree.node(id).is_none() {
+            tree.idle_gpu.remove(i);
+            continue;
+        }
+        if tree.hidden_above(id) || tree.node(id).is_some_and(|n| !n.base.p.is_visible) {
+            i += 1;
+            continue;
+        }
+        let rect = tree.screen_rect(id);
+        let Some(mut node) = tree.take(id) else { break };
+        let scale = node.base.scale;
+        let answer = node.kind.as_deref_mut().map_or(IdleGpu::Done, |control| control.idle_gpu(&mut IdleGpuCx { gpu: &mut *gpu, rect, canvas_height, scale }));
+        tree.put_back(node);
+        match answer {
+            IdleGpu::Wait => i += 1,
+            IdleGpu::Done => {
+                tree.idle_gpu.remove(i);
+            }
+            IdleGpu::Worked => {
+                tree.idle_gpu.remove(i);
+                return;
+            }
+        }
     }
 }
 

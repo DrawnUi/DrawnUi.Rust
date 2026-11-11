@@ -6,7 +6,7 @@
 //! `tilt` degrees on each object, so a game moves them as it moves 2D sprites.
 
 use std::any::Any;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use glam::{Mat4, Quat, Vec3};
@@ -15,7 +15,7 @@ use drawnui::skia::{Color, ISize, Paint, Rect, SamplingOptions};
 use super::player::Player;
 use super::render;
 use super::scene::{self, MaterialOverride, Scene};
-use drawnui::{Build, Control, ControlId, Cx, Dirty, FrameTick, Gesture, GestureCx, GestureKind, Handled, LayoutCx, Mut, PaintCx, downcast_state};
+use drawnui::{Build, Control, ControlId, Cx, Dirty, FrameTick, Gesture, GestureCx, GestureKind, Gpu, Handled, IdleGpu, IdleGpuCx, LayoutCx, Mut, PaintCx, downcast_state};
 
 /// What a tap on the layer hit (`SkiaScene3D::on_tapped_3d`): the object by its name, and the node
 /// and material of its model under the finger.
@@ -60,6 +60,10 @@ pub struct SkiaScene3D {
     models: Vec<Model>,
     objects: Vec<Object>,
     target: RefCell<Option<render::Target>>,
+    /// It rendered once (on screen or ahead): its models and images are on the GPU.
+    gpu_ready: Cell<bool>,
+    /// Waiting to render ahead (`LayoutCx::request_idle_gpu`).
+    prefetch_queued: bool,
     /// Forward tilt of every object, degrees: how much of its top the player sees.
     tilt: f32,
     playing: bool,
@@ -89,6 +93,8 @@ impl SkiaScene3D {
             models: Vec::new(),
             objects: Vec::new(),
             target: RefCell::new(None),
+            gpu_ready: Cell::new(false),
+            prefetch_queued: false,
             tilt: 15.0,
             playing: true,
             last_ms: None,
@@ -256,6 +262,23 @@ impl Control for SkiaScene3D {
             self.off_screen = false;
             self.update_ticking(&mut cx.cx());
         }
+        // Laid out and not drawn yet: it renders ahead once it is near the screen.
+        if !self.gpu_ready.get() && !self.prefetch_queued {
+            self.prefetch_queued = true;
+            cx.request_idle_gpu();
+        }
+    }
+
+    fn idle_gpu(&mut self, cx: &mut IdleGpuCx) -> IdleGpu {
+        if self.gpu_ready.get() {
+            return IdleGpu::Done;
+        }
+        if self.objects.is_empty() || !super::prefetch_near(cx) {
+            return IdleGpu::Wait;
+        }
+        let size = ISize::new(cx.rect.width().round() as i32, cx.rect.height().round() as i32);
+        self.prefetch_queued = false;
+        if self.render(cx.gpu, size, cx.scale).is_some() { IdleGpu::Worked } else { IdleGpu::Done }
     }
 
     fn on_gesture(&mut self, cx: &mut GestureCx, gesture: &Gesture) -> Handled {
@@ -282,10 +305,20 @@ impl Control for SkiaScene3D {
     fn paint(&self, cx: &mut PaintCx) {
         let rect = cx.rect;
         let size = ISize::new(rect.width().round() as i32, rect.height().round() as i32);
+        let (canvas, scale) = (cx.canvas, cx.scale);
+        let Some(gpu) = cx.gpu() else { return };
+        let Some(image) = self.render(gpu, size, scale) else { return };
+        canvas.draw_image_rect_with_sampling_options(&image, None, Rect::from_xywh(rect.left, rect.top, size.width as f32, size.height as f32), SamplingOptions::default(), &Paint::default());
+    }
+}
+
+impl SkiaScene3D {
+    /// The visible objects at `size` pixels, into its own target: on screen and ahead (`idle_gpu`).
+    fn render(&self, gpu: &mut Gpu, size: ISize, scale: f32) -> Option<drawnui::skia::Image> {
         if size.width <= 0 || size.height <= 0 || self.objects.is_empty() {
-            return;
+            return None;
         }
-        let scale = cx.scale.max(0.1);
+        let scale = scale.max(0.1);
         let view_proj = Self::camera((size.width as f32 / scale, size.height as f32 / scale));
         let visible: Vec<&Object> = self.objects.iter().filter(|o| o.visible).collect();
         let poses: Vec<Vec<Mat4>> = visible.iter().map(|o| self.pose(o)).collect();
@@ -296,11 +329,10 @@ impl Control for SkiaScene3D {
             .zip(&hidden)
             .map(|((o, pose), hidden)| render::Item { scene: &self.models[o.model].scene, pose, hidden, materials: &o.materials })
             .collect();
-        let canvas = cx.canvas;
-        let Some(gpu) = cx.gpu() else { return };
         let style = render::Style { look: self.look, outline: self.outline.0 * scale, outline_color: super::outline_color(self.outline.1), antialias: self.antialias };
-        let Some(image) = render::draw(&mut self.target.borrow_mut(), gpu, &items, &style, view_proj, size) else { return };
-        canvas.draw_image_rect_with_sampling_options(&image, None, Rect::from_xywh(rect.left, rect.top, size.width as f32, size.height as f32), SamplingOptions::default(), &Paint::default());
+        let image = render::draw(&mut self.target.borrow_mut(), gpu, &items, &style, view_proj, size)?;
+        self.gpu_ready.set(true);
+        Some(image)
     }
 }
 

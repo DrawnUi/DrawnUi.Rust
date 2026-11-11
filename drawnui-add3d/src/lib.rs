@@ -42,13 +42,13 @@ pub enum Look {
 }
 
 use std::any::Any;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use glam::{Mat4, Quat, Vec3};
 use drawnui::skia::{Color, ISize, Paint, Rect, SamplingOptions};
 
-use drawnui::{Build, Control, ControlId, Cx, Dirty, FrameTick, Gesture, GestureCx, GestureKind, Handled, LayoutCx, Mut, PaintCx, downcast_state};
+use drawnui::{Build, Control, ControlId, Cx, Dirty, FrameTick, Gesture, GestureCx, GestureKind, Gpu, Handled, IdleGpu, IdleGpuCx, LayoutCx, Mut, PaintCx, downcast_state};
 use player::Player;
 use scene::{MaterialOverride, Scene};
 
@@ -134,6 +134,10 @@ pub struct SkiaModel3D {
     error: Option<String>,
     /// The texture it draws into, made at the first paint on a GL context.
     target: RefCell<Option<render::Target>>,
+    /// It rendered once (on screen or ahead, `prefetch_near`): its model and images are on the GPU.
+    gpu_ready: Cell<bool>,
+    /// Waiting to render ahead (`LayoutCx::request_idle_gpu`).
+    prefetch_queued: bool,
     /// The animation asked for by name before the first frame (`Build::animation`).
     start_animation: Option<String>,
     player: Player,
@@ -220,6 +224,8 @@ impl SkiaModel3D {
             scene,
             error,
             target: RefCell::new(None),
+            gpu_ready: Cell::new(false),
+            prefetch_queued: false,
             start_animation: None,
             last_ms: None,
             ticking: false,
@@ -511,6 +517,32 @@ fn tick(id: ControlId, time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> Fr
     .unwrap_or_default()
 }
 
+/// Rendering ahead (`Control::idle_gpu`): within one canvas height above or below the screen, as
+/// DrawnUi.Net's Prefetch3D. The first frame on screen then finds the model, its images, the
+/// program and the target uploaded.
+fn prefetch_near(cx: &IdleGpuCx) -> bool {
+    let h = cx.canvas_height;
+    cx.rect.height() > 0.0 && cx.rect.bottom > -h && cx.rect.top < 2.0 * h
+}
+
+impl SkiaModel3D {
+    /// The scene at `size` pixels, into its own target: on screen and ahead (`idle_gpu`).
+    fn render(&self, gpu: &mut Gpu, size: ISize, scale: f32) -> Option<drawnui::skia::Image> {
+        if size.width <= 0 || size.height <= 0 {
+            return None;
+        }
+        let scene = self.scene.as_ref()?;
+        let pose = scene.world(&self.locals(scene));
+        let view_proj = self.camera(scene, (size.width as f32, size.height as f32));
+        let hidden = self.hidden(scene);
+        let style = render::Style { look: self.look, outline: self.outline.0 * scale, outline_color: outline_color(self.outline.1), antialias: self.antialias };
+        let items = [render::Item { scene, pose: &pose, hidden: &hidden, materials: &self.materials }];
+        let image = render::draw(&mut self.target.borrow_mut(), gpu, &items, &style, view_proj, size)?;
+        self.gpu_ready.set(true);
+        Some(image)
+    }
+}
+
 impl Control for SkiaModel3D {
     fn on_props_changed(&mut self, cx: &mut Cx) {
         if let Some(name) = self.start_animation.take()
@@ -540,6 +572,23 @@ impl Control for SkiaModel3D {
             self.off_screen = false;
             self.update_ticking(&mut cx.cx());
         }
+        // Laid out and not drawn yet: it renders ahead once it is near the screen.
+        if !self.gpu_ready.get() && !self.prefetch_queued {
+            self.prefetch_queued = true;
+            cx.request_idle_gpu();
+        }
+    }
+
+    fn idle_gpu(&mut self, cx: &mut IdleGpuCx) -> IdleGpu {
+        if self.gpu_ready.get() {
+            return IdleGpu::Done;
+        }
+        if self.scene.is_none() || !prefetch_near(cx) {
+            return IdleGpu::Wait;
+        }
+        let size = ISize::new(cx.rect.width().round() as i32, cx.rect.height().round() as i32);
+        self.prefetch_queued = false;
+        if self.render(cx.gpu, size, cx.scale).is_some() { IdleGpu::Worked } else { IdleGpu::Done }
     }
 
     fn on_gesture(&mut self, cx: &mut GestureCx, gesture: &Gesture) -> Handled {
@@ -620,18 +669,9 @@ impl Control for SkiaModel3D {
     fn paint(&self, cx: &mut PaintCx) {
         let rect = cx.rect;
         let size = ISize::new(rect.width().round() as i32, rect.height().round() as i32);
-        if size.width <= 0 || size.height <= 0 {
-            return;
-        }
-        let Some(scene) = self.scene.as_ref() else { return };
-        let pose = scene.world(&self.locals(scene));
-        let view_proj = self.camera(scene, (size.width as f32, size.height as f32));
-        let hidden = self.hidden(scene);
-        let style = render::Style { look: self.look, outline: self.outline.0 * cx.scale, outline_color: outline_color(self.outline.1), antialias: self.antialias };
-        let canvas = cx.canvas;
+        let (canvas, scale) = (cx.canvas, cx.scale);
         let Some(gpu) = cx.gpu() else { return };
-        let items = [render::Item { scene, pose: &pose, hidden: &hidden, materials: &self.materials }];
-        let Some(image) = render::draw(&mut self.target.borrow_mut(), gpu, &items, &style, view_proj, size) else { return };
+        let Some(image) = self.render(gpu, size, scale) else { return };
         canvas.draw_image_rect_with_sampling_options(&image, None, Rect::from_xywh(rect.left, rect.top, size.width as f32, size.height as f32), SamplingOptions::default(), &Paint::default());
     }
 }
