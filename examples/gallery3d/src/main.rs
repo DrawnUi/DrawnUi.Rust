@@ -1299,7 +1299,9 @@ fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
         let shift = (app.pan * share).rem_euclid(FIELD.0);
         for (copy, layer) in pair.iter().enumerate() {
             if let Some(mut layer) = cx.get_mut(*layer) {
-                layer.set_translation_x(copy as f32 * FIELD.0 - shift);
+                // Whole device pixels: the two copies meet on a pixel edge, with no blended seam.
+                let scale = layer.base().scale.max(0.01);
+                layer.set_translation_x(((copy as f32 * FIELD.0 - shift) * scale).round() / scale);
             }
         }
     }
