@@ -750,6 +750,8 @@ pub struct Tree {
     pub(crate) synthetic_clock: bool,
     /// Controls that arrange by what is visible (`LayoutCx::track_viewport`).
     pub(crate) trackers: Vec<ControlId>,
+    /// The frame time of the first shader frame (`Cx::animate_shaders`): iTime counts from it.
+    pub(crate) shader_time_origin_ms: Option<f64>,
     /// While a pan goes into a scroll's children: the axes (horizontal, vertical) each scroll on the
     /// way can move along, outermost first (scroll chaining).
     pub(crate) outer_scrolls: Vec<(bool, bool)>,

@@ -8,6 +8,8 @@ version before it. Commits in parentheses.
 
 ### Changed
 
+- Shader `iTime` from `Cx::animate_shaders` counts seconds from the first shader frame of the app (one
+  origin for all effects), so animated shaders stay smooth however long the device or page has been up.
 - A drag that starts on a scroll inside another one (a list in a page) goes on to the outer scroll when the
   inner one is already at its end in that direction, as browsers chain scrolling; otherwise the inner one
   keeps the whole drag, never handing it over midway. Same axis only; pull to refresh and the edge bounce of

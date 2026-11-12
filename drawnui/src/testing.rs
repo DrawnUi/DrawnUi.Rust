@@ -95,6 +95,12 @@ impl<S: 'static> Headless<S> {
         self.time_ms
     }
 
+    /// Moves the frame clock to `ms` (a clock that started long ago: device uptime, a page open for
+    /// days). Frames go on from there.
+    pub fn set_time_ms(&mut self, ms: f64) {
+        self.time_ms = ms;
+    }
+
     /// Moves the clock forward by `ms`, then renders one frame.
     pub fn frame_after(&mut self, ms: f64) {
         self.time_ms += ms;

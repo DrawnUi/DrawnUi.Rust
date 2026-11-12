@@ -186,8 +186,10 @@ fn itime_frames_come_only_while_animated_and_the_cache_stays() {
     assert_eq!(host.pixel(60, 50), Color::from_rgb(0, 255, 0));
 
     let animation = host.ui.tree.cx().animate_shaders(id);
-    // iTime is the frame time in seconds.
-    let red = |host: &Headless<()>| Color::from_rgb(((host.time_ms() / 1000.0).fract() * 255.0).round() as u8, 255, 0);
+    // iTime is the seconds since the first shader frame.
+    host.frame_after(16.0);
+    let origin = host.time_ms();
+    let red = move |host: &Headless<()>| Color::from_rgb((((host.time_ms() - origin) / 1000.0).fract() * 255.0).round() as u8, 255, 0);
     host.frame_after(250.0);
     assert!(near(host.pixel(60, 50), red(&host), 1), "{:?} vs {:?}", host.pixel(60, 50), red(&host));
     host.frame_after(250.0);
@@ -201,6 +203,24 @@ fn itime_frames_come_only_while_animated_and_the_cache_stays() {
     host.ui.tree.cx().stop_animation(animation);
     host.settle();
     assert!(!host.ui.needs_frame() && host.ui.wake_at().is_none());
+}
+
+#[test]
+fn itime_counts_from_the_first_shader_frame_on_a_clock_that_started_days_ago() {
+    // A frame clock from the device's boot, 18 days up: as a float its steps are 0.125 s; iTime
+    // from the first shader frame stays exact (drawnui-cross 6bq, .NET ShaderTimeTests).
+    let mut id: Handle<SkiaLayout> = Handle::default();
+    let mut host = host(block(Color::GREEN).use_cache(CacheType::Image).visual_effect(SkiaShaderEffect::new().shader_code(TIMED)).assign(&mut id));
+    host.set_time_ms(18.0 * 24.0 * 3600.0 * 1000.0 + 0.4);
+    host.ui.tree.cx().animate_shaders(id);
+    host.frame_after(16.0);
+    let origin = host.time_ms();
+    for step in 1..=12 {
+        host.frame_after(17.0);
+        let seconds = (host.time_ms() - origin) / 1000.0;
+        let expected = Color::from_rgb((seconds.fract() * 255.0).round() as u8, 255, 0);
+        assert!(near(host.pixel(60, 50), expected, 1), "frame {step}: {:?} vs {expected:?} ({seconds} s)", host.pixel(60, 50));
+    }
 }
 
 #[test]

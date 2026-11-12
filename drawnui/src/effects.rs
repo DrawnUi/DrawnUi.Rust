@@ -138,14 +138,18 @@ impl<T: ?Sized> Mut<'_, T> {
 }
 
 impl Cx<'_> {
-    /// Keeps the `iTime` shaders of a control running: every frame their time is the frame time
-    /// (seconds) and the control repaints, until the returned animation is stopped (React
-    /// ShadersPage: a looping animator on the host). A shader nobody animates draws no frames.
+    /// Keeps the `iTime` shaders of a control running: every frame their time is the seconds since
+    /// the first shader frame of the app (one origin, so all effects stay in step) and the control
+    /// repaints, until the returned animation is stopped (React ShadersPage: a looping animator on
+    /// the host). A shader nobody animates draws no frames. The difference is taken in f64 before
+    /// it becomes the shader's float: a frame clock counted from the device's boot is days large,
+    /// and as a float it moves in visible steps (drawnui-cross 6bq).
     pub fn animate_shaders(&mut self, id: impl Into<ControlId>) -> AnimationId {
         let id = id.into();
         self.action_on_tick(id, move |time_ms, cx| {
+            let origin = *cx.tree.shader_time_origin_ms.get_or_insert(time_ms);
             if let Some(mut control) = cx.any_mut(id) {
-                control.set_shader_time((time_ms / 1000.0) as f32);
+                control.set_shader_time(((time_ms - origin) / 1000.0) as f32);
             }
         })
     }
