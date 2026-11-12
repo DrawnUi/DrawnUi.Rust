@@ -7,6 +7,8 @@
 - 3D controls render ahead of being seen: a `SkiaModel3D` or `SkiaScene3D` laid out but not drawn yet
   renders once off screen, after a frame, as soon as it comes within one screen height of the view, one control
   per frame. Its model, images and drawing target are on the GPU when it scrolls in.
+- `set_look` / `set_outline` on `SkiaScene3D` and `SkiaModel3D`: change how a running scene is drawn in place (a
+  "3D | Drawn" switch), objects, places and animations untouched.
 - A model in a page never stops it scrolling: with `pinch_zoom`, only a wheel with Ctrl (Cmd) or a touchpad pinch
   zooms; a plain wheel goes to the scroll around it. A drag decides its direction on its first move: mostly up or
   down scrolls the page and leaves the model as it is, mostly sideways turns it (its vertical part tilting it unless

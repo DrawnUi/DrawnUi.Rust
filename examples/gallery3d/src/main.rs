@@ -496,6 +496,8 @@ struct App {
     pan: f32,
     walkers: Vec<Walker>,
     mobs: usize,
+    /// The mobs drawn like an illustration (`DRAWN_MOBS`) instead of shaded.
+    mobs_drawn: bool,
     dice: Dice,
 }
 
@@ -1411,6 +1413,13 @@ fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
 const GROUND: (f32, f32) = (196.0, 262.0);
 /// How fast the scene pans, points per second, and each layer's share of it (far ones move less).
 const PAN_SPEED: f32 = 33.0;
+/// "Drawn" mobs: the flat-shaded trick of the made-in-code pieces, a toon look with an ink outline.
+const DRAWN_MOBS: (Look, f32, Color) = (Look::Toon, 2.0, Color::from_rgb(43, 37, 64));
+/// No outline (the 3D look).
+fn ink_none() -> Color {
+    Color::TRANSPARENT
+}
+
 /// A layer copy every this many points: a point less than the layer, so the copies overlap.
 const REPEAT: f32 = FIELD.0 - 1.0;
 const PARALLAX: [f32; 4] = [0.08, 0.2, 0.45, 1.0];
@@ -1895,9 +1904,32 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
                         me.play_once(&hit.object, "CharacterArmature|HitRecieve");
                     }),
             )),)),
-            SkiaLayout::wrap().spacing(8).margin((0.0, 10.0, 0.0, 0.0)).children(
+            // How many, then how they look: 3D (shaded) or Drawn, switched in place.
+            SkiaLayout::wrap().spacing(8).margin((0.0, 10.0, 0.0, 0.0)).children((
                 [10usize, 40, 100].into_iter().map(|n| chip(&format!("{n} mobs"), move |app| app.mobs == n).width_request(110).on_tapped(move |_me, app: &mut App, _cx| app.mobs = n)).collect::<Vec<_>>(),
-            ),
+                SkiaShape::new()
+                    .corner_radius(12)
+                    .background_color(STAGE)
+                    .padding(3)
+                    .margin((8.0, 0.0, 0.0, 0.0))
+                    .accessibility_role(Aria::RADIO_GROUP)
+                    .accessibility_label("Look")
+                    .children((SkiaLayout::row().spacing(3).children(
+                        [("3D", false), ("Drawn", true)]
+                            .into_iter()
+                            .map(|(caption, drawn)| {
+                                chip(caption, move |app| app.mobs_drawn == drawn).width_request(90).accessibility_role(Aria::RADIO).on_tapped(move |_me, app: &mut App, cx| {
+                                    app.mobs_drawn = drawn;
+                                    if let Some(mut field) = cx.get_mut(app.field) {
+                                        let (look, width, ink) = if drawn { DRAWN_MOBS } else { (Look::Lit, 0.0, ink_none()) };
+                                        field.set_look(look);
+                                        field.set_outline(width, ink);
+                                    }
+                                })
+                            })
+                            .collect::<Vec<_>>(),
+                    ),)),
+            )),
         ),
     );
     DrawnGame::new().fill().start_loop(0.0).on_game_loop(|_me, app: &mut App, cx, delta| game_loop(app, cx, delta)).children((

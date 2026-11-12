@@ -414,6 +414,12 @@ impl Scene3DBuild for Build<SkiaScene3D> {
 
 /// Driving a `SkiaScene3D` from handlers (`cx.get_mut(handle)`), `use drawnui_add3d::prelude::*`.
 pub trait Scene3DSet {
+    /// How objects are drawn from now on (see `Scene3DBuild::look`); objects and their places stay.
+    fn set_look(&mut self, look: super::Look);
+
+    /// An outline around every shape, `width` points (0 = none), from now on.
+    fn set_outline(&mut self, width: f32, color: Color);
+
     /// Places an object made of `model` (a name given to `model`), standing at (x, y) of the layer
     /// in points, `size` points tall; it loops its model's first animation. The same name replaces
     /// an object. False when there is no such model.
@@ -464,6 +470,16 @@ pub trait Scene3DSet {
 }
 
 impl Scene3DSet for Mut<'_, SkiaScene3D> {
+    fn set_look(&mut self, look: super::Look) {
+        self.control_mut().look = look;
+        self.mark(Dirty::DRAW);
+    }
+
+    fn set_outline(&mut self, width: f32, color: Color) {
+        self.control_mut().outline = (width.max(0.0), color);
+        self.mark(Dirty::DRAW);
+    }
+
     fn add(&mut self, name: &str, model: &str, x: f32, y: f32, size: f32) -> bool {
         let layer = self.control_mut();
         let Some(m) = layer.models.iter().position(|m| m.name == model) else { return false };

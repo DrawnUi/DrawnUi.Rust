@@ -903,6 +903,12 @@ impl Model3DBuild for Build<SkiaModel3D> {
 
 /// Driving a `SkiaModel3D` from handlers (`cx.get_mut(handle)`), `use drawnui_add3d::prelude::*`.
 pub trait Model3DSet {
+    /// How it is drawn from now on (see `Model3DBuild::look`).
+    fn set_look(&mut self, look: Look);
+
+    /// An outline around every shape, `width` points (0 = none), from now on.
+    fn set_outline(&mut self, width: f32, color: Color);
+
     /// Loops the animation with this name, blending into it; false when the scene has none such.
     fn play(&mut self, name: &str) -> bool;
 
@@ -986,6 +992,16 @@ pub trait Model3DSet {
 }
 
 impl Model3DSet for Mut<'_, SkiaModel3D> {
+    fn set_look(&mut self, look: Look) {
+        self.control_mut().look = look;
+        self.mark(Dirty::DRAW);
+    }
+
+    fn set_outline(&mut self, width: f32, color: Color) {
+        self.control_mut().outline = (width.max(0.0), color);
+        self.mark(Dirty::DRAW);
+    }
+
     fn play(&mut self, name: &str) -> bool {
         with_animation(self, name, Player::play)
     }
