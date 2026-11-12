@@ -135,6 +135,10 @@ const CHEERS: [&str; 8] = ["WELL DONE!", "NICE RUN!", "YOU ARE KILLING IT!", "UN
 /// Seconds of clean running between two cheers.
 const CHEER_EVERY: f32 = 12.0;
 
+/// The framework's name in the bottom right corner at all times, so every screenshot and video says
+/// what runs it. False hides it (clean captures).
+const SHOW_WATERMARK: bool = true;
+
 /// GAME OVER and the caption under it (55 points below) go up by this, to stand centered as one block.
 const GAME_OVER_LIFT: f32 = 20.0;
 
@@ -1098,6 +1102,18 @@ fn build(app: &mut App) -> Build<SkiaShell> {
             .uniform("uBurn", &[0.0])
             .on_compilation_error(|_me, _app: &mut App, _cx, error: &str| eprintln!("dungeon: curtain SkSL: {error}")),
     );
+    // The framework's name, bottom right, over the post effect: faint, never read aloud.
+    let watermark = SkiaLabel::new("RUST")
+        .font_family("FontScore")
+        .font_size(22)
+        .text_color(Color::new(0x33FF_FFFF))
+        .horizontal_options(LayoutOptions::End)
+        .vertical_options(LayoutOptions::End)
+        .margin((0, 0, 16, 12))
+        .input_transparent(true)
+        .is_visible(SHOW_WATERMARK)
+        .use_cache(CacheType::Image)
+        .accessibility_role(Aria::PRESENTATION);
     let fps = SkiaLabelFps::new().font_size(12).padding((8, 4, 8, 4)).margin((16, 16, 0, 0)).assign(&mut app.fps);
     let buttons = SkiaRow::new()
         .spacing(8)
@@ -1204,7 +1220,7 @@ fn build(app: &mut App) -> Build<SkiaShell> {
             prompt,
             count,
             title,
-            restart,
+            (restart, watermark),
             curtain,
             SkiaBackdrop::new().blur(1.5).background_color(Color::new(0x7300_0000)).fill().input_transparent(true).is_visible(false).assign(&mut app.veil),
         )))
