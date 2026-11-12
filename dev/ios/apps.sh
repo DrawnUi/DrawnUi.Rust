@@ -6,6 +6,7 @@ launch_color=000000
 case "$crate" in
     hellorust) name=HelloRust; bundle=HelloRust ;;
     dungeon) name="Dungeon Run"; bundle=DungeonRun; launch_color=000000 ;;
+    gallery3d) name="DrawnUI 3D"; bundle=DrawnUI3D; launch_color=0E1018 ;;
     *) name="$crate"; bundle="$crate" ;;
 esac
 bundle_id="net.drawnui.$crate"

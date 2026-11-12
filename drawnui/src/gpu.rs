@@ -21,6 +21,9 @@ pub struct Gpu {
     tracked: Option<u64>,
     /// The Vulkan objects the context was made on (Android).
     vulkan: Option<VulkanHandles>,
+    /// The Metal device and command queue the context was made on (macOS, iOS).
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    metal: Option<(mtl::Handle, mtl::Handle)>,
 }
 
 /// The GPU API a context draws with (`Gpu::backend`).
@@ -92,7 +95,14 @@ fn flush_info(serial: Option<u64>, semaphores: Option<&mut [gpu::BackendSemaphor
 
 impl Gpu {
     fn with(ctx: Option<DirectContext>, epoch: u32) -> Self {
-        Self { ctx, epoch, tracked: None, vulkan: None }
+        Self {
+            ctx,
+            epoch,
+            tracked: None,
+            vulkan: None,
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            metal: None,
+        }
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "ios")))]
@@ -198,7 +208,7 @@ impl Gpu {
     pub(crate) unsafe fn new_metal(device: mtl::Handle, queue: mtl::Handle) -> Option<Self> {
         let backend = unsafe { mtl::BackendContext::new(device, queue) };
         let ctx = gpu::direct_contexts::make_metal(&backend, None)?;
-        Some(Self::with(Some(ctx), 0))
+        Some(Self { metal: Some((device, queue)), ..Self::with(Some(ctx), 0) })
     }
 
     /// The Metal context after `lost`'s was lost: the next epoch, as `new_gl_after`.
@@ -396,6 +406,15 @@ impl Gpu {
         let ctx = self.ctx.as_mut().filter(|ctx| ctx.backend() == BackendAPI::Vulkan)?;
         let texture = unsafe { gpu::backend_textures::make_vk((size.width, size.height), info, "import") };
         gpu::images::borrow_texture_from(ctx, &texture, origin, color, AlphaType::Premul, None)
+    }
+
+    /// The Metal device and command queue the context draws with (`id<MTLDevice>`,
+    /// `id<MTLCommandQueue>`), for add-ons that draw with Metal themselves into a texture they
+    /// then hand over with `import_metal_texture`. Work committed on this queue before the frame
+    /// ends runs before Skia's work of that frame. `None` on other GPU APIs and on the CPU.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    pub fn metal_handles(&self) -> Option<(*const std::ffi::c_void, *const std::ffi::c_void)> {
+        self.metal.filter(|_| self.ctx.is_some())
     }
 
     /// The Vulkan objects the context draws with (Android on Vulkan); `None` elsewhere.

@@ -19,3 +19,14 @@ drawnui = { path = "../drawnui", version = "0.1.0-preview.37" }
 # The glTF reader without its image decoders (Skia decodes), and the vector math for poses and cameras.
 gltf = { version = "1.4", default-features = false, features = ["utils", "names"] }
 glam = "0.30"
+
+# Metal on macOS and iOS: the shaders, buffers, textures and passes, on the device and queue Skia
+# draws with.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+objc2 = { version = "0.6.3", default-features = false, features = ["std"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSError"] }
+objc2-metal = { version = "0.3.2", default-features = false, features = [
+    "std", "MTLAllocation", "MTLBlitCommandEncoder", "MTLBuffer", "MTLCommandBuffer", "MTLCommandEncoder", "MTLCommandQueue",
+    "MTLDepthStencil", "MTLDevice", "MTLLibrary", "MTLPixelFormat", "MTLRenderCommandEncoder", "MTLRenderPass",
+    "MTLRenderPipeline", "MTLResource", "MTLSampler", "MTLTexture", "MTLTypes", "MTLArgument",
+] }

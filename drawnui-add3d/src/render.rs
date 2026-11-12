@@ -1,14 +1,16 @@
-//! The GPU side: one shader program and one copy of each model per GL context, shared by every
+//! The GPU side: one shader program and one copy of each model per GPU context, shared by every
 //! control; each control draws its objects in one pass into its own texture, which Skia shows.
-//! WebGL2 (the browser) for now: elsewhere `draw` draws nothing.
-#![cfg_attr(not(target_os = "emscripten"), allow(dead_code, unused_imports))]
+//! WebGL2 (the browser) and Metal (macOS, iOS); elsewhere `draw` draws nothing yet.
+#![cfg_attr(not(any(target_os = "emscripten", target_os = "macos", target_os = "ios")), allow(dead_code, unused_imports))]
 
 use std::rc::Rc;
 
 use glam::Mat4;
+#[allow(unused_imports)]
 use drawnui::skia::{ISize, Image};
 
 use super::scene::{MaterialOverride, Scene};
+#[allow(unused_imports)]
 use drawnui::Gpu;
 
 /// One object to draw: its scene, every node's world matrix (the object's place included), the
@@ -36,35 +38,48 @@ pub(super) fn msaa_samples(max: i32) -> i32 {
     if max < 2 { 0 } else { max.min(4) }
 }
 
-/// A control's frame: the texture it draws into, with its depth buffer.
-pub(super) struct Target {
-    epoch: u32,
-    frame: u32,
-    color: u32,
-    depth: u32,
-    size: ISize,
-    /// With `antialias`: the multisampled frame drawn into, its color and depth buffers, its
-    /// samples and size; resolved into `color` after each draw.
-    msaa: Option<Msaa>,
+/// One normal per position, the average of the normals there: an outline pushed along them
+/// stays closed at hard edges (a coin's rim, a box's corner).
+fn outline_normals(p: &super::scene::Primitive) -> Vec<[f32; 3]> {
+    if !p.outline_normals.is_empty() {
+        return p.outline_normals.clone();
+    }
+    let key = |v: &[f32; 3]| v.map(|c| (c * 10_000.0).round() as i32);
+    let mut sums: std::collections::HashMap<[i32; 3], glam::Vec3> = std::collections::HashMap::new();
+    for (v, n) in p.positions.iter().zip(&p.normals) {
+        *sums.entry(key(v)).or_insert(glam::Vec3::ZERO) += glam::Vec3::from(*n);
+    }
+    p.positions.iter().map(|v| sums[&key(v)].normalize_or_zero().to_array()).collect()
 }
 
-struct Msaa {
-    frame: u32,
-    color: u32,
-    depth: u32,
-    size: ISize,
+/// Where the camera is (w 1), or the way it looks for a camera without a place (w 0).
+fn eye(view_proj: Mat4) -> glam::Vec4 {
+    let toward = view_proj.inverse() * glam::Vec4::new(0.0, 0.0, 1.0, 0.0);
+    if toward.w.abs() > 1e-6 { (toward.truncate() / toward.w).extend(1.0) } else { (-toward.truncate()).normalize_or_zero().extend(0.0) }
 }
 
-#[cfg(not(target_os = "emscripten"))]
-pub(super) fn draw(_target: &mut Option<Target>, _gpu: &mut Gpu, _items: &[Item], _style: &Style, _view_proj: Mat4, _size: ISize) -> Option<Image> {
-    None
-}
+#[cfg(not(any(target_os = "emscripten", target_os = "macos", target_os = "ios")))]
+pub(super) use none::{Target, draw, start_program};
 
-#[cfg(not(target_os = "emscripten"))]
-pub(super) fn start_program() {}
+#[cfg(not(any(target_os = "emscripten", target_os = "macos", target_os = "ios")))]
+mod none {
+    use super::*;
+
+    /// No GPU drawing here yet.
+    pub(in super::super) struct Target;
+
+    pub(in super::super) fn draw(_target: &mut Option<Target>, _gpu: &mut Gpu, _items: &[Item], _style: &Style, _view_proj: Mat4, _size: ISize) -> Option<Image> {
+        None
+    }
+
+    pub(in super::super) fn start_program() {}
+}
 
 #[cfg(target_os = "emscripten")]
-pub(super) use gl::{draw, start_program};
+pub(super) use gl::{Target, draw, start_program};
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub(super) use metal::{Target, draw, start_program};
 
 #[cfg(target_os = "emscripten")]
 mod gl {
@@ -80,6 +95,25 @@ mod gl {
 
     /// Joint matrices a skinned mesh may use (WebGL2 guarantees 256 vertex uniform vectors).
     const MAX_JOINTS: usize = 64;
+
+    /// A control's frame: the texture it draws into, with its depth buffer.
+    pub(in super::super) struct Target {
+        epoch: u32,
+        frame: u32,
+        color: u32,
+        depth: u32,
+        size: ISize,
+        /// With `antialias`: the multisampled frame drawn into, its color and depth buffers, its
+        /// samples and size; resolved into `color` after each draw.
+        msaa: Option<Msaa>,
+    }
+
+    struct Msaa {
+        frame: u32,
+        color: u32,
+        depth: u32,
+        size: ISize,
+    }
 
     const VS: &str = "#version 300 es
 layout(location=0) in vec3 a_pos;
@@ -318,20 +352,6 @@ void main() {
         }
     }
 
-    /// One normal per position, the average of the normals there: an outline pushed along them
-    /// stays closed at hard edges (a coin's rim, a box's corner).
-    fn outline_normals(p: &super::super::scene::Primitive) -> Vec<[f32; 3]> {
-        if !p.outline_normals.is_empty() {
-            return p.outline_normals.clone();
-        }
-        let key = |v: &[f32; 3]| v.map(|c| (c * 10_000.0).round() as i32);
-        let mut sums: HashMap<[i32; 3], Vec3> = HashMap::new();
-        for (v, n) in p.positions.iter().zip(&p.normals) {
-            *sums.entry(key(v)).or_insert(Vec3::ZERO) += Vec3::from(*n);
-        }
-        p.positions.iter().map(|v| sums[&key(v)].normalize_or_zero().to_array()).collect()
-    }
-
     struct Uniforms {
         model: i32,
         view_proj: i32,
@@ -513,7 +533,7 @@ void main() {
                             attribute(2, bytes(&p.uvs), 2);
                             attribute(3, bytes(&p.joints), 4);
                             attribute(4, bytes(&p.weights), 4);
-                            attribute(5, bytes(&outline_normals(p)), 3);
+                            attribute(5, bytes(&super::outline_normals(p)), 3);
                             buffer(ELEMENT_ARRAY_BUFFER, bytes(&p.indices));
                             glBindVertexArray(0);
                             (vao, p.indices.len() as i32)
@@ -660,10 +680,7 @@ void main() {
                 glUseProgram(context.program);
                 glUniformMatrix4fv(u.view_proj, 1, 0, view_proj.to_cols_array().as_ptr());
                 glUniform3fv(u.light, 1, light.to_array().as_ptr());
-                // Where the camera is (w 1), or the way it looks for a camera without a place (w 0).
-                let toward = view_proj.inverse() * glam::Vec4::new(0.0, 0.0, 1.0, 0.0);
-                let eye = if toward.w.abs() > 1e-6 { (toward.truncate() / toward.w).extend(1.0) } else { (-toward.truncate()).normalize_or_zero().extend(0.0) };
-                glUniform4fv(u.eye, 1, eye.to_array().as_ptr());
+                glUniform4fv(u.eye, 1, super::eye(view_proj).to_array().as_ptr());
                 glUniform1i(u.texture, 0);
                 glUniform1i(u.look, style.look as i32);
                 glUniform2f(u.viewport, size.width as f32, size.height as f32);
@@ -750,3 +767,6 @@ void main() {
         unsafe { gpu.import_gl_texture(color, GlTarget::Texture2D, RGBA8, size, SurfaceOrigin::BottomLeft, ColorType::RGBA8888) }
     }
 }
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+mod metal;
