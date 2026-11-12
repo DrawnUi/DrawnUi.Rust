@@ -500,6 +500,12 @@ pub fn display_refresh_rate() -> f32 {
     }
 }
 
+/// A measured rate (Hz) as the display rate it is within 3% of (90 for 92.1), else as measured.
+pub(crate) fn snap_refresh_rate(measured: f64) -> f64 {
+    const RATES: [f64; 13] = [24.0, 30.0, 48.0, 50.0, 60.0, 72.0, 75.0, 90.0, 100.0, 120.0, 144.0, 165.0, 240.0];
+    RATES.into_iter().find(|rate| (measured - rate).abs() <= rate * 0.03).unwrap_or(measured)
+}
+
 /// A host tells the display's refresh rate (Hz); a rate outside 20..=1000 Hz is ignored.
 pub(crate) fn set_display_refresh_rate(hz: f64) {
     if (20.0..=1000.0).contains(&hz) {
@@ -549,5 +555,13 @@ mod refresh_rate_tests {
         assert!((crate::display_refresh_rate() - 90.0).abs() < 0.01, "nonsense is ignored");
         crate::set_display_refresh_rate(119.88);
         assert!((crate::display_refresh_rate() - 119.88).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_measured_rate_snaps_to_the_display_rate_near_it() {
+        assert_eq!(crate::snap_refresh_rate(1e9 / 10_900_000.0), 90.0, "the BV8800's callbacks");
+        assert_eq!(crate::snap_refresh_rate(59.88), 60.0);
+        assert_eq!(crate::snap_refresh_rate(119.6), 120.0);
+        assert_eq!(crate::snap_refresh_rate(83.0), 83.0, "nothing near: as measured");
     }
 }

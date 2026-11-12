@@ -1303,7 +1303,11 @@ mod android {
             }
             self.last_vsync = vsync_ns;
             let period = *self.intervals.iter().min().unwrap_or(&16_666_667);
-            crate::set_display_refresh_rate(1e9 / period as f64);
+            // The display's own rate: the usual interval, not the shortest (a 90 Hz panel's
+            // callbacks come 10.9 to 11.3 ms apart), snapped to the rate it is closest to.
+            let mut sorted = self.intervals;
+            sorted.sort_unstable();
+            crate::set_display_refresh_rate(crate::snap_refresh_rate(1e9 / sorted[sorted.len() / 2] as f64));
             let ms = (vsync_ns + period - self.origin_ns) as f64 / 1_000_000.0;
             let ms = if (ms - now_ms).abs() > 250.0 { now_ms } else { ms };
             self.last_ms = ms.max(self.last_ms);

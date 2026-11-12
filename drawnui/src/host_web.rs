@@ -351,7 +351,7 @@ pub extern "C" fn dui_a11y_activate(s: *mut WebState, id: u32) {
 /// The display's refresh rate the page measured from its animation frames (`display_refresh_rate`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dui_refresh_rate(hz: f64) {
-    crate::set_display_refresh_rate(hz);
+    crate::set_display_refresh_rate(crate::snap_refresh_rate(hz));
 }
 
 /// 1 once the app drew a frame with its fonts in (the page's loading screen can go), else 0.
