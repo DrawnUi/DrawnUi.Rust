@@ -99,6 +99,22 @@ async function drawnUiDecodeImage(url, width, height, frames) {
   }
 }
 
+// Registers the page's WebGL2 context with Emscripten and makes it current (at start and after a
+// lost context came back, which forgets its extensions). Skia reads the GPU name (UNMASKED_RENDERER)
+// when the browser lists WEBGL_debug_renderer_info, so that one is enabled first: the browser logs
+// no invalid enum. Emscripten enables WEBGL_polygon_mode, which nothing here uses and WebKit warns
+// about ("non-portable extension"): it is held back while the context is registered.
+function registerWebGl(module, gl) {
+  gl.getExtension("WEBGL_debug_renderer_info");
+  const own = gl.getExtension;
+  gl.getExtension = (name) => (name === "WEBGL_polygon_mode" ? null : own.call(gl, name));
+  try {
+    module.GL.makeContextCurrent(module.GL.registerContext(gl, { majorVersion: 2 }));
+  } finally {
+    delete gl.getExtension;
+  }
+}
+
 // The address of an app file: with the content stamp the build wrote into the page
 // (`duiAssetVersions`, dev/build.ps1), so a changed file is never served from an old cache.
 function drawnUiVersioned(url) {
@@ -131,7 +147,7 @@ window.DrawnUi = {
     // WebGL2, draws on the CPU and hands each frame to a 2D context.
     const accelerated = module._dui_accelerated(app);
     const gl = accelerated ? canvas.getContext("webgl2", { antialias: false, depth: false, stencil: true, alpha: true }) : null;
-    if (gl) module.GL.makeContextCurrent(module.GL.registerContext(gl, { majorVersion: 2 }));
+    if (gl) registerWebGl(module, gl);
     else if (accelerated) console.warn("drawnui: WebGL2 is not available, drawing on the CPU");
     const ctx2d = gl ? null : canvas.getContext("2d");
     // GesturesMode Lock (DrawnUi.Web applyGestureStyle): the canvas owns every touch. touch-action
@@ -498,7 +514,7 @@ window.DrawnUi = {
     });
     // Back: made current again, a new engine context and surface; caches are made again.
     canvas.addEventListener("webglcontextrestored", () => {
-      module.GL.makeContextCurrent(module.GL.registerContext(gl, { majorVersion: 2 }));
+      registerWebGl(module, gl);
       module._dui_gpu_restored(app);
       lost = false;
       const scale = size();
