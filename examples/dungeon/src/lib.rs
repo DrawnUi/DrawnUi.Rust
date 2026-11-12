@@ -808,7 +808,9 @@ fn dialog(app: &mut App, title: &str, content: impl IntoChildren) -> Build<SkiaL
                 .auto_create_input_texture(false)
                 .on_compilation_error(|_me, _app: &mut App, _cx, error: &str| eprintln!("dungeon: dialog SkSL: {error}")),
         ),
-        SkiaStack::new().spacing(9).margin(DIALOG_GLOW).padding(if app.narrow { 14 } else { 24 }).children((
+        // The content is still over a panel that draws every frame: one cached image to blit (a
+        // hover or a scroll records it again).
+        SkiaStack::new().spacing(9).margin(DIALOG_GLOW).padding(if app.narrow { 14 } else { 24 }).use_cache(CacheType::GPU).children((
             // A lit LED bar.
             SkiaShape::new()
                 .width_request(44)
