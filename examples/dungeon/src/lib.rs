@@ -8,6 +8,7 @@
 use drawnui::prelude::*;
 
 mod plate;
+mod render_scale;
 mod scene;
 mod shaders;
 
@@ -29,6 +30,11 @@ const SYMBOLS: &str = "FontSymbols";
 pub struct App {
     shell: Handle<SkiaShell>,
     scene: Handle<Scene>,
+    /// The scene with its post effect, drawn at `render_scale` of the screen's pixels and scaled
+    /// back up (the HUD, texts and dialogs stay at full resolution); and what it was last given.
+    stage: Handle<SkiaLayout>,
+    render: render_scale::RenderScale,
+    shown_stage: (f32, f32, f32),
     title: Handle<SkiaLayout>,
     score: Handle<SkiaLabel>,
     hud: Handle<SkiaLayout>,
@@ -318,6 +324,27 @@ fn flash_score(app: &mut App, cx: &mut Cx) {
     }
 }
 
+/// The stage at the render scale: at 1 it fills the screen and is drawn directly; below 1 it is that
+/// share of the screen's size, cached on the GPU (the scene and its post effect render into it at
+/// that resolution) and scaled back up to fill the screen.
+fn set_stage(app: &mut App, cx: &mut Cx, width: f32, height: f32) {
+    let s = app.render.value();
+    if (width, height, s) == app.shown_stage {
+        return;
+    }
+    app.shown_stage = (width, height, s);
+    let Some(mut stage) = cx.get_mut(app.stage) else { return };
+    let full = s >= 1.0;
+    let options = if full { LayoutOptions::Fill } else { LayoutOptions::Start };
+    stage.set_horizontal_options(options);
+    stage.set_vertical_options(options);
+    stage.set_width_request(if full { -1.0 } else { width * s });
+    stage.set_height_request(if full { -1.0 } else { height * s });
+    stage.set_scale_x(1.0 / s);
+    stage.set_scale_y(1.0 / s);
+    stage.set_use_cache(if full { CacheType::None } else { CacheType::GPU });
+}
+
 /// One frame: the world moves, the scene draws again, the HUD follows.
 fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
     // On a narrow screen (a phone held upright) the health does not fit between the score and the
@@ -340,6 +367,13 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
             prompt.set_font_size(if canvas.width < 520.0 { 28.0 } else { 44.0 });
         }
     }
+    // The display's rate: the frame-rate cap when one is set, else 60 Hz.
+    let rate = match drawnui::max_fps() {
+        0 => 60.0,
+        fps => fps as f32,
+    };
+    app.render.frame(delta, rate);
+    set_stage(app, cx, canvas.width, canvas.height);
     let narrow = canvas.width < NARROW;
     if narrow != app.narrow {
         app.narrow = narrow;
@@ -1028,8 +1062,16 @@ fn build(app: &mut App) -> Build<SkiaShell> {
             let scale = me.base().scale.max(0.1);
             gesture(app, cx, g, scale)
         })
-        // Draws every frame: no cache. The post effect reads what it drew.
-        .children(Scene::new().fill().assign(&mut app.scene).visual_effect(post_effect()));
+        // Draws every frame: no cache. The post effect reads what it drew. The stage around them is
+        // their render scale (`set_stage`).
+        .children(
+            SkiaLayer::new()
+                .fill()
+                .anchor_x(0.0)
+                .anchor_y(0.0)
+                .assign(&mut app.stage)
+                .children(Scene::new().fill().assign(&mut app.scene).visual_effect(post_effect())),
+        );
     // The health, top center: ten slanted cells, one per tenth. One cached image, drawn again only
     // when the health changes.
     let cells: Vec<Build<SkiaShape>> = app
