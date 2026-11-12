@@ -73,6 +73,10 @@ pub struct Gesture {
     /// Wheel only: a horizontal event (a tilted wheel, the sideways part of a touchpad swipe). A
     /// vertical scroll leaves it to the scroll around it; a horizontal one takes both kinds.
     pub wheel_horizontal: bool,
+    /// Wheel only: the wheel asks to zoom, not to scroll: Ctrl or Cmd held, or a touchpad pinch,
+    /// which browsers send as a wheel with Ctrl. Controls that zoom take only these; a plain wheel
+    /// goes on to the scroll around them.
+    pub wheel_zoom: bool,
     /// Up only: the press did not end, it was taken away (the browser took the touch, the window
     /// lost the pointer). Nothing may be started from it: no tap came before, no fling follows.
     pub cancelled: bool,
@@ -357,6 +361,7 @@ impl Recognizer {
             velocity: zero,
             wheel: 0.0,
             wheel_horizontal: false,
+            wheel_zoom: false,
             cancelled: false,
             button,
             source: ContextMenuSource::Touch,
@@ -387,6 +392,7 @@ impl Recognizer {
             velocity: zero,
             wheel: 0.0,
             wheel_horizontal: false,
+            wheel_zoom: false,
             cancelled: false,
             button: pressed.button,
             source: ContextMenuSource::Touch,
@@ -410,6 +416,7 @@ impl Recognizer {
             velocity,
             wheel: 0.0,
             wheel_horizontal: false,
+            wheel_zoom: false,
             cancelled: kind == GestureKind::Up && pointer == PointerKind::Cancel,
             button,
             source: ContextMenuSource::Mouse,

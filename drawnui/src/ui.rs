@@ -334,6 +334,8 @@ pub struct Ui<S: 'static> {
     insets_handler: Option<Box<dyn FnMut(&mut S, crate::types::Thickness, &mut Cx<'_>)>>,
     /// The modifiers and held keys (React KeyboardManager).
     pub keyboard: Keyboard,
+    /// The host said the next wheel asks to zoom (`App::wheel_zoom`).
+    wheel_zoom_next: bool,
     /// App-level key handlers (React KeyboardManager subscribers), run after the focused control.
     key_down: Vec<UiKeyHandler<S>>,
     key_up: Vec<UiKeyHandler<S>>,
@@ -512,6 +514,7 @@ impl<S: 'static> Ui<S> {
             fps: Fps::default(),
             insets_handler: None,
             keyboard: Keyboard::default(),
+            wheel_zoom_next: false,
             key_down: Vec::new(),
             key_up: Vec::new(),
             key_char: Vec::new(),
@@ -985,6 +988,10 @@ impl<S: 'static> Ui<S> {
         self.tree.time_ms = self.tree.time_ms.max(time_ms);
         let mut gesture = plain_gesture(GestureKind::Wheel, Point::new(x, y), time_ms);
         (gesture.wheel, gesture.wheel_horizontal) = (delta, horizontal);
+        // Zoom: the host said so for this wheel (a browser's Ctrl / Cmd, a touchpad pinch), or Ctrl
+        // or Cmd is held on the keyboard.
+        let keys = self.keyboard.modifiers;
+        gesture.wheel_zoom = std::mem::take(&mut self.wheel_zoom_next) || keys.ctrl || keys.meta;
         // A layer that only keeps gestures from the controls below did not use the wheel.
         let consumed = self.process_gesture(gesture);
         self.used(consumed)
@@ -2934,8 +2941,8 @@ fn plain_gesture(kind: GestureKind, location: Point, time_ms: f64) -> Gesture {
     let zero = Point::default();
     let (start, delta, total, velocity, wheel, cancelled) = (location, zero, zero, zero, 0.0, false);
     let (button, source) = (MouseButton::Left, ContextMenuSource::Mouse);
-    let (wheel_horizontal, touch, touches, manipulation) = (false, false, 0, None);
-    Gesture { kind, location, start, delta, total, time_ms, velocity, wheel, wheel_horizontal, cancelled, button, source, touch, touches, manipulation }
+    let (wheel_horizontal, wheel_zoom, touch, touches, manipulation) = (false, false, false, 0, None);
+    Gesture { kind, location, start, delta, total, time_ms, velocity, wheel, wheel_horizontal, wheel_zoom, cancelled, button, source, touch, touches, manipulation }
 }
 
 /// Maps a canvas point into the control's own space, through every ancestor's render transform.
@@ -3664,6 +3671,10 @@ impl<S: 'static> App for Ui<S> {
 
     fn wheel(&mut self, x: f32, y: f32, delta: f32, horizontal: bool, time_ms: f64) -> bool {
         Ui::wheel_on_axis(self, x, y, delta, horizontal, time_ms, None)
+    }
+
+    fn wheel_zoom(&mut self) {
+        self.wheel_zoom_next = true;
     }
 
     fn context_menu(&mut self, x: f32, y: f32, source: ContextMenuSource, time_ms: f64) -> bool {

@@ -642,7 +642,9 @@ impl Control for SkiaModel3D {
                 self.glide = None;
                 Handled::Yes
             }
-            GestureKind::Wheel if self.pinch_zoom && !gesture.wheel_horizontal => {
+            // Only a wheel that asks to zoom (Ctrl / Cmd, a touchpad pinch): a plain wheel scrolls
+            // the page around the model.
+            GestureKind::Wheel if self.pinch_zoom && gesture.wheel_zoom && !gesture.wheel_horizontal => {
                 self.set_zoom_clamped(self.zoom * 0.9f32.powf(gesture.wheel));
                 self.glide = None;
                 Handled::Yes
@@ -724,8 +726,8 @@ pub trait Model3DBuild: Sized {
     /// 28 more bytes of GPU memory per pixel of the control; the CPU time stays the same.
     fn antialias(self, on: bool) -> Self;
 
-    /// Two fingers pinch to zoom, and the mouse wheel zooms (it is left to the scroll around
-    /// otherwise). Off by default.
+    /// Two fingers pinch to zoom, and the wheel with Ctrl (Cmd) or a touchpad pinch zooms; a plain
+    /// wheel always goes to the scroll around it. Off by default.
     fn pinch_zoom(self, on: bool) -> Self;
 
     /// The closest zoom a pinch or the wheel reaches (0.5 by default; 1 = the model fits).

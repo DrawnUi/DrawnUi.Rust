@@ -7,6 +7,8 @@
 - 3D controls render ahead of being seen: a `SkiaModel3D` or `SkiaScene3D` laid out but not drawn yet
   renders once off screen, after a frame, as soon as it comes within one screen height of the view, one control
   per frame. Its model, images and drawing target are on the GPU when it scrolls in.
+- A model in a page never stops it scrolling: with `pinch_zoom`, only a wheel with Ctrl (Cmd) or a touchpad pinch
+  zooms; a plain wheel goes to the scroll around it.
 - The 3D program compiles while the page loads: the first 3D control to get its properties hands it to the
   browser, which compiles it in the background; the first 3D frame only collects it.
 

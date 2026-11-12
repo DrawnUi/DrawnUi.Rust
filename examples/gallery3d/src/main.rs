@@ -825,7 +825,7 @@ fn product_viewer(app: &mut App) -> Build<SkiaShape> {
                     })
                     .collect::<Vec<_>>(),
             ),
-            SkiaLabel::new("Drag to turn  ·  pinch or scroll to zoom  ·  double-tap to reset")
+            SkiaLabel::new("Drag to turn  ·  pinch or Ctrl+scroll to zoom  ·  double-tap to reset")
                 .font_size(12)
                 .text_color(MUTED)
                 .horizontal_options(LayoutOptions::Center)
@@ -1381,12 +1381,13 @@ fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
     // The scene pans: every layer slides by its share, the ground (and the mobs on it) the most.
     app.pan += PAN_SPEED * delta;
     for (pair, share) in app.scenery.iter().zip(PARALLAX) {
-        let shift = (app.pan * share).rem_euclid(FIELD.0);
+        // Every frame the exact share of the pan, a fraction of a pixel too: snapped to whole pixels a
+        // slow layer stood still for frames and then jumped a pixel. The copies overlap by a point,
+        // so no blended seam shows where they meet (the hills repeat every 1000 points).
+        let shift = (app.pan * share).rem_euclid(REPEAT);
         for (copy, layer) in pair.iter().enumerate() {
             if let Some(mut layer) = cx.get_mut(*layer) {
-                // Whole device pixels: the two copies meet on a pixel edge, with no blended seam.
-                let scale = layer.base().scale.max(0.01);
-                layer.set_translation_x(((copy as f32 * FIELD.0 - shift) * scale).round() / scale);
+                layer.set_translation_x(copy as f32 * REPEAT - shift);
             }
         }
     }
@@ -1409,7 +1410,9 @@ fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
 /// Where the mobs walk: the top and bottom of the ground band, field points.
 const GROUND: (f32, f32) = (196.0, 262.0);
 /// How fast the scene pans, points per second, and each layer's share of it (far ones move less).
-const PAN_SPEED: f32 = 22.0;
+const PAN_SPEED: f32 = 33.0;
+/// A layer copy every this many points: a point less than the layer, so the copies overlap.
+const REPEAT: f32 = FIELD.0 - 1.0;
 const PARALLAX: [f32; 4] = [0.08, 0.2, 0.45, 1.0];
 
 /// A ridge line across the field (1000 points) down to `bottom`, as a shape: its waves repeat every
@@ -1486,7 +1489,7 @@ fn side_scroller(layers: &mut [[Handle<SkiaLayout>; 2]; 4]) -> Vec<Detached> {
     for handles in layers.iter_mut() {
         let (a, b) = (left.next().expect("four layers"), right.next().expect("four layers"));
         children.push(a.assign(&mut handles[0]).into());
-        children.push(b.translation_x(FIELD.0).assign(&mut handles[1]).into());
+        children.push(b.translation_x(REPEAT).assign(&mut handles[1]).into());
     }
     children
 }

@@ -420,6 +420,9 @@ pub trait App {
     /// notches (a touchpad sends fractions), `horizontal` says which axis that is; positive =
     /// toward the start (up, or left). The host needs the answer at once: true when the app used
     /// the wheel (the browser then keeps the page from scrolling with it).
+    /// The next `wheel` asks to zoom (Ctrl or Cmd with it, a touchpad pinch): `Gesture::wheel_zoom`.
+    fn wheel_zoom(&mut self) {}
+
     fn wheel(&mut self, _x: f32, _y: f32, _delta: f32, _horizontal: bool, _time_ms: f64) -> bool {
         false
     }

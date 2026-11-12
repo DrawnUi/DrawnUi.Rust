@@ -62,12 +62,22 @@ fn pinch_and_wheel_zoom_only_when_asked_and_stay_in_range() {
     assert_eq!(model(&host).view().2, 1.0);
 
     let mut host = single(SkiaModel3D::from_model(&ball()).view_angles(0.0, 0.0).pinch_zoom(true).min_zoom(0.6).max_zoom(2.0));
+    // A plain wheel is the page's: a model in a page never stops it scrolling.
+    assert!(!host.wheel(100.0, 100.0, 1.0), "a plain wheel goes to the scroll");
+    assert_eq!(model(&host).view().2, 1.0);
+    // A browser's Ctrl / Cmd + wheel, or a touchpad pinch: the host flags the wheel.
+    drawnui::App::wheel_zoom(&mut host.ui);
     assert!(host.wheel(100.0, 100.0, 1.0));
     assert!(model(&host).view().2 < 1.0, "the wheel away from the user brings it closer");
+    // Ctrl held on the keyboard.
+    let ctrl = drawnui::Modifiers { ctrl: true, ..Default::default() };
+    host.key_down("Control", ctrl);
     for _ in 0..20 {
         host.wheel(100.0, 100.0, 1.0);
     }
+    host.key_up("Control", drawnui::Modifiers::default());
     assert_eq!(model(&host).view().2, 0.6, "no closer than min_zoom");
+    assert!(!host.wheel(100.0, 100.0, 1.0), "Ctrl let go: the wheel is the scroll's again");
     host.pinch((100.0, 100.0), 40.0, 10.0, 160.0, 8);
     assert!(model(&host).view().2 > 0.6, "fingers together move it away");
     host.pinch((100.0, 100.0), 10.0, 160.0, 160.0, 8);
@@ -81,6 +91,7 @@ fn reset_view_glides_back_to_the_view_the_app_set_and_two_taps_do_it_too() {
     let mut host = single(SkiaModel3D::from_model(&ball()).view_angles(30.0, 10.0).pinch_zoom(true).reset_on_double_tap(true));
     let views = host.ui.state.views;
     host.pan((60.0, 100.0), (140.0, 140.0), 160.0, 8);
+    drawnui::App::wheel_zoom(&mut host.ui);
     host.wheel(100.0, 100.0, 2.0);
     host.settle();
     let moved = model(&host).view();

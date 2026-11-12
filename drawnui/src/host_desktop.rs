@@ -2095,6 +2095,10 @@ impl ApplicationHandler<Arrived> for Desktop {
                 // The dominant axis, and which one it is: winit counts toward the start (up, left)
                 // as positive on both.
                 let (dominant, horizontal) = if y.abs() >= x.abs() { (y, false) } else { (x, true) };
+                // Ctrl or Cmd with the wheel: it asks to zoom (Gesture::wheel_zoom).
+                if self.modifiers.ctrl || self.modifiers.meta {
+                    self.app.wheel_zoom();
+                }
                 if self.app.wheel(self.cursor.0, self.cursor.1, dominant, horizontal, self.now_ms()) {
                     self.redraw();
                 }

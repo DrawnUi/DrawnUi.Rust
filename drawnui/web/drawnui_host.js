@@ -885,7 +885,9 @@ window.DrawnUi = {
         const dominant = horizontal ? e.deltaX : e.deltaY;
         const x = (e.clientX - rect.left) * scale;
         const y = (e.clientY - rect.top) * scale;
-        if (module._dui_wheel_axis(app, x, y, (-dominant * unit) / 100, horizontal ? 1 : 0, e.timeStamp)) {
+        // Bit 2: Ctrl or Cmd with it, also a touchpad pinch (browsers send it as Ctrl + wheel): zoom.
+        const flags = (horizontal ? 1 : 0) | (e.ctrlKey || e.metaKey ? 2 : 0);
+        if (module._dui_wheel_axis(app, x, y, (-dominant * unit) / 100, flags, e.timeStamp)) {
           e.preventDefault();
           requestFrame();
         }

@@ -475,6 +475,11 @@ pub extern "C" fn dui_wheel(s: *mut WebState, x: f32, y: f32, delta: f32, time_m
 /// `dui_wheel` with its axis: `horizontal` 1 for a horizontal event, `delta` positive = left.
 #[unsafe(no_mangle)]
 pub extern "C" fn dui_wheel_axis(s: *mut WebState, x: f32, y: f32, delta: f32, horizontal: i32, time_ms: f64) -> i32 {
+    // Bit 2: the wheel came with Ctrl or Cmd (a touchpad pinch too): it asks to zoom.
+    if horizontal & 2 != 0 {
+        state(s).app.wheel_zoom();
+    }
+    let horizontal = horizontal & 1;
     state(s).app.wheel(x, y, delta, horizontal != 0, time_ms) as i32
 }
 
