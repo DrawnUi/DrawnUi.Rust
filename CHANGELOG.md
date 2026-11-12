@@ -8,6 +8,10 @@ version before it. Commits in parentheses.
 
 ### Changed
 
+- A drag that starts on a scroll inside another one (a list in a page) goes on to the outer scroll when the
+  inner one is already at its end in that direction, as browsers chain scrolling; otherwise the inner one
+  keeps the whole drag, never handing it over midway. Same axis only; pull to refresh and the edge bounce of
+  a scroll with nothing around it stay.
 - Web: the canvas takes the exact device pixels the browser reports for it (ResizeObserver
   device-pixel-content-box), so it maps 1:1 to the screen at every window size and display scale and
   text and lines stay sharp. Browsers without that box keep the rounded size.

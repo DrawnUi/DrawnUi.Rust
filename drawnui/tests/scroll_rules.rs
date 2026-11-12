@@ -665,6 +665,63 @@ fn ignore_wrong_direction_of_the_page_changes_nothing_for_the_strip_inside() {
     assert!(close(inner_x(&host), -117.353) && y(&host) == 0.0, "{} {}", inner_x(&host), y(&host));
 }
 
+/// A 300 point tall list scroll (900 points of content) inside the 600 point page, 100 points down.
+fn list_in_page() -> Host {
+    host_of(400.0, 600.0, 1.0, |app| {
+        let list = SkiaScroll::new()
+            .fill_x()
+            .height_request(300)
+            .assign(&mut app.inner)
+            .content(SkiaLayout::column().fill_x().height_request(900).background_color(Color::GREEN));
+        SkiaScroll::new().fill().assign(&mut app.scroll).content(SkiaLayout::column().spacing(0).children((
+            SkiaShape::new().fill_x().height_request(100).background_color(Color::BLUE),
+            list,
+            SkiaShape::new().fill_x().height_request(2000).background_color(Color::YELLOW),
+        )))
+    })
+}
+
+#[test]
+fn a_drag_on_a_scroll_inside_another_chains_when_it_starts_at_its_end() {
+    // Not at its end: the list keeps the whole drag, the page stays.
+    let mut host = list_in_page();
+    host.pan((200.0, 350.0), (200.0, 200.0), 300.0, 8);
+    host.settle();
+    assert!(inner_y(&host) < -50.0 && y(&host) == 0.0, "list {} page {}", inner_y(&host), y(&host));
+
+    // At its end, dragged further: the page takes the whole drag, the list stays at its end.
+    let mut host = list_in_page();
+    inner_to(&mut host, -600.0);
+    let end = inner_y(&host);
+    host.pan((200.0, 350.0), (200.0, 200.0), 300.0, 8);
+    host.settle();
+    assert!(close(inner_y(&host), end) && y(&host) < -50.0, "list {} page {}", inner_y(&host), y(&host));
+
+    // At its start, dragged backward: the page takes it (here the page is down a bit, it comes back).
+    let mut host = list_in_page();
+    scroll_to(&mut host, -80.0, 0.0);
+    host.settle();
+    host.pan((200.0, 150.0), (200.0, 300.0), 300.0, 8);
+    host.settle();
+    assert!(inner_y(&host) == 0.0 && y(&host) > -40.0, "list {} page {}", inner_y(&host), y(&host));
+
+    // Near its end: the list keeps the drag even when it reaches its end on the way; the page
+    // does not move in the middle of the drag.
+    let mut host = list_in_page();
+    inner_to(&mut host, -560.0);
+    host.pan((200.0, 380.0), (200.0, 120.0), 300.0, 10);
+    host.settle();
+    assert!(inner_y(&host) < -590.0 && y(&host) == 0.0, "list {} page {}", inner_y(&host), y(&host));
+}
+
+#[test]
+fn a_scroll_with_nothing_around_keeps_its_bounce_at_the_edge() {
+    // The page at its start, dragged down: no scroll around to take it, it bounces as before.
+    let mut host = list_in_page();
+    host.pan((200.0, 550.0), (200.0, 580.0), 600.0, 4);
+    assert!(y(&host) > 0.0, "it pulls past its start: {}", y(&host));
+}
+
 // ---------------------------------------------------------------- LoadMore
 
 fn row() -> Build<SkiaShape> {
@@ -871,29 +928,45 @@ fn inner_to(host: &mut Host, y: f32) {
 
 #[test]
 fn a_pan_over_a_list_inside_a_page_scrolls_the_list() {
-    // React: the list inside gets the pan first and keeps it for the press, at its ends too (it
-    // pulls there on its rubber band); the page never moves under it.
-    for (list_at, up, up_rest, down, down_rest) in [
-        (-200.0, -299.118, -414.0, -100.882, 0.0),
-        (0.0, -99.118, -236.928, 44.424, 0.0),
-        (-414.0, -458.424, -414.0, -314.882, -177.072),
-    ] {
+    // The list inside gets the pan first and keeps it for the press while it can move that way
+    // when the drag starts (React numbers); at its end in the drag's direction the page takes the
+    // whole drag (scroll chaining, drawnui-cross 6bo), below.
+    for (list_at, up, up_rest, down, down_rest) in [(-200.0, -299.118, -414.0, -100.882, 0.0), (0.0, -99.118, -236.928, f32::NAN, 0.0), (-414.0, f32::NAN, -414.0, -314.882, -177.072)] {
         // Finger up 100 points over the list, in 320 ms.
-        let mut host = page_with_a_list(1500.0);
-        inner_to(&mut host, list_at);
-        host.pan((200.0, 280.0), (200.0, 180.0), 320.0, 20);
-        assert!(close(inner_y(&host), up) && y(&host) == 0.0, "list at {list_at}: {} {}", inner_y(&host), y(&host));
-        host.settle();
-        assert!(close(inner_y(&host), up_rest) && y(&host) == 0.0, "list at {list_at}: {}", inner_y(&host));
+        if !up.is_nan() {
+            let mut host = page_with_a_list(1500.0);
+            inner_to(&mut host, list_at);
+            host.pan((200.0, 280.0), (200.0, 180.0), 320.0, 20);
+            assert!(close(inner_y(&host), up) && y(&host) == 0.0, "list at {list_at}: {} {}", inner_y(&host), y(&host));
+            host.settle();
+            assert!(close(inner_y(&host), up_rest) && y(&host) == 0.0, "list at {list_at}: {}", inner_y(&host));
+        }
 
         // Finger down.
-        let mut host = page_with_a_list(1500.0);
-        inner_to(&mut host, list_at);
-        host.pan((200.0, 180.0), (200.0, 280.0), 320.0, 20);
-        assert!(close(inner_y(&host), down) && y(&host) == 0.0, "list at {list_at}: {} {}", inner_y(&host), y(&host));
-        host.settle();
-        assert!(close(inner_y(&host), down_rest) && y(&host) == 0.0, "list at {list_at}: {}", inner_y(&host));
+        if !down.is_nan() {
+            let mut host = page_with_a_list(1500.0);
+            inner_to(&mut host, list_at);
+            host.pan((200.0, 180.0), (200.0, 280.0), 320.0, 20);
+            assert!(close(inner_y(&host), down) && y(&host) == 0.0, "list at {list_at}: {} {}", inner_y(&host), y(&host));
+            host.settle();
+            assert!(close(inner_y(&host), down_rest) && y(&host) == 0.0, "list at {list_at}: {}", inner_y(&host));
+        }
     }
+    // The list at its end, finger up: the page takes the whole drag as the list would have (the
+    // same numbers), the list stays at its end.
+    let mut host = page_with_a_list(1500.0);
+    inner_to(&mut host, -414.0);
+    host.pan((200.0, 280.0), (200.0, 180.0), 320.0, 20);
+    assert!(close(y(&host), -99.118) && inner_y(&host) == -414.0, "page {} list {}", y(&host), inner_y(&host));
+    host.settle();
+    assert!(close(y(&host), -236.928) && inner_y(&host) == -414.0, "page {}", y(&host));
+    // The list at its start, finger down: the page takes it, and at its own start pulls on its
+    // rubber band (its own, sized by its viewport) and comes back.
+    let mut host = page_with_a_list(1500.0);
+    host.pan((200.0, 180.0), (200.0, 280.0), 320.0, 20);
+    assert!(close(y(&host), 49.974) && inner_y(&host) == 0.0, "page {} list {}", y(&host), inner_y(&host));
+    host.settle();
+    assert_eq!((y(&host), inner_y(&host)), (0.0, 0.0));
 
     // A flick over the list flings the list.
     let mut host = page_with_a_list(1500.0);
@@ -974,7 +1047,7 @@ fn the_scroll_page_of_the_sample_scrolls_the_scrolls_in_it() {
     // scroll under the pointer takes the pan and the wheel; the page never moves under a pan
     // that starts on one of them, and takes the wheel only where the inner one cannot move.
     // Card 1, the pointer in its middle (380, 222): the finger goes 60 up in 320 ms.
-    for (inner_at, after, rest) in [(0.0, -58.676, -141.143), (-100.0, -158.676, -241.143), (-534.0, -562.447, -534.0)] {
+    for (inner_at, after, rest) in [(0.0, -58.676, -141.143), (-100.0, -158.676, -241.143)] {
         let mut host = scroll_page(0);
         host.settle();
         assert_eq!(scroll(&host).content_size().height, 2129.0);
@@ -984,6 +1057,13 @@ fn the_scroll_page_of_the_sample_scrolls_the_scrolls_in_it() {
         host.settle();
         assert!(close(inner_y(&host), rest) && y(&host) == 0.0, "inner at {inner_at}: {}", inner_y(&host));
     }
+    // The inner scroll at its end, 60 up: the page takes the whole drag (scroll chaining).
+    let mut host = scroll_page(0);
+    inner_to(&mut host, -534.0);
+    host.pan((380.0, 252.0), (380.0, 192.0), 320.0, 8);
+    assert!(close(y(&host), -58.676) && inner_y(&host) == -534.0, "{} {}", y(&host), inner_y(&host));
+    host.settle();
+    assert!(close(y(&host), -141.143) && inner_y(&host) == -534.0, "{}", y(&host));
     // 60 down, the inner scroll in its middle: it goes back to its start.
     let mut host = scroll_page(0);
     inner_to(&mut host, -100.0);

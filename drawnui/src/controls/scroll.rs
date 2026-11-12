@@ -528,6 +528,8 @@ pub struct SkiaScroll {
     load_more_top_armed: bool,
     /// A child took the pan of this press: the scroll does not pan in it (React childWasPanning).
     child_was_panning: bool,
+    /// This press's drag went to the scroll around (scroll chaining): it stays there to its end.
+    chained: bool,
     on_scrolled: Option<Scrolled>,
     on_load_more: Option<LoadMore>,
     on_load_more_top: Option<LoadMore>,
@@ -549,6 +551,29 @@ impl SkiaScroll {
     pub fn viewport_offset_y(&self) -> f32 {
         self.offset.y
     }
+    /// Scroll chaining, decided when a drag starts (the web's overscroll chaining): a scroll that is
+    /// already at its end in the drag's direction leaves the whole drag to a scroll around it that
+    /// moves on the same axis; otherwise it keeps the drag to its end, never handing it over in the
+    /// middle. Not toward the start while pull to refresh is on, and not with no such scroll around
+    /// (its own bounce at the edge stays).
+    fn leaves_drag_to_outer(&self, cx: &GestureCx, gesture: &Gesture) -> bool {
+        let vertical = match self.p.orientation {
+            ScrollOrientation::Vertical => true,
+            ScrollOrientation::Horizontal => false,
+            _ => gesture.total.y.abs() >= gesture.total.x.abs(),
+        };
+        let (moved, offset, end) = if vertical { (gesture.total.y, self.offset.y, self.min.y) } else { (gesture.total.x, self.offset.x, self.min.x) };
+        // The finger moving down (right) brings the start into view.
+        let toward_start = moved > 0.0;
+        let edge = 0.5 / self.scale.max(0.1);
+        let at_end = if toward_start { offset >= -edge } else { offset <= end + edge };
+        if !at_end || (toward_start && vertical && self.p.refresh_enabled) {
+            return false;
+        }
+        // The scrolls around that are asking their children about this pan, by the axes they move on.
+        cx.tree.outer_scrolls.iter().any(|&(h, v)| if vertical { v } else { h })
+    }
+
     /// The axes the content can move along now (horizontal, vertical): the orientation allows it
     /// and the content is larger than the viewport.
     pub fn scroll_axes(&self) -> (bool, bool) {
@@ -1080,7 +1105,7 @@ impl SkiaScroll {
     /// edges. A refresh does not hold the content (C# does).
     fn pan(&mut self, cx: &mut GestureCx, gesture: &Gesture) -> Handled {
         let orientation = self.p.orientation;
-        if !self.p.responds_to_gestures || !self.had_down || orientation == ScrollOrientation::Neither {
+        if !self.p.responds_to_gestures || !self.had_down || orientation == ScrollOrientation::Neither || self.chained {
             return Handled::No;
         }
         self.velocity = gesture.velocity * (1.0 / self.scale);
@@ -1105,6 +1130,10 @@ impl SkiaScroll {
                 _ => self.velocity.x.abs().max(self.velocity.y.abs()),
             };
             if along <= SCROLL_VELOCITY_THRESHOLD {
+                return Handled::No;
+            }
+            if self.leaves_drag_to_outer(cx, gesture) {
+                self.chained = true;
                 return Handled::No;
             }
         }
@@ -1632,7 +1661,7 @@ impl Control for SkiaScroll {
         let by = |child: Option<ControlId>| child.map_or(Handled::No, Handled::By);
         match gesture.kind {
             GestureKind::Down => {
-                (self.had_down, self.snapped) = (true, false);
+                (self.had_down, self.snapped, self.chained) = (true, false, false);
                 if self.p.responds_to_gestures {
                     // The finger takes over from whatever was moving the content.
                     self.order = None;
@@ -1644,7 +1673,11 @@ impl Control for SkiaScroll {
                 if !self.is_user_panning && self.p.responds_to_gestures && self.had_down {
                     // A child may own the pan (a scroll or a carousel inside): asked once, before this
                     // scroll takes over, and then the pan is its for the whole press.
-                    if let Some(child) = cx.route_children(gesture) {
+                    // The scrolls inside see this one around them (scroll chaining).
+                    cx.tree.outer_scrolls.push(self.scroll_axes());
+                    let child = cx.route_children(gesture);
+                    cx.tree.outer_scrolls.pop();
+                    if let Some(child) = child {
                         self.child_was_panning = true;
                         return Handled::By(child);
                     }
