@@ -1783,14 +1783,16 @@ fn build(app: &mut App) -> Build<SkiaLayout> {
                 boss_page(app).is_visible(false).observe(|me, app: &App| me.set_is_visible(app.tab == 1)),
             )),
         )),
-        // Debug builds only, as the hello apps.
+        // In every build, as the .NET gallery: above everything, its text redrawn every frame.
         SkiaLabelFps::new()
-            .is_visible(cfg!(debug_assertions))
             .vertical_options(LayoutOptions::End)
             .horizontal_options(LayoutOptions::End)
             .margin((0, 0, 8, 8))
+            .font_size(12)
             .background_color(Color::from_rgb(139, 0, 0))
-            .text_color(Color::WHITE),
+            .text_color(Color::WHITE)
+            .z_index(110)
+            .use_cache(CacheType::Operations),
     ))
 }
 
