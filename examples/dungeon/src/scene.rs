@@ -243,6 +243,9 @@ pub struct World {
     lane: i32,
     speed: f32,
     pub time: f32,
+    /// Seconds since this run (or the title's own run) began, counted in a double: `time` is its f32, so
+    /// the animations and shaders get a few minutes of exact float, never hours.
+    clock: f64,
     orbs: u32,
     /// 1 = unhurt; a pillar takes two tenths, a beam one, lava a half; the run ends at 0.
     pub health: f32,
@@ -323,6 +326,7 @@ impl Default for World {
             lane: 0,
             speed: 12.0,
             time: 0.0,
+            clock: 0.0,
             orbs: 0,
             health: 1.0,
             invulnerable: 0.0,
@@ -437,6 +441,7 @@ impl World {
         (self.escaped, self.run_time, self.escape, self.glare) = (false, 0.0, 0.0, 0.3);
         (self.shield, self.shield_burst) = (0.0, 0.0);
         (self.streak, self.last_orb, self.orb_pulse) = (0, -10, 0.0);
+        (self.clock, self.time) = (0.0, 0.0);
         self.phase = phase;
     }
 
@@ -473,7 +478,8 @@ impl World {
     }
 
     pub fn step(&mut self, dt: f32, input: &mut Input) {
-        self.time += dt;
+        self.clock += dt as f64;
+        self.time = self.clock as f32;
         self.flash = (self.flash - dt * 1.6).max(0.0);
         self.warp = (self.warp - dt * 1.1).max(0.0);
         self.shake = (self.shake - dt * 2.5).max(0.0);

@@ -293,6 +293,11 @@ uniform float3 uOrb;     // the orb flash: the orbs' color where the runner is, 
 uniform float2 uShield;  // held (0 or 1), burst (1 fading)
 
 float fxHash(float2 p) { return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453); }
+float grainHash(float2 p) {
+    float3 q = fract(float3(p.x, p.y, p.x) * float3(0.1031, 0.1030, 0.0973));
+    q += dot(q, float3(q.y, q.x, q.z) + 33.33);
+    return fract((q.x + q.y) * q.z);
+}
 
 half4 main(float2 fragCoord) {
     float2 uv = (fragCoord - iOffset) / iResolution;
@@ -322,7 +327,9 @@ half4 main(float2 fragCoord) {
     col = mix(col, float3(dot(col, float3(0.33))) * float3(1.0, 0.55, 0.5), drain * 0.65);
     col = mix(col, float3(0.42, 0.0, 0.06), drain * min(r2 * 1.1, 0.85) * (0.75 + 0.25 * sin(uFx.w * 7.0)));
     col += float3(0.5, 0.8, 1.0) * uFx.y * 0.12;
-    float g = fract(sin(dot(fragCoord + uFx.w * 60.0, float2(12.9898, 78.233))) * 43758.5453);
+    // the grain: a new noise every frame, from a hash without sin (sin of the large numbers a 3x screen's pixels make
+    // loses its precision on a phone's GPU and the grain turns to stripes)
+    float g = grainHash(floor(fragCoord) + floor(fract(uFx.w * 7.0) * 64.0) * float2(37.0, 17.0));
     col += (g - 0.5) * 0.035;
     if (uFx2.y > 0.0) {
         // Rays of light along the borders: wide and soft, each a long glow that flies outward.
