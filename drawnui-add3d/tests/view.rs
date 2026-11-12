@@ -4,6 +4,7 @@
 //! url, and hearing when the view moved.
 
 use drawnui::prelude::*;
+use drawnui::PointerKind;
 use drawnui::testing::Headless;
 use drawnui_add3d::prelude::*;
 
@@ -325,4 +326,95 @@ fn a_vertical_drag_on_a_card_that_leans_toward_the_finger_scrolls_the_page() {
         host.frame_after(16.0);
     }
     assert!(offset(&host) > 50.0, "the page scrolled: {}", offset(&host));
+}
+
+/// Two fingers apart through `spreads` (pixels between them) in one gesture, a frame per step.
+fn pinch_through(host: &mut Headless<App>, spreads: &[f32]) {
+    let (x, y) = (100.0, 100.0);
+    let first = spreads[0];
+    host.ui.pointer_touch(PointerKind::Down, x - first / 2.0, y, host.time_ms());
+    host.ui.pointer_finger(1, PointerKind::Down, x + first / 2.0, y, host.time_ms());
+    host.frame_after(16.0);
+    for spread in &spreads[1..] {
+        host.ui.pointer_touch(PointerKind::Move, x - spread / 2.0, y, host.time_ms());
+        host.ui.pointer_finger(1, PointerKind::Move, x + spread / 2.0, y, host.time_ms());
+        host.frame_after(16.0);
+    }
+    let last = spreads[spreads.len() - 1];
+    host.ui.pointer_finger(1, PointerKind::Up, x + last / 2.0, y, host.time_ms());
+    host.ui.pointer_touch(PointerKind::Up, x - last / 2.0, y, host.time_ms());
+    host.frame_after(16.0);
+}
+
+#[test]
+fn a_pinch_in_and_back_out_returns_to_the_start() {
+    let mut host = single(SkiaModel3D::from_model(&ball()).view_angles(0.0, 0.0).pinch_zoom(true).min_zoom(0.6).max_zoom(2.0));
+    let out_and_back: Vec<f32> = (0..=8).map(|i| 40.0 + 2.5 * i as f32).chain((0..=8).rev().map(|i| 40.0 + 2.5 * i as f32)).collect();
+    pinch_through(&mut host, &out_and_back);
+    assert!((model(&host).view().2 - 1.0).abs() < 1e-3, "1.5x and back: {}", model(&host).view().2);
+    // Past the limit and back, in one gesture: the start again, not the limit's leftover.
+    let far: Vec<f32> = (0..=12).map(|i| 40.0 + 10.0 * i as f32).chain((0..=12).rev().map(|i| 40.0 + 10.0 * i as f32)).collect();
+    pinch_through(&mut host, &far);
+    assert!((model(&host).view().2 - 1.0).abs() < 1e-3, "4x past min_zoom and back: {}", model(&host).view().2);
+    // 4x out stays at the limit.
+    pinch_through(&mut host, &(0..=12).map(|i| 40.0 + 10.0 * i as f32).collect::<Vec<_>>());
+    assert_eq!(model(&host).view().2, 0.6);
+}
+
+#[test]
+fn a_pinch_does_not_turn_the_model() {
+    let mut host = single(SkiaModel3D::from_model(&ball()).view_angles(0.0, 0.0).pinch_zoom(true).min_zoom(0.6).max_zoom(2.0));
+    let (x, y) = (100.0, 100.0);
+    host.ui.pointer_touch(PointerKind::Down, x - 20.0, y, host.time_ms());
+    host.ui.pointer_finger(1, PointerKind::Down, x + 20.0, y + 10.0, host.time_ms());
+    host.frame_after(16.0);
+    for i in 1..=8 {
+        let d = 20.0 + 6.0 * i as f32;
+        host.ui.pointer_touch(PointerKind::Move, x - d, y - i as f32, host.time_ms());
+        host.ui.pointer_finger(1, PointerKind::Move, x + d, y + 10.0 + i as f32, host.time_ms());
+        host.frame_after(16.0);
+    }
+    // One finger lifts first, the other moves on a little and lifts.
+    host.ui.pointer_finger(1, PointerKind::Up, x + 68.0, y + 18.0, host.time_ms());
+    host.frame_after(16.0);
+    for i in 1..=4 {
+        host.ui.pointer_touch(PointerKind::Move, x - 68.0 + 3.0 * i as f32, y - 8.0, host.time_ms());
+        host.frame_after(16.0);
+    }
+    host.ui.pointer_touch(PointerKind::Up, x - 56.0, y - 8.0, host.time_ms());
+    host.settle();
+    let (yaw, pitch, zoom) = model(&host).view();
+    assert!(zoom < 1.0, "it zoomed: {zoom}");
+    assert!(yaw.abs() < 0.01 && pitch.abs() < 0.01, "no turn from a pinch: yaw {yaw}, pitch {pitch}");
+    // A one-finger drag afterwards turns it as before.
+    host.pan((100.0, 100.0), (160.0, 100.0), 160.0, 8);
+    assert!(model(&host).view().0.abs() > 1.0, "a drag turns it");
+}
+
+#[test]
+fn two_taps_go_home_also_in_a_page_with_markers_over_the_model() {
+    // The gallery's product viewer: a clipped stage in a scrolling page, the model in a slot, a
+    // layer of tappable markers over it.
+    let ui = Ui::new(App::default(), |app: &mut App| {
+        SkiaScroll::new().fill().assign(&mut app.scroll).content(SkiaLayout::column().fill_x().spacing(20).children((
+            SkiaShape::new().width_request(300).height_request(240).is_clipped_to_bounds(true).children((
+                SkiaLayout::new().fill().children((SkiaModel3D::from_model(&ball()).view_angles(30.0, 10.0).pinch_zoom(true).reset_on_double_tap(true).fill().assign(&mut app.model),)),
+                SkiaLayout::new().fill().children((SkiaShape::new().width_request(26).height_request(26).left(10).top(10).on_tapped(|_me, _app: &mut App, _cx| {}),)),
+            )),
+            SkiaShape::new().height_request(900),
+        )))
+    });
+    let mut host = Headless::new(ui, 400, 400, 1.0);
+    host.settle();
+    host.pan((100.0, 120.0), (200.0, 122.0), 160.0, 8);
+    host.settle();
+    assert!((model(&host).view().0.rem_euclid(360.0) - 30.0).abs() > 5.0, "turned: {:?}", model(&host).view());
+    // A mouse double click: down, up, and again 120 ms later, a frame after each event.
+    for at in [0.0, 30.0, 150.0, 180.0] {
+        let kind = if at == 0.0 || at == 150.0 { PointerKind::Down } else { PointerKind::Up };
+        host.ui.pointer(kind, 150.0, 120.0, host.time_ms());
+        host.frame_after(30.0);
+    }
+    host.settle();
+    assert!((model(&host).view().0.rem_euclid(360.0) - 30.0).abs() < 0.01, "home: {:?}", model(&host).view());
 }

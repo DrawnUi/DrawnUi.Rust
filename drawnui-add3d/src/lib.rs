@@ -168,6 +168,9 @@ pub struct SkiaModel3D {
     /// A glide back home (`reset_view`): where it started, seconds into it.
     glide: Option<(View, f32)>,
     pinch_zoom: bool,
+    /// The pinch going on: the zoom when it started and the product of its steps, so a pinch
+    /// past a zoom limit and back ends where it started. Until the next press, drags do not turn.
+    pinch: Option<(f32, f32)>,
     zoom_range: (f32, f32),
     reset_on_double_tap: bool,
     last_tap_ms: Option<f64>,
@@ -245,6 +248,7 @@ impl SkiaModel3D {
             home: (20.0, 10.0, 1.0),
             glide: None,
             pinch_zoom: false,
+            pinch: None,
             zoom_range: (0.5, 2.5),
             reset_on_double_tap: false,
             last_tap_ms: None,
@@ -605,15 +609,21 @@ impl Control for SkiaModel3D {
     fn on_gesture(&mut self, cx: &mut GestureCx, gesture: &Gesture) -> Handled {
         let handled = match gesture.kind {
             GestureKind::Down => {
-                self.drag = None;
+                (self.drag, self.pinch) = (None, None);
                 Handled::Yes
             }
             GestureKind::Panning if self.pinch_zoom && gesture.manipulation.is_some() => {
-                let pinch = gesture.manipulation.as_ref().map_or(0.0, |m| m.scale);
-                self.set_zoom_clamped(self.zoom / (1.0 + pinch).max(0.1));
+                let step = (1.0 + gesture.manipulation.as_ref().map_or(0.0, |m| m.scale)).max(0.1);
+                let (start, product) = self.pinch.get_or_insert((self.zoom, 1.0));
+                *product *= step;
+                let zoom = *start / *product;
+                self.set_zoom_clamped(zoom);
                 self.glide = None;
                 Handled::Yes
             }
+            // A gesture that pinched never turns the model: the fingers' own moves, and the finger
+            // left after the other lifted, would jump the view.
+            GestureKind::Panning if self.pinch.is_some() => Handled::Yes,
             // A drag on a card that leans toward the finger: mostly up or down is the scroll's around.
             GestureKind::Panning
                 if self.tilt_to_pointer > 0.0 && !self.orbit && !*self.drag.get_or_insert(gesture.total.x.abs() >= gesture.total.y.abs() || !cx.scroll_around(true)) =>
