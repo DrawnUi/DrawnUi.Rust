@@ -1,9 +1,59 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>DrawnUI 3D Gallery</title>
+    <title>DrawnUI 3D: real 3D models inside a drawn UI, in Rust</title>
+    <meta
+      name="description"
+      content="Real 3D models inside a drawn UI, right in your browser: a product viewer, a shop list with live 3D thumbnails, cards, a globe with pins, a form with a 3D mascot and a field of 100 animated characters, in a 3D or hand-drawn look. Made with DrawnUI for Rust."
+    />
+    <meta name="keywords" content="DrawnUI, Rust, 3D, glTF, GLB, 3D model viewer, product viewer, Skia, WebGL 2, WebAssembly, toon shading, game characters" />
+    <meta name="author" content="DrawnUI" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="theme-color" content="#121218" />
+    <link rel="canonical" href="https://add3d.drawnui.net/" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="DrawnUI 3D" />
+    <meta property="og:url" content="https://add3d.drawnui.net/" />
+    <meta property="og:title" content="Real 3D inside a drawn UI, with DrawnUI for Rust" />
+    <meta
+      property="og:description"
+      content="A product viewer, a shop list, cards, a globe, a form and a field of 100 animated characters: real glTF models inside a Skia-drawn UI, running in your browser."
+    />
+    <meta property="og:image" content="https://add3d.drawnui.net/og.jpg" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A walnut sofa in a 3D product viewer above a field of 100 animated 3D characters, drawn with DrawnUI for Rust" />
+    <meta property="og:locale" content="en_US" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Real 3D inside a drawn UI, with DrawnUI for Rust" />
+    <meta
+      name="twitter:description"
+      content="A product viewer, a shop list, cards, a globe, a form and a field of 100 animated characters: real glTF models inside a Skia-drawn UI, running in your browser."
+    />
+    <meta name="twitter:image" content="https://add3d.drawnui.net/og.jpg" />
+    <meta name="twitter:image:alt" content="A walnut sofa in a 3D product viewer above a field of 100 animated 3D characters, drawn with DrawnUI for Rust" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "DrawnUI 3D",
+        "url": "https://add3d.drawnui.net/",
+        "image": "https://add3d.drawnui.net/og.jpg",
+        "description": "Real 3D models inside a drawn UI, in the browser: a product viewer, a shop list with live 3D thumbnails, cards, a globe with pins, a form with a 3D mascot and a field of 100 animated characters, in a 3D or hand-drawn look. Made with DrawnUI for Rust.",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Any",
+        "browserRequirements": "Requires JavaScript and WebGL 2",
+        "inLanguage": "en",
+        "author": { "@type": "Organization", "name": "DrawnUI", "url": "https://drawnui.net/" }
+      }
+    </script>
+
     <link rel="icon" href="favicon.ico" />
     <style>
       html, body { margin: 0; height: 100%; background: #121218; overflow: hidden; }
@@ -12,6 +62,15 @@
   </head>
   <body>
     <canvas id="canvas"></canvas>
+    <noscript>
+      <h1>DrawnUI 3D</h1>
+      <p>
+        Real 3D models inside a drawn UI: a product viewer, a shop list with live 3D thumbnails, cards, a globe with
+        pins, a form with a 3D mascot and a field of 100 animated characters. Made with DrawnUI for Rust. The gallery
+        needs JavaScript and WebGL 2 to run.
+      </p>
+      <p><a href="https://drawnui.net/">DrawnUI</a> · <a href="https://hellorust.drawnui.net/">DrawnUI for Rust demo</a></p>
+    </noscript>
     <script src="gallery3d.js"></script>
     <script src="drawnui_host.js"></script>
     <script>

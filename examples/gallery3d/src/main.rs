@@ -1778,7 +1778,9 @@ fn build(app: &mut App) -> Build<SkiaLayout> {
                 boss_page(app).is_visible(false).observe(|me, app: &App| me.set_is_visible(app.tab == 1)),
             )),
         )),
+        // Debug builds only, as the hello apps.
         SkiaLabelFps::new()
+            .is_visible(cfg!(debug_assertions))
             .vertical_options(LayoutOptions::End)
             .horizontal_options(LayoutOptions::End)
             .margin((0, 0, 8, 8))
