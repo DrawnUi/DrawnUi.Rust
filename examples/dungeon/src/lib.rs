@@ -819,11 +819,30 @@ fn dialog(app: &mut App, title: &str, content: impl IntoChildren) -> Build<SkiaL
     ))
 }
 
-/// The help's link text, underlined under the mouse or when tapped (TextSpan has no builder for that).
-fn link_text(underline: bool) -> TextSpan {
-    let mut span = TextSpan::new("MADE WITH DRAWNUI FOR RUST");
+/// A link's text, underlined under the mouse or when tapped (TextSpan has no builder for that).
+fn link_text(text: &str, underline: bool) -> TextSpan {
+    let mut span = TextSpan::new(text);
     span.underline = underline;
     span
+}
+
+/// A link opened in the browser (a new tab on the web): in the link's blue, lighter and underlined
+/// under the mouse or when tapped.
+fn link(text: &'static str, url: &'static str) -> Build<SkiaLabel> {
+    SkiaLabel::new("")
+        .font_size(11)
+        .text_color(Color::new(LINK))
+        .spans((link_text(text, false),))
+        .accessibility_role(Aria::LINK)
+        .on_hovered(move |me, _app: &mut App, _cx, on| {
+            me.set_text_color(Color::new(if on { LINK_HOVER } else { LINK }));
+            me.set_spans((link_text(text, on),));
+        })
+        .on_tapped(move |me, _app: &mut App, cx| {
+            me.set_text_color(Color::new(LINK_HOVER));
+            me.set_spans((link_text(text, true),));
+            cx.open_url(url);
+        })
 }
 
 /// A heading inside a dialog.
@@ -862,8 +881,8 @@ fn swatch(width: i32, height: i32, color: u32, glow: bool) -> Build<SkiaShape> {
 /// What to do, what not to do, and only then the controls: keyboard, then touch and mouse. The
 /// text scrolls when the screen is too low for it; the last line and the button always show.
 fn help_dialog(app: &mut App) -> Build<SkiaLayout> {
-    // What the dialog needs around the text: its glow, padding, title, last line and button.
-    let room = (app.canvas_height - 300.0).max(110.0);
+    // What the dialog needs around the text: its glow, padding, title, the two links and the button.
+    let room = (app.canvas_height - 322.0).max(110.0);
     let narrow = app.narrow;
     app.help_open = true;
     dialog(
@@ -890,23 +909,9 @@ fn help_dialog(app: &mut App) -> Build<SkiaLayout> {
                 ),
                 controls(),
             ))),
-            // A link to DrawnUI for Rust, opened in the browser (a new tab on the web): in the link's
-            // blue, lighter and underlined under the mouse or when tapped.
-            SkiaLabel::new("")
-                .font_size(11)
-                .text_color(Color::new(LINK))
-                .spans((link_text(false),))
-                .margin((0, 12, 0, 0))
-                .accessibility_role(Aria::LINK)
-                .on_hovered(|me, _app: &mut App, _cx, on| {
-                    me.set_text_color(Color::new(if on { LINK_HOVER } else { LINK }));
-                    me.set_spans((link_text(on),));
-                })
-                .on_tapped(|me, _app: &mut App, cx| {
-                    me.set_text_color(Color::new(LINK_HOVER));
-                    me.set_spans((link_text(true),));
-                    cx.open_url("https://drawnui.net/articles/rust");
-                }),
+            // DrawnUI for Rust, then this game's source code.
+            link("MADE WITH DRAWNUI FOR RUST", "https://drawnui.net/articles/rust").margin((0, 12, 0, 0)),
+            link("SOURCE CODE ON GITHUB", "https://github.com/DrawnUi/DrawnUi.Rust/tree/main/examples/dungeon").margin((0, 6, 0, 0)),
             button("OK")
                 .horizontal_options(LayoutOptions::End)
                 .margin((0, 6, 0, 0))
