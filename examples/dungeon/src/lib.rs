@@ -128,6 +128,11 @@ pub struct App {
     /// Seconds run without a hit, and how many times that was praised.
     clean: f32,
     cheers: u32,
+    /// The help's links, whether the mouse is over each, and the seconds until a tapped one looks
+    /// at rest again (a finger never leaves it the way a mouse does).
+    links: [Handle<SkiaLabel>; 2],
+    link_hovered: [bool; 2],
+    link_lit: [f32; 2],
 }
 
 /// Said after every stretch of running without a hit.
@@ -340,6 +345,19 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
         app.narrow = narrow;
         if let Some(mut hud) = cx.get_mut(app.hud) {
             hud.set_margin((0, if narrow { 62 } else { 16 }, 0, 0));
+        }
+    }
+    // A tapped link goes back to rest after a moment (or when the app comes back from the
+    // browser), unless the mouse is still over it.
+    for i in 0..LINKS.len() {
+        if app.link_lit[i] > 0.0 {
+            app.link_lit[i] -= delta;
+            if app.link_lit[i] <= 0.0
+                && !app.link_hovered[i]
+                && let Some(mut me) = cx.get_mut(app.links[i])
+            {
+                light_link(&mut me, LINKS[i].0, false);
+            }
         }
     }
     if app.paused {
@@ -832,21 +850,35 @@ fn link_text(text: &str, underline: bool) -> TextSpan {
     span
 }
 
-/// A link opened in the browser (a new tab on the web): in the link's blue, lighter and underlined
-/// under the mouse or when tapped.
-fn link(text: &'static str, url: &'static str) -> Build<SkiaLabel> {
+/// The help's links: DrawnUI for Rust, then this game's source code.
+const LINKS: [(&str, &str); 2] = [
+    ("MADE WITH DRAWNUI FOR RUST", "https://drawnui.net/articles/rust"),
+    ("SOURCE CODE ON GITHUB", "https://github.com/DrawnUi/DrawnUi.Rust/tree/main/examples/dungeon"),
+];
+
+/// How a link looks: in the link's blue, lighter and underlined when lit.
+fn light_link(me: &mut Mut<'_, SkiaLabel>, text: &str, lit: bool) {
+    me.set_text_color(Color::new(if lit { LINK_HOVER } else { LINK }));
+    me.set_spans((link_text(text, lit),));
+}
+
+/// A link of the help, opened in the browser (a new tab on the web): lit under the mouse, and for a
+/// moment after a tap (`tick` puts it back at rest).
+fn link(i: usize, slot: &mut Handle<SkiaLabel>) -> Build<SkiaLabel> {
+    let (text, url) = LINKS[i];
     SkiaLabel::new("")
         .font_size(11)
         .text_color(Color::new(LINK))
         .spans((link_text(text, false),))
         .accessibility_role(Aria::LINK)
-        .on_hovered(move |me, _app: &mut App, _cx, on| {
-            me.set_text_color(Color::new(if on { LINK_HOVER } else { LINK }));
-            me.set_spans((link_text(text, on),));
+        .assign(slot)
+        .on_hovered(move |me, app: &mut App, _cx, on| {
+            app.link_hovered[i] = on;
+            light_link(me, text, on);
         })
-        .on_tapped(move |me, _app: &mut App, cx| {
-            me.set_text_color(Color::new(LINK_HOVER));
-            me.set_spans((link_text(text, true),));
+        .on_tapped(move |me, app: &mut App, cx| {
+            light_link(me, text, true);
+            app.link_lit[i] = 0.3;
             cx.open_url(url);
         })
 }
@@ -890,6 +922,9 @@ fn help_dialog(app: &mut App) -> Build<SkiaLayout> {
     // What the dialog needs around the text: its glow, padding, title, the two links and the button.
     let room = (app.canvas_height - 322.0).max(110.0);
     let narrow = app.narrow;
+    // New links: nothing is over them yet.
+    (app.link_hovered, app.link_lit) = ([false; 2], [0.0; 2]);
+    let (made_with, source) = (link(0, &mut app.links[0]), link(1, &mut app.links[1]));
     app.help_open = true;
     dialog(
         app,
@@ -915,9 +950,8 @@ fn help_dialog(app: &mut App) -> Build<SkiaLayout> {
                 ),
                 controls(),
             ))),
-            // DrawnUI for Rust, then this game's source code.
-            link("MADE WITH DRAWNUI FOR RUST", "https://drawnui.net/articles/rust").margin((0, 12, 0, 0)),
-            link("SOURCE CODE ON GITHUB", "https://github.com/DrawnUi/DrawnUi.Rust/tree/main/examples/dungeon").margin((0, 6, 0, 0)),
+            made_with.margin((0, 12, 0, 0)),
+            source.margin((0, 6, 0, 0)),
             button("OK")
                 .horizontal_options(LayoutOptions::End)
                 .margin((0, 6, 0, 0))
