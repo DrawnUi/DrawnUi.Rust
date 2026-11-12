@@ -16,7 +16,9 @@ else
     cargo build -p "$crate" --target "$target"
 fi
 
-out="$root/target/$target/$profile"
+# Where cargo put it: a CARGO_TARGET_DIR or a target-dir in a cargo config moves it from ./target.
+target_dir=$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')
+out="$target_dir/$target/$profile"
 app="$out/$bundle.app"
 rm -rf "$app"
 mkdir -p "$app"
