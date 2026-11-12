@@ -24,6 +24,9 @@ pub struct Gpu {
     /// The Metal device and command queue the context was made on (macOS, iOS).
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     metal: Option<(mtl::Handle, mtl::Handle)>,
+    /// Where the context's GL functions are (desktop and Android GL; the web links them).
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    gl_loader: Option<std::rc::Rc<dyn Fn(&str) -> *const std::ffi::c_void>>,
 }
 
 /// The GPU API a context draws with (`Gpu::backend`).
@@ -102,6 +105,8 @@ impl Gpu {
             vulkan: None,
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             metal: None,
+            #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+            gl_loader: None,
         }
     }
 
@@ -415,6 +420,25 @@ impl Gpu {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     pub fn metal_handles(&self) -> Option<(*const std::ffi::c_void, *const std::ffi::c_void)> {
         self.metal.filter(|_| self.ctx.is_some())
+    }
+
+    /// Keeps where the context's GL functions are, for `gl_proc_address`.
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    pub(crate) fn with_gl_loader(mut self, loader: std::rc::Rc<dyn Fn(&str) -> *const std::ffi::c_void>) -> Self {
+        self.gl_loader = Some(loader);
+        self
+    }
+
+    /// The address of a GL function of the context (`"glDrawElements"`), for add-ons that draw
+    /// with GL themselves into a texture they hand over with `import_gl_texture` (then call
+    /// `reset_gl_state`). Null when the context is not GL, or on the web, where the functions are
+    /// linked in.
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    pub fn gl_proc_address(&self, name: &str) -> *const std::ffi::c_void {
+        match (&self.gl_loader, &self.ctx) {
+            (Some(load), Some(ctx)) if ctx.backend() == BackendAPI::OpenGL => load(name),
+            _ => std::ptr::null(),
+        }
     }
 
     /// The Vulkan objects the context draws with (Android on Vulkan); `None` elsewhere.

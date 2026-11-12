@@ -1,7 +1,7 @@
 //! The GPU side: one shader program and one copy of each model per GPU context, shared by every
 //! control; each control draws its objects in one pass into its own texture, which Skia shows.
-//! WebGL2 (the browser) and Metal (macOS, iOS); elsewhere `draw` draws nothing yet.
-#![cfg_attr(not(any(target_os = "emscripten", target_os = "macos", target_os = "ios")), allow(dead_code, unused_imports))]
+//! OpenGL (WebGL2 in the browser; desktop GL and GL ES on Windows, Linux and Android's GL) and
+//! Metal (macOS, iOS). A context of another API (Android on Vulkan) draws nothing yet.
 
 use std::rc::Rc;
 
@@ -58,30 +58,13 @@ fn eye(view_proj: Mat4) -> glam::Vec4 {
     if toward.w.abs() > 1e-6 { (toward.truncate() / toward.w).extend(1.0) } else { (-toward.truncate()).normalize_or_zero().extend(0.0) }
 }
 
-#[cfg(not(any(target_os = "emscripten", target_os = "macos", target_os = "ios")))]
-pub(super) use none::{Target, draw, start_program};
-
-#[cfg(not(any(target_os = "emscripten", target_os = "macos", target_os = "ios")))]
-mod none {
-    use super::*;
-
-    /// No GPU drawing here yet.
-    pub(in super::super) struct Target;
-
-    pub(in super::super) fn draw(_target: &mut Option<Target>, _gpu: &mut Gpu, _items: &[Item], _style: &Style, _view_proj: Mat4, _size: ISize) -> Option<Image> {
-        None
-    }
-
-    pub(in super::super) fn start_program() {}
-}
-
-#[cfg(target_os = "emscripten")]
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
 pub(super) use gl::{Target, draw, start_program};
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub(super) use metal::{Target, draw, start_program};
 
-#[cfg(target_os = "emscripten")]
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
 mod gl {
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -197,8 +180,78 @@ void main() {
     o_color = vec4(pow(lit, vec3(1.0 / 2.2)) * c.a, c.a);
 }";
 
-    #[allow(non_snake_case)]
-    unsafe extern "C" {
+    /// The GL functions: linked in on the web, loaded from the context elsewhere
+    /// (`Gpu::gl_proc_address`) into a table the same names call through.
+    macro_rules! gl_api {
+        ($( fn $name:ident($($arg:ident: $ty:ty),*) $(-> $ret:ty)?; )*) => {
+            #[cfg(target_os = "emscripten")]
+            #[allow(non_snake_case)]
+            unsafe extern "C" {
+                $( fn $name($($arg: $ty),*) $(-> $ret)?; )*
+            }
+
+            #[cfg(not(target_os = "emscripten"))]
+            #[allow(non_snake_case)]
+            struct Api {
+                $( $name: unsafe extern "system" fn($($ty),*) $(-> $ret)?, )*
+            }
+
+            #[cfg(not(target_os = "emscripten"))]
+            impl Api {
+                /// Every function from the context, or `None` (with the missing one logged).
+                fn load(gpu: &Gpu) -> Option<Self> {
+                    Some(Self {
+                        $( $name: {
+                            let at = gpu.gl_proc_address(stringify!($name));
+                            if at.is_null() {
+                                eprintln!("SkiaModel3D: no GL function {}", stringify!($name));
+                                return None;
+                            }
+                            // SAFETY: the context's own function of that name, with the GL signature.
+                            unsafe { std::mem::transmute::<*const std::ffi::c_void, unsafe extern "system" fn($($ty),*) $(-> $ret)?>(at) }
+                        }, )*
+                    })
+                }
+            }
+
+            $(
+                #[cfg(not(target_os = "emscripten"))]
+                #[allow(non_snake_case)]
+                unsafe fn $name($($arg: $ty),*) $(-> $ret)? {
+                    let api = API.get().expect("GL functions loaded");
+                    // SAFETY: loaded for the current context (`load_api`) before any GL call.
+                    unsafe { (api.$name)($($arg),*) }
+                }
+            )*
+        };
+    }
+
+    #[cfg(not(target_os = "emscripten"))]
+    thread_local! {
+        /// The GL functions of the current context, and that context's epoch.
+        static API: std::cell::Cell<Option<&'static Api>> = const { std::cell::Cell::new(None) };
+        static API_EPOCH: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+    }
+
+    /// Loads the GL functions for `gpu`'s context when it is another one than last time; false
+    /// when it is no GL context (Android on Vulkan) or a function is missing.
+    #[cfg(not(target_os = "emscripten"))]
+    fn load_api(gpu: &Gpu) -> bool {
+        if API_EPOCH.get() == Some(gpu.epoch()) {
+            return API.get().is_some();
+        }
+        API_EPOCH.set(Some(gpu.epoch()));
+        // ponytail: one table leaked per GL context made (a handful per run: GPU resets).
+        API.set(Api::load(gpu).map(|api| &*Box::leak(Box::new(api))));
+        API.get().is_some()
+    }
+
+    #[cfg(target_os = "emscripten")]
+    fn load_api(_gpu: &Gpu) -> bool {
+        true
+    }
+
+    gl_api! {
         fn glCreateShader(kind: u32) -> u32;
         fn glShaderSource(shader: u32, count: i32, strings: *const *const u8, lengths: *const i32);
         fn glCompileShader(shader: u32);
@@ -296,9 +349,24 @@ void main() {
     const TEXTURE0: u32 = 0x84C0;
     const UNPACK_ALIGNMENT: u32 = 0x0CF5;
 
+    /// A shader in the context's language: WebGL2 and GL ES take the sources as they are, desktop
+    /// GL takes them as GLSL 3.30 (the same language there).
+    fn source(source: &str) -> std::borrow::Cow<'_, str> {
+        // SAFETY: GL_VERSION is a NUL-terminated string the GL keeps.
+        let es = unsafe {
+            let version = glGetString(0x1F02);
+            version.is_null() || std::ffi::CStr::from_ptr(version.cast()).to_string_lossy().starts_with("OpenGL ES")
+        };
+        match es {
+            true => source.into(),
+            false => source.replacen("#version 300 es", "#version 330", 1).into(),
+        }
+    }
+
     /// A shader handed to the GL to compile; its status is not asked (asking waits for the compile).
     fn compile(kind: u32, source: &str) -> u32 {
-        // SAFETY: GL calls on the current WebGL2 context, with valid pointers.
+        let source = self::source(source);
+        // SAFETY: GL calls on the current context, with valid pointers.
         unsafe {
             let s = glCreateShader(kind);
             let (ptr, len) = (source.as_ptr(), source.len() as i32);
@@ -402,6 +470,11 @@ void main() {
     /// for Windows the link takes about 180 ms). Called when a 3D control gets its properties,
     /// before anything is laid out; nothing when the program is there or started.
     pub(in super::super) fn start_program() {
+        // Desktop: the functions come with the first draw, and a desktop GL compiles in the call.
+        #[cfg(not(target_os = "emscripten"))]
+        if API.get().is_none() {
+            return;
+        }
         if CONTEXT.with_borrow(|c| c.is_some()) || STARTED.get().is_some() {
             return;
         }
@@ -640,6 +713,9 @@ void main() {
 
     /// Draws the objects into the control's texture in one pass and hands it to Skia as an image.
     pub(in super::super) fn draw(target: &mut Option<Target>, gpu: &mut Gpu, items: &[Item], style: &Style, view_proj: Mat4, size: ISize) -> Option<Image> {
+        if !load_api(gpu) {
+            return None;
+        }
         let epoch = gpu.epoch();
         let models: Vec<Rc<Model>> = CONTEXT.with_borrow_mut(|slot| {
             if slot.as_ref().is_some_and(|c| c.epoch != epoch) {

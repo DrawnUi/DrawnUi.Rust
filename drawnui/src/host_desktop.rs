@@ -3335,7 +3335,7 @@ mod gl {
         }
 
         pub(super) fn gpu(&self) -> Gpu {
-            Gpu::new_gl(gl_interface(&self.gl_config)).expect("no GPU context")
+            Gpu::new_gl(gl_interface(&self.gl_config)).expect("no GPU context").with_gl_loader(gl_loader(&self.gl_config))
         }
 
         /// A new GL context and Skia context on the same window after the GPU lost the old ones.
@@ -3343,7 +3343,7 @@ mod gl {
             let raw_handle = window.window_handle().expect("no window handle").as_raw();
             let surface = self.gl_surface.as_ref().expect("a window surface");
             self.gl_context = gl_context_for(&self.gl_config, raw_handle).make_current(surface).expect("GL context not current");
-            Gpu::new_gl_after(gl_interface(&self.gl_config), lost).expect("no GPU context")
+            Gpu::new_gl_after(gl_interface(&self.gl_config), lost).expect("no GPU context").with_gl_loader(gl_loader(&self.gl_config))
         }
 
         /// The window's surface: the default framebuffer, wrapped once per size.
@@ -3466,6 +3466,12 @@ mod gl {
                 .or_else(|_| display.create_context(gl_config, &gles))
                 .expect("no GL context")
         }
+    }
+
+    /// Where the context's GL functions are, for add-ons that draw with GL (`Gpu::gl_proc_address`).
+    fn gl_loader(gl_config: &GlConfigHandle) -> std::rc::Rc<dyn Fn(&str) -> *const std::ffi::c_void> {
+        let display = gl_config.display();
+        std::rc::Rc::new(move |name: &str| CString::new(name).map_or(std::ptr::null(), |name| display.get_proc_address(name.as_c_str())))
     }
 
     /// Skia's GL functions, from the current context.
