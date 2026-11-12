@@ -165,6 +165,14 @@ fn room(tracks: &[Track], start: usize, length: usize, gap: f64, constraint: f64
     if kinds(&tracks[start..start + length]).2 { own } else { constraint - total(tracks, gap) + own }
 }
 
+/// The room an Auto track has to grow into once the stars were shared out: its own size plus what
+/// the tracks other than stars leave (the stars give way and are shared out again after).
+fn room_before_stars(tracks: &[Track], index: usize, gap: f64, constraint: f64) -> f64 {
+    let others: f64 = tracks.iter().enumerate().filter(|(i, track)| *i != index && !track.is_star()).map(|(_, track)| track.size).sum();
+    let gaps = gap * tracks.len().saturating_sub(1) as f64;
+    constraint - others - gaps
+}
+
 /// Star tracks share what the others leave, by weight. On an unbounded axis a star means nothing:
 /// the tracks take `content`, the largest child in a star cell, times their weight.
 fn resolve_stars(tracks: &mut [Track], gap: f64, constraint: f64, content: f64) {
@@ -336,7 +344,8 @@ impl Grid {
             // in a star column would be cut to that one-line height. A vertical Fill child, which
             // would take all of it, is measured unbounded; the row grows only within the room.
             let on_auto_row = cell.rows == 1 && rows[cell.row].is_auto();
-            let room_h = room(rows, cell.row, 1, row_gap, height);
+            // Star rows took what the Auto rows left in pass 1: they give way to a growing Auto row.
+            let room_h = if on_auto_row { room_before_stars(rows, cell.row, row_gap, height) } else { room(rows, cell.row, 1, row_gap, height) };
             let offer = match on_auto_row {
                 true if fills_height(&cx.child_base(cell.child).p) => f64::INFINITY,
                 true => cell_height.max(room_h),
