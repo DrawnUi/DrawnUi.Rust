@@ -1303,6 +1303,7 @@ mod android {
             }
             self.last_vsync = vsync_ns;
             let period = *self.intervals.iter().min().unwrap_or(&16_666_667);
+            crate::set_display_refresh_rate(1e9 / period as f64);
             let ms = (vsync_ns + period - self.origin_ns) as f64 / 1_000_000.0;
             let ms = if (ms - now_ms).abs() > 250.0 { now_ms } else { ms };
             self.last_ms = ms.max(self.last_ms);
@@ -3830,6 +3831,9 @@ struct Pacing {
 impl Pacing {
     fn new(window: &Window) -> Self {
         let millihertz = window.current_monitor().and_then(|monitor| monitor.refresh_rate_millihertz()).filter(|&mhz| mhz >= 20_000);
+        if let Some(mhz) = millihertz {
+            crate::set_display_refresh_rate(mhz as f64 / 1000.0);
+        }
         let period = Duration::from_secs_f64(1000.0 / millihertz.unwrap_or(60_000) as f64);
         Self { period, on: None, intervals: Vec::with_capacity(60), last_start: None, slot: None, due: None }
     }
@@ -3976,12 +3980,14 @@ mod ticker {
             })
         }
 
-        /// The highest rate of the display the window is on.
+        /// The highest rate of the display the window is on (also `display_refresh_rate`).
         fn display_fps(&self) -> u32 {
             #[cfg(target_os = "ios")]
-            return self.display_fps;
+            let fps = self.display_fps;
             #[cfg(target_os = "macos")]
-            self.view.window().and_then(|w| w.screen()).map_or(60, |s| s.maximumFramesPerSecond().max(30) as u32)
+            let fps = self.view.window().and_then(|w| w.screen()).map_or(60, |s| s.maximumFramesPerSecond().max(30) as u32);
+            crate::set_display_refresh_rate(fps as f64);
+            fps
         }
 
         /// Runs (at the cap in force) or pauses the link.

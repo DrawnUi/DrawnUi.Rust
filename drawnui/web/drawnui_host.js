@@ -314,6 +314,7 @@ window.DrawnUi = {
     // A lost WebGL context (a GPU reset, a mobile tab in the background): no frames until the
     // browser gives it back.
     let lost = false;
+    let rateSent = false;
     const draw = (time) => {
       if (lost) return;
       const start = performance.now();
@@ -328,7 +329,16 @@ window.DrawnUi = {
       const end = performance.now();
       if (stats.frames++ === 0) stats.firstFrameMs = end;
       stats.cpuMs.push(end - start);
-      if (last) stats.intervalMs.push(time - last);
+      if (last) {
+        stats.intervalMs.push(time - last);
+        // The display's rate for the app (display_refresh_rate): the median of the first frames
+        // drawn back to back.
+        if (!rateSent && stats.intervalMs.length >= 30 && module._dui_refresh_rate) {
+          const sorted = stats.intervalMs.slice(-30).sort((x, y) => x - y);
+          rateSent = true;
+          module._dui_refresh_rate(1000 / sorted[15]);
+        }
+      }
       last = time;
       pumpAssets();
       applyOutput();

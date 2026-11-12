@@ -485,6 +485,28 @@ pub fn max_fps() -> u32 {
     MAX_FPS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// The display's refresh rate, millihertz; 0 = not known yet.
+static REFRESH_MILLIHERTZ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The refresh rate of the display the app shows on, in Hz (DrawnUI
+/// `Super.GetDisplayRefreshRate`): what a frame budget is judged against (90 on a 90 Hz phone,
+/// 120 on ProMotion). The desktop host reads the monitor's rate, Android the vsync period
+/// Choreographer reports, iOS and macOS the screen's highest rate, the web the measured period of
+/// its animation frames. 60 until the host knows it.
+pub fn display_refresh_rate() -> f32 {
+    match REFRESH_MILLIHERTZ.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => 60.0,
+        millihertz => millihertz as f32 / 1000.0,
+    }
+}
+
+/// A host tells the display's refresh rate (Hz); a rate outside 20..=1000 Hz is ignored.
+pub(crate) fn set_display_refresh_rate(hz: f64) {
+    if (20.0..=1000.0).contains(&hz) {
+        REFRESH_MILLIHERTZ.store((hz * 1000.0).round() as u32, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// Starts the app. Desktop: runs the window loop until close. Web: registers the app and returns;
 /// `drawnui_host.js` drives it from there.
 /// The Android activity (winit's NativeActivity), what an app's `android_main` receives.
@@ -510,5 +532,22 @@ pub fn run_sized(title: &str, width: f64, height: f64, make: fn() -> Box<dyn App
     {
         let _ = (width, height);
         host_web::run(title, make);
+    }
+}
+
+#[cfg(test)]
+mod refresh_rate_tests {
+    #[test]
+    fn the_refresh_rate_is_60_until_a_host_tells_it_and_ignores_nonsense() {
+        // One test: the rate is process-wide.
+        assert_eq!(crate::display_refresh_rate(), 60.0, "unknown: 60 Hz");
+        crate::set_display_refresh_rate(1e9 / 11_111_111.0);
+        assert!((crate::display_refresh_rate() - 90.0).abs() < 0.01, "a 90 Hz vsync period: {}", crate::display_refresh_rate());
+        crate::set_display_refresh_rate(5.0);
+        crate::set_display_refresh_rate(f64::NAN);
+        crate::set_display_refresh_rate(5000.0);
+        assert!((crate::display_refresh_rate() - 90.0).abs() < 0.01, "nonsense is ignored");
+        crate::set_display_refresh_rate(119.88);
+        assert!((crate::display_refresh_rate() - 119.88).abs() < 0.01);
     }
 }
