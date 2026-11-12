@@ -765,6 +765,7 @@ dependencies = [
 name = "drawnui-add3d"
 version = "0.1.0-preview.1"
 dependencies = [
+ "ash",
  "drawnui",
  "glam",
  "gltf",

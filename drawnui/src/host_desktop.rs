@@ -2841,6 +2841,8 @@ mod vulkan {
         /// feature: what an app needs to draw camera frames (AHardwareBuffer imports).
         device_extensions: Vec<String>,
         ycbcr: bool,
+        /// The samplerAnisotropy feature is on.
+        anisotropy: bool,
         /// Null while the app is in the background (the native window is gone).
         surface: vk::SurfaceKHR,
         swapchain: vk::SwapchainKHR,
@@ -2921,7 +2923,15 @@ mod vulkan {
                 }
                 let ycbcr = supported.sampler_ycbcr_conversion == vk::TRUE;
                 let mut enable = vk::PhysicalDeviceSamplerYcbcrConversionFeatures::default().sampler_ycbcr_conversion(ycbcr);
-                let info = vk::DeviceCreateInfo::default().queue_create_infos(&queues).enabled_extension_names(&extensions).push_next(&mut enable);
+                // Anisotropic filtering where the device has it: textures seen at a slant stay sharp
+                // (add-ons that sample their own images, such as the 3D add-on).
+                let anisotropy = instance.get_physical_device_features(physical).sampler_anisotropy == vk::TRUE;
+                let core = vk::PhysicalDeviceFeatures::default().sampler_anisotropy(anisotropy);
+                let info = vk::DeviceCreateInfo::default()
+                    .queue_create_infos(&queues)
+                    .enabled_extension_names(&extensions)
+                    .enabled_features(&core)
+                    .push_next(&mut enable);
                 let device = match instance.create_device(physical, &info, None) {
                     Ok(device) => device,
                     Err(e) => {
@@ -2945,6 +2955,7 @@ mod vulkan {
                     swapchain_fn,
                     device_extensions,
                     ycbcr,
+                    anisotropy,
                     surface,
                     swapchain: vk::SwapchainKHR::null(),
                     rgba: true,
@@ -2983,9 +2994,11 @@ mod vulkan {
                 // SAFETY: as above, on the device.
                 unsafe { device_proc_addr(vk::Device::from_raw(device), name) }.map_or(std::ptr::null(), |f| f as *const c_void)
             };
-            // What the device was made with, for Skia: no core feature, the YCbCr sampler where on.
+            // What the device was made with, for Skia: anisotropic filtering and the YCbCr sampler
+            // where on.
             let mut ycbcr = vk::PhysicalDeviceSamplerYcbcrConversionFeatures::default().sampler_ycbcr_conversion(self.ycbcr);
-            let features = vk::PhysicalDeviceFeatures2::default().push_next(&mut ycbcr);
+            let core = vk::PhysicalDeviceFeatures::default().sampler_anisotropy(self.anisotropy);
+            let features = vk::PhysicalDeviceFeatures2::default().features(core).push_next(&mut ycbcr);
             // SAFETY: the handles live as long as this presenter, which the host drops after the context.
             // ponytail: a lost device is not made again; a new context on it fails (the host panics).
             unsafe {
@@ -3001,6 +3014,7 @@ mod vulkan {
                     &INSTANCE_EXTENSIONS,
                     &self.device_extensions.iter().map(String::as_str).collect::<Vec<_>>(),
                     self.ycbcr,
+                    self.anisotropy,
                     &features as *const vk::PhysicalDeviceFeatures2 as *const c_void,
                     lost,
                 )

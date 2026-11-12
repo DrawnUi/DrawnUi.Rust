@@ -30,3 +30,7 @@ objc2-metal = { version = "0.3.2", default-features = false, features = [
     "MTLDepthStencil", "MTLDevice", "MTLLibrary", "MTLPixelFormat", "MTLRenderCommandEncoder", "MTLRenderPass",
     "MTLRenderPipeline", "MTLResource", "MTLSampler", "MTLTexture", "MTLTypes", "MTLArgument",
 ] }
+
+# Vulkan on Android (its default GPU API): the device and queue Skia draws with, through ash.
+[target.'cfg(target_os = "android")'.dependencies]
+ash = "0.38"

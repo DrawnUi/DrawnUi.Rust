@@ -13,6 +13,9 @@ use skia_safe::{
     surfaces,
 };
 
+/// See `Gpu::last_vulkan_handles`.
+static LAST_VULKAN: std::sync::Mutex<Option<VulkanHandles>> = std::sync::Mutex::new(None);
+
 pub struct Gpu {
     /// `None` = CPU raster (headless tests).
     ctx: Option<DirectContext>,
@@ -63,6 +66,8 @@ pub struct VulkanHandles {
     /// The device has the samplerYcbcrConversion feature on, and Skia knows it: images with a
     /// YCbCr conversion (camera frames in the device's own format) can be drawn.
     pub sampler_ycbcr_conversion: bool,
+    /// The device has the samplerAnisotropy feature on: samplers may filter anisotropically.
+    pub sampler_anisotropy: bool,
 }
 
 /// Frame serials of every context of the process: the next one, and the newest the GPU finished.
@@ -259,6 +264,7 @@ impl Gpu {
         instance_extensions: &[&str],
         device_extensions: &[&str],
         ycbcr: bool,
+        anisotropy: bool,
         device_features: *const std::ffi::c_void,
         lost: Option<&mut Gpu>,
     ) -> Option<Self> {
@@ -293,7 +299,7 @@ impl Gpu {
             None => 0,
         };
         let mut gpu = Self::with(Some(ctx), epoch);
-        gpu.vulkan = Some(VulkanHandles {
+        let handles = VulkanHandles {
             instance,
             physical_device: physical,
             device,
@@ -301,7 +307,12 @@ impl Gpu {
             queue_family: family,
             hardware_buffers: device_extensions.contains(&"VK_ANDROID_external_memory_android_hardware_buffer"),
             sampler_ycbcr_conversion: ycbcr,
-        });
+            sampler_anisotropy: anisotropy,
+        };
+        gpu.vulkan = Some(handles);
+        if let Ok(mut last) = LAST_VULKAN.lock() {
+            *last = Some(handles);
+        }
         Some(gpu)
     }
 
@@ -439,6 +450,13 @@ impl Gpu {
             (Some(load), Some(ctx)) if ctx.backend() == BackendAPI::OpenGL => load(name),
             _ => std::ptr::null(),
         }
+    }
+
+    /// The Vulkan objects of the newest Vulkan context the host made, before any frame is drawn:
+    /// for add-ons that prepare their pipelines on a thread of their own while the app starts (games
+    /// compile their shaders while loading). `None` until a Vulkan context exists.
+    pub fn last_vulkan_handles() -> Option<VulkanHandles> {
+        LAST_VULKAN.lock().ok().and_then(|last| *last)
     }
 
     /// The Vulkan objects the context draws with (Android on Vulkan); `None` elsewhere.

@@ -1,7 +1,7 @@
 //! The GPU side: one shader program and one copy of each model per GPU context, shared by every
 //! control; each control draws its objects in one pass into its own texture, which Skia shows.
-//! OpenGL (WebGL2 in the browser; desktop GL and GL ES on Windows, Linux and Android's GL) and
-//! Metal (macOS, iOS). A context of another API (Android on Vulkan) draws nothing yet.
+//! OpenGL (WebGL2 in the browser; desktop GL and GL ES on Windows, Linux and Android on GL),
+//! Vulkan (Android, its default) and Metal (macOS, iOS).
 
 use std::rc::Rc;
 
@@ -58,8 +58,50 @@ fn eye(view_proj: Mat4) -> glam::Vec4 {
     if toward.w.abs() > 1e-6 { (toward.truncate() / toward.w).extend(1.0) } else { (-toward.truncate()).normalize_or_zero().extend(0.0) }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
 pub(super) use gl::{Target, draw, start_program};
+
+#[cfg(target_os = "android")]
+pub(super) use android::{Target, draw, start_program};
+
+#[cfg(target_os = "android")]
+mod vulkan;
+
+/// Android draws with whichever API the host made its context with: Vulkan, or GL ES.
+#[cfg(target_os = "android")]
+mod android {
+    use super::*;
+
+    pub(in super::super) enum Target {
+        Gl(super::gl::Target),
+        Vulkan(super::vulkan::Target),
+    }
+
+    pub(in super::super) fn draw(target: &mut Option<Target>, gpu: &mut Gpu, items: &[Item], style: &Style, view_proj: Mat4, size: ISize) -> Option<Image> {
+        if gpu.backend() == Some(drawnui::GpuApi::Vulkan) {
+            let mut own = match target.take() {
+                Some(Target::Vulkan(t)) => Some(t),
+                _ => None,
+            };
+            let image = super::vulkan::draw(&mut own, gpu, items, style, view_proj, size);
+            *target = own.map(Target::Vulkan);
+            image
+        } else {
+            let mut own = match target.take() {
+                Some(Target::Gl(t)) => Some(t),
+                _ => None,
+            };
+            let image = super::gl::draw(&mut own, gpu, items, style, view_proj, size);
+            *target = own.map(Target::Gl);
+            image
+        }
+    }
+
+    pub(in super::super) fn start_program() {
+        super::gl::start_program();
+        super::vulkan::start_program();
+    }
+}
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub(super) use metal::{Target, draw, start_program};
