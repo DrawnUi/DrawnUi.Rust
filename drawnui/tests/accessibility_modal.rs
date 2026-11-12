@@ -235,3 +235,103 @@ fn a_removed_or_closed_modal_leaves_the_registry() {
     host.settle();
     assert!(!drawnui::modal_registered(wrapper));
 }
+
+// drawnui-cross 6bs: one dialog for readers, the keyboard in on open and back to the opener on close.
+
+#[derive(Default)]
+struct HelpApp {
+    shell: Handle<SkiaShell>,
+    help: Handle<SkiaShape>,
+}
+
+fn help_button(name: &'static str) -> Build<SkiaShape> {
+    SkiaShape::new().width_request(80).height_request(30).accessibility_role(Aria::BUTTON).accessibility_label(name).on_tapped(|_me, _app: &mut HelpApp, _cx| {})
+}
+
+/// A page with a "Help" button (the opener) and a shell whose popup is the app's named dialog.
+fn help_host() -> Headless<HelpApp> {
+    let ui = Ui::new(HelpApp::default(), |app: &mut HelpApp| {
+        SkiaShell::new().assign(&mut app.shell).root(SkiaLayout::column().fill().spacing(10).padding(10).children((
+            help_button("Play"),
+            help_button("Help").assign(&mut app.help),
+        )))
+    });
+    let mut host = Headless::new(ui, 400, 300, 1.0);
+    host.ui.set_accessibility_enabled(true);
+    host.ui.set_keyboard_navigation(true);
+    host.settle();
+    host
+}
+
+fn help_dialog() -> Build<SkiaLayout> {
+    SkiaLayout::column()
+        .width_request(200)
+        .accessibility_role(Aria::DIALOG)
+        .accessibility_label("How to play")
+        .children((SkiaLabel::new("Run and jump."), help_button("OK")))
+}
+
+fn help_keyboard_on(host: &Headless<HelpApp>) -> Option<String> {
+    host.ui.accessibility_focused().and_then(|f| host.ui.tree.base(f)).map(|b| b.p.accessibility_label.to_string())
+}
+
+#[test]
+fn a_nameless_popup_host_around_a_named_dialog_reads_as_one_dialog() {
+    let mut host = help_host();
+    let shell = host.ui.state.shell;
+    host.ui.tree.cx().open_popup(shell, help_dialog(), PopupOptions { animated: false, ..Default::default() });
+    host.settle();
+    let nodes = host.ui.accessibility_nodes().to_vec();
+    let dialogs: Vec<_> = nodes.iter().filter(|n| &*n.role == Aria::DIALOG || &*n.role == Aria::ALERT_DIALOG).collect();
+    assert_eq!(dialogs.len(), 1, "one dialog: {:?}", dialogs.iter().map(|n| (&n.role, &n.label)).collect::<Vec<_>>());
+    assert_eq!((dialogs[0].label.as_str(), dialogs[0].modal), ("How to play", true));
+    // Its content hangs under that one dialog.
+    let ok = nodes.iter().find(|n| n.label == "OK").expect("OK");
+    let mut at = ok.parent;
+    let mut under = false;
+    while let Some(id) = at {
+        if id == dialogs[0].id {
+            under = true;
+        }
+        at = nodes.iter().find(|n| n.id == id).and_then(|n| n.parent);
+    }
+    assert!(under, "OK sits inside the dialog");
+}
+
+#[test]
+fn the_keyboard_goes_into_a_dialog_opened_from_the_keyboard() {
+    let mut host = help_host();
+    host.press_key("Tab");
+    host.press_key("Tab");
+    assert_eq!(help_keyboard_on(&host).as_deref(), Some("Help"));
+    let shell = host.ui.state.shell;
+    host.ui.tree.cx().open_popup(shell, help_dialog(), PopupOptions::default());
+    host.settle();
+    assert_eq!(help_keyboard_on(&host).as_deref(), Some("OK"));
+}
+
+#[test]
+fn the_keyboard_goes_back_to_an_opener_shown_again_only_after_the_close() {
+    let mut host = help_host();
+    host.press_key("Tab");
+    host.press_key("Tab");
+    assert_eq!(help_keyboard_on(&host).as_deref(), Some("Help"));
+    let (shell, help) = (host.ui.state.shell, host.ui.state.help);
+    host.ui.tree.cx().open_popup(shell, help_dialog(), PopupOptions::default());
+    // The app hides its buttons under the dialog.
+    if let Some(mut h) = host.ui.tree.cx().get_mut(help) {
+        h.set_is_visible(false);
+    }
+    host.settle();
+    assert_eq!(help_keyboard_on(&host).as_deref(), Some("OK"));
+    host.ui.tree.cx().close_popup(shell, true);
+    // Shown again a little after the close (after the fade, as the Dungeon's HUD).
+    for _ in 0..30 {
+        host.frame_after(16.0);
+    }
+    if let Some(mut h) = host.ui.tree.cx().get_mut(help) {
+        h.set_is_visible(true);
+    }
+    host.settle();
+    assert_eq!(help_keyboard_on(&host).as_deref(), Some("Help"));
+}

@@ -280,6 +280,9 @@ fn drawn_over(tree: &Tree, a: ControlId, b: ControlId) -> bool {
     }
 }
 
+/// How long the keyboard waits for a closed dialog's opener to take input again (drawnui-cross 6bs).
+const FOCUS_RETURN_WAIT_MS: f64 = 1000.0;
+
 /// Where the keyboard goes when the active modal changed (`Ui::modal_focus`).
 enum ModalFocus {
     /// A modal became active: into it, when the keyboard is in use.
@@ -2560,6 +2563,30 @@ impl<S: 'static> Ui<S> {
                 main_len = list.len();
             }
         }
+        // A nameless active modal (a popup host) around a named dialog reads as that one dialog
+        // (drawnui-cross 6bs): the host takes the dialog's role and name, the dialog is not read again.
+        if let Some(modal) = self.active_modal
+            && let Some(at) = list.iter().position(|n| n.control == modal && n.label.is_empty())
+        {
+            let tree = &self.tree;
+            let inside = |c: ControlId| std::iter::successors(tree.parent(c), |p| tree.parent(*p)).any(|p| p == modal);
+            let named = list.iter().position(|n| (n.role == Aria::DIALOG || n.role == Aria::ALERT_DIALOG) && !n.label.is_empty() && inside(n.control));
+            if let Some(named) = named {
+                let dialog = list.remove(named);
+                if named < main_len {
+                    main_len -= 1;
+                }
+                let host = &mut list[if named < at { at - 1 } else { at }];
+                let host_id = host.id;
+                (host.role, host.label) = (dialog.role, dialog.label);
+                if host.hint.is_empty() {
+                    host.hint = dialog.hint;
+                }
+                for node in list.iter_mut().filter(|n| n.parent == Some(dialog.id)) {
+                    node.parent = Some(host_id);
+                }
+            }
+        }
         let (app, popups) = list.split_at_mut(main_len);
         reading_order(app);
         reading_order(popups);
@@ -4025,10 +4052,17 @@ impl<S: 'static> Ui<S> {
                 if keyboard.is_some_and(|k| self.tree.node(k).is_some() && !inside(&self.tree, k, modal)) {
                     return;
                 }
-                let Some(to) = to.filter(|t| self.tree.accessibility.iter().any(|n| n.control == *t && n.can_interact)) else { return };
-                let ring = self.focus_ring;
-                self.keyboard_focus(to);
-                self.focus_ring = ring;
+                let Some(to) = to.filter(|t| self.tree.node(*t).is_some()) else { return };
+                if self.tree.accessibility.iter().any(|n| n.control == to && n.can_interact) {
+                    let ring = self.focus_ring;
+                    self.keyboard_focus(to);
+                    self.focus_ring = ring;
+                } else if self.tree.accessibility_focus_request.is_none() {
+                    // The app shows the opener again only after the close (a HUD hidden under the
+                    // dialog): the keyboard waits a moment for it (drawnui-cross 6bs).
+                    self.tree.accessibility_focus_request = Some((Some(to), self.tree.time_ms + FOCUS_RETURN_WAIT_MS));
+                    self.tree.needs_frame = true;
+                }
             }
         }
     }
