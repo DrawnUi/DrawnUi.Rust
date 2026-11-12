@@ -957,6 +957,10 @@ fn product_list(app: &mut App) -> Build<SkiaShape> {
             )),
             SkiaShape::new().corner_radius(12).background_color(PAGE).fill_x().height_request(440).is_clipped_to_bounds(true).children((SkiaScroll::new()
                 .fill()
+                // A bar to drag through the thirty rows, as the .NET gallery's shop.
+                .scroll_bar_thumb_color(BUTTON)
+                .scroll_bar_track_color(Color::from_argb(34, 255, 255, 255))
+                .scroll_bar(SkiaScrollBar::new().is_draggable(true).thickness(8))
                 .content(SkiaLayout::column().fill_x().spacing(2).children(rows)),)),
         ),
     )
@@ -1581,8 +1585,9 @@ fn boss_caption(text: &str) -> Build<SkiaLabel> {
 }
 
 fn move_button((caption, animation, kind): (&'static str, &'static str, MoveKind)) -> Build<SkiaButton> {
+    // Room for "Headbutt" on one line in the Semibold title font.
     ui_button(caption)
-        .width_request(100)
+        .width_request(112)
         .background_color(BOSS_BUTTON)
         .observe(move |me, app: &App| me.set_background_color(if app.boss_looping == caption { MOVES_ACCENT } else { BOSS_BUTTON }))
         .on_tapped(move |_me, app: &mut App, cx| {
