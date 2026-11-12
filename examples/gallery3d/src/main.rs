@@ -587,6 +587,12 @@ fn ui_button(caption: impl Into<String>) -> Build<SkiaButton> {
     SkiaButton::new(caption).font_family(TITLE)
 }
 
+/// A Boss fight button as the .NET gallery's UiButton: a fixed width, 40 tall, the caption at 14
+/// with no side padding (three to a row on a phone, "Headbutt" on one line).
+fn boss_button(caption: &'static str, width: f32) -> Build<SkiaButton> {
+    ui_button(caption).width_request(width).height_request(40).font_size(14).padding((0.0, 0.0))
+}
+
 fn button(caption: &str) -> Build<SkiaButton> {
     ui_button(caption).width_request(150).background_color(BUTTON)
 }
@@ -1588,9 +1594,7 @@ fn boss_caption(text: &str) -> Build<SkiaLabel> {
 }
 
 fn move_button((caption, animation, kind): (&'static str, &'static str, MoveKind)) -> Build<SkiaButton> {
-    // Room for "Headbutt" on one line in the Semibold title font.
-    ui_button(caption)
-        .width_request(112)
+    boss_button(caption, 100.0)
         .background_color(BOSS_BUTTON)
         .observe(move |me, app: &App| me.set_background_color(if app.boss_looping == caption { MOVES_ACCENT } else { BOSS_BUTTON }))
         .on_tapped(move |_me, app: &mut App, cx| {
@@ -1615,8 +1619,7 @@ fn move_button((caption, animation, kind): (&'static str, &'static str, MoveKind
 
 fn skin_button((caption, color): (&'static str, Option<Color>)) -> Build<SkiaButton> {
     let swatch = color.unwrap_or(EMBER);
-    ui_button(caption)
-        .width_request(100)
+    boss_button(caption, 100.0)
         .background_color(BOSS_BUTTON)
         .stroke_color(swatch)
         .stroke_width(2)
@@ -1687,8 +1690,7 @@ fn boss_page(app: &mut App) -> Build<SkiaLayout> {
                 boss_caption("SKIN AND EYES (materials by name)"),
                 SkiaLayout::wrap().spacing(8).horizontal_options(LayoutOptions::Center).accessibility_role(Aria::TOOLBAR).accessibility_label("Skin and eyes").children((
                     SKINS.iter().copied().map(skin_button).collect::<Vec<_>>(),
-                    ui_button("Rage: off")
-                        .width_request(124)
+                    boss_button("Rage: off", 124.0)
                         .background_color(BOSS_TOGGLE)
                         .observe(|me, app: &App| {
                             me.set_text(if app.boss_rage { "Rage: on" } else { "Rage: off" });
@@ -1701,8 +1703,7 @@ fn boss_page(app: &mut App) -> Build<SkiaLayout> {
                                 boss.set_material_color("Eye_White", app.boss_rage.then_some(Color::from_rgb(255, 40, 30)));
                             }
                         }),
-                    ui_button("Turn: off")
-                        .width_request(124)
+                    boss_button("Turn: off", 124.0)
                         .background_color(BOSS_TOGGLE)
                         .observe(|me, app: &App| {
                             me.set_text(if app.boss_turning { "Turn: on" } else { "Turn: off" });
