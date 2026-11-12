@@ -23,6 +23,11 @@ const MAX_JOINTS: usize = 64;
 const VS: &[u8] = include_bytes!("vulkan/model.vert.spv");
 const FS: &[u8] = include_bytes!("vulkan/model.frag.spv");
 const COLOR_FORMAT: vk::Format = vk::Format::R8G8B8A8_UNORM;
+/// What the control's image is used for: drawn into, sampled by Skia, and copied from or into
+/// (Skia borrows an image only with the transfer usages: it may copy it).
+const COLOR_USAGE: vk::ImageUsageFlags = vk::ImageUsageFlags::from_raw(
+    vk::ImageUsageFlags::COLOR_ATTACHMENT.as_raw() | vk::ImageUsageFlags::SAMPLED.as_raw() | vk::ImageUsageFlags::TRANSFER_SRC.as_raw() | vk::ImageUsageFlags::TRANSFER_DST.as_raw(),
+);
 const FRAME_BYTES: u64 = std::mem::size_of::<Frame>() as u64;
 const JOINT_BYTES: u64 = (MAX_JOINTS * 64) as u64;
 
@@ -452,7 +457,7 @@ impl Context {
             old.serial = old.serial.max(serial.saturating_sub(1));
         }
         *slot = None;
-        let color_usage = vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED;
+        let color_usage = COLOR_USAGE;
         let depth_usage = vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT | vk::ImageUsageFlags::TRANSIENT_ATTACHMENT;
         let depth_aspect = vk::ImageAspectFlags::DEPTH;
         let color = self.image(COLOR_FORMAT, size, 1, vk::SampleCountFlags::TYPE_1, color_usage, vk::ImageAspectFlags::COLOR)?;
@@ -1042,7 +1047,7 @@ pub(in super::super) fn draw(target: &mut Option<Target>, gpu: &mut Gpu, items: 
             None,
             None,
         );
-        info.image_usage_flags = (vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED).as_raw();
+        info.image_usage_flags = COLOR_USAGE.as_raw();
         info.sample_count = 1;
         info
     };
