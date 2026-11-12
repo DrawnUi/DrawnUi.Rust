@@ -1025,10 +1025,12 @@ const PIN_RED: Color = Color::from_rgb(234, 67, 53);
 const CHIP_WIDTH: f32 = 130.0;
 
 /// A map pin for a city: a glossy teardrop with a soft shadow and a white dot inside, and a ring
-/// pulsing where it stands (its handle goes to `pulse`).
+/// pulsing where it stands (its handle goes to `pulse`). The teardrop is cached as an image: the
+/// globe under it redraws every frame, the pin is only moved.
 fn pin(name: &str, pulse: &mut Handle<SkiaShape>) -> Build<SkiaLayout> {
     SkiaLayout::new().is_visible(false).accessibility_role(Aria::BUTTON).accessibility_label(name).width_request(32).height_request(48).children((
         SkiaShape::new().shape_type(ShapeType::Ellipse).width_request(30).height_request(10).left(1).top(38).stroke_color(PIN_RED).stroke_width(2).assign(pulse),
+        SkiaLayout::new().width_request(32).height_request(43).use_cache(CacheType::Image).children((
         SkiaShape::new()
             .shape_type(ShapeType::Path)
             .path_data("M16 0 C7.2 0 0 7 0 15.6 C0 27 16 43 16 43 C16 43 32 27 32 15.6 C32 7 24.8 0 16 0 Z")
@@ -1039,12 +1041,15 @@ fn pin(name: &str, pulse: &mut Handle<SkiaShape>) -> Build<SkiaLayout> {
             .shadows(SkiaShadow::new(Color::BLACK).x(0).y(3).blur(5).opacity(0.45)),
         SkiaShape::new().shape_type(ShapeType::Circle).width_request(12).height_request(12).left(10).top(10).background_color(Color::WHITE),
         SkiaShape::new().shape_type(ShapeType::Ellipse).width_request(10).height_request(5).left(8).top(4).background_color(Color::from_argb(90, 255, 255, 255)),
+        )),
     ))
 }
 
-/// A clean label chip for a city.
+/// A clean label chip for a city, cached as an image (its shadow and text are not drawn again
+/// while the globe under it turns).
 fn chip_label(name: &str) -> Build<SkiaShape> {
     SkiaShape::new()
+        .use_cache(CacheType::Image)
         .width_request(CHIP_WIDTH)
         .height_request(30)
         .corner_radius(15)
