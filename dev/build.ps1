@@ -69,6 +69,7 @@ try {
     foreach ($file in Get-ChildItem "$out\assets" -Recurse -File -ErrorAction SilentlyContinue) {
         $versions[[IO.Path]::GetRelativePath($out, $file.FullName).Replace('\', '/')] = & $stamp $file.FullName
     }
+    . "$PSScriptRoot\web-loader.ps1"
     $hostTag = '<script src="drawnui_host.js"></script>'
     $hostTags = "<script>window.duiAssetVersions = $(ConvertTo-Json $versions -Compress);</script>`n    " +
         "<script src=`"drawnui_host.js?v=$hostStamp`"></script>"
@@ -77,6 +78,8 @@ try {
         if ($html.Contains('src="drawnui_host.js"') -and -not $html.Contains($hostTag)) { throw "$($page.Name): write the host script as $hostTag" }
         $html = $html.Replace($hostTag, $hostTags)
         if (Test-Path "$out\favicon.ico") { $html = $html.Replace('href="favicon.ico"', "href=`"favicon.ico?v=$(& $stamp "$out\favicon.ico")`"") }
+        # The loading screen while the app downloads and starts (dev\web-loader.ps1).
+        if ($html.Contains("src=`"$Example.js?v=")) { $html = Add-WebLoader $html (Get-Item "$out\$Example.wasm").Length }
         Set-Content $page.FullName $html -NoNewline
     }
 

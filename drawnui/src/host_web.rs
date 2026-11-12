@@ -348,6 +348,12 @@ pub extern "C" fn dui_a11y_activate(s: *mut WebState, id: u32) {
     state(s).app.accessibility_activate(id);
 }
 
+/// 1 once the app drew a frame with its fonts in (the page's loading screen can go), else 0.
+#[unsafe(no_mangle)]
+pub extern "C" fn dui_drawn(s: *mut WebState) -> i32 {
+    state(s).host.drawn as i32
+}
+
 /// The overlay's keyboard focus moved onto (`focused` 1) or off the node `id`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dui_a11y_focus(s: *mut WebState, id: u32, focused: i32) {

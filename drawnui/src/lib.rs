@@ -185,6 +185,9 @@ pub struct Host {
     urls: Vec<String>,
     /// Changes to the browser's history, in order.
     pub(crate) history: Vec<HistoryOp>,
+    /// The app drew a frame with its fonts in: what it shows is the app, not a blank canvas (a
+    /// page's loading screen goes then).
+    pub(crate) drawn: bool,
     /// Set by a host with a browser history (the web).
     pub(crate) history_on: bool,
     /// Set by a host that draws ImageDoubleBuffered caches on worker threads (the desktop).

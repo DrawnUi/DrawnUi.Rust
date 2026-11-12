@@ -99,6 +99,44 @@ async function drawnUiDecodeImage(url, width, height, frames) {
   }
 }
 
+// While the app's wasm downloads, its bytes count into the loader's progress (a percentage of the size
+// the build wrote into data-wasm-bytes). The response is passed on as a stream, so the browser still
+// compiles the wasm while it arrives. Returns the undo.
+function trackDownload(loader) {
+  const total = Number(loader.dataset.wasmBytes) || 0;
+  const show = (percent) => {
+    loader.style.setProperty("--drawnui-load-percentage", `${percent}%`);
+    loader.style.setProperty("--drawnui-load-percentage-text", `"${Math.round(percent)}%"`);
+    loader.setAttribute("aria-valuenow", String(Math.round(percent)));
+  };
+  const fetchBefore = window.fetch;
+  window.fetch = async (input, init) => {
+    const response = await fetchBefore(input, init);
+    const url = typeof input === "string" ? input : input.url;
+    if (!total || !response.ok || !response.body || !/\.wasm(\?|$)/.test(url)) return response;
+    const reader = response.body.getReader();
+    let received = 0;
+    const body = new ReadableStream({
+      async pull(controller) {
+        const { done, value } = await reader.read();
+        if (done) {
+          show(100);
+          controller.close();
+          return;
+        }
+        received += value.length;
+        show(Math.min(99, (received / total) * 100));
+        controller.enqueue(value);
+      },
+    });
+    return new Response(body, { status: response.status, statusText: response.statusText, headers: { "Content-Type": "application/wasm" } });
+  };
+  show(0);
+  return () => {
+    window.fetch = fetchBefore;
+  };
+}
+
 // Registers the page's WebGL2 context with Emscripten and makes it current (at start and after a
 // lost context came back, which forgets its extensions). Skia reads the GPU name (UNMASKED_RENDERER)
 // when the browser lists WEBGL_debug_renderer_info, so that one is enabled first: the browser logs
@@ -127,7 +165,12 @@ function drawnUiVersioned(url) {
 
 window.DrawnUi = {
   async start({ canvas, create, configure, imageWorker = true, history: useHistory = true, resolveAsset, fonts = [] }) {
+    // The page's loading screen (dev/build.ps1 puts one in every page): it shows how much of the
+    // app's wasm arrived, and goes with the app's first drawn frame.
+    let loader = document.querySelector(".drawnui-loader");
+    const untrack = loader ? trackDownload(loader) : null;
     const module = await create();
+    if (untrack) untrack();
     if (configure) configure(module);
     const app = module._dui_create();
     // Fonts of the page: registered before anything is laid out (an engine without it skips them).
@@ -276,6 +319,12 @@ window.DrawnUi = {
       const start = performance.now();
       const more = module._dui_frame(app, time);
       if (ctx2d) present2d();
+      if (loader && module._dui_drawn && module._dui_drawn(app)) {
+        const done = loader;
+        loader = null;
+        done.classList.add("done");
+        setTimeout(() => done.remove(), 400);
+      }
       const end = performance.now();
       if (stats.frames++ === 0) stats.firstFrameMs = end;
       stats.cpuMs.push(end - start);

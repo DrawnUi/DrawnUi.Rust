@@ -3893,6 +3893,7 @@ impl<S: 'static> App for Ui<S> {
             self.set_accessibility_enabled(frame.host.accessibility_on);
         }
         self.draw(frame.surface.canvas(), frame.gpu, frame.width, frame.height, frame.scale, frame.time_ms);
+        frame.host.drawn |= self.fonts_pending == 0;
         #[cfg(feature = "designer")]
         if let Some(mut after) = self.after_frame.take() {
             after(self, frame);

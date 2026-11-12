@@ -12,6 +12,7 @@
     <meta name="author" content="DrawnUI" />
     <meta name="robots" content="index, follow, max-image-preview:large" />
     <meta name="theme-color" content="#121218" />
+    <meta name="drawnui-loader-title" content="DrawnUI 3D Demo" />
     <link rel="canonical" href="https://add3d.drawnui.net/" />
 
     <meta property="og:type" content="website" />
@@ -58,6 +59,17 @@
     <style>
       html, body { margin: 0; height: 100%; background: #121218; overflow: hidden; }
       canvas { width: 100vw; height: 100vh; height: 100dvh; display: block; touch-action: none; }
+      /* The loading screen (dev/web-loader.ps1) in the gallery's colors. */
+      :root {
+        --drawnui-loader-background: radial-gradient(ellipse at 50% 55%, #241f45 0%, #0e1018 65%);
+        --drawnui-loader-title: linear-gradient(#ffffff, #c9c0ff 55%, #7c6cf2);
+        --drawnui-loader-track: #221f3a;
+        --drawnui-loader-fill: linear-gradient(90deg, #7c6cf2, #c9c0ff);
+        --drawnui-loader-glow: #7c6cf2;
+        --drawnui-loader-glow-soft: rgba(124, 108, 242, 0.45);
+        --drawnui-loader-glow-strong: rgba(124, 108, 242, 0.8);
+        --drawnui-loader-text: #8b86a8;
+      }
     </style>
   </head>
   <body>
