@@ -62,6 +62,9 @@
       /* 100dvh: the part of the screen the browser's own bars leave free. With 100vh, Safari on an
          iPhone puts the bottom of the canvas under its toolbar. */
       canvas { width: 100vw; height: 100vh; height: 100dvh; display: block; touch-action: none; }
+      /* The loading screen's letters: the game's own heavy font. */
+      @font-face { font-family: "Orbitron Black"; src: url("assets/Orbitron-Black.ttf"); font-display: block; }
+      :root { --drawnui-loader-font: "Orbitron Black"; }
     </style>
   </head>
   <body>
