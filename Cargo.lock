@@ -814,6 +814,7 @@ version = "0.0.0"
 dependencies = [
  "drawnui",
  "dungeon",
+ "jni-sys 0.3.1",
 ]
 
 [[package]]

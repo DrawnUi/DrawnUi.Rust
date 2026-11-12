@@ -83,7 +83,20 @@ impl RenderScale {
     }
 
     fn log(&self, why: &str) {
-        println!("dungeon: render scale {:.0} % ({why})", STEPS[self.step] * 100.0);
+        let line = format!("dungeon: render scale {:.0} % ({why})", STEPS[self.step] * 100.0);
+        // Android: logcat, tag `dungeon` (stdout goes nowhere there).
+        #[cfg(target_os = "android")]
+        {
+            unsafe extern "C" {
+                fn __android_log_write(priority: i32, tag: *const std::ffi::c_char, text: *const std::ffi::c_char) -> i32;
+            }
+            if let Ok(text) = std::ffi::CString::new(line) {
+                // SAFETY: two NUL-terminated strings that live through the call; 4 = ANDROID_LOG_INFO.
+                unsafe { __android_log_write(4, c"dungeon".as_ptr(), text.as_ptr()) };
+            }
+        }
+        #[cfg(not(target_os = "android"))]
+        println!("{line}");
     }
 }
 
