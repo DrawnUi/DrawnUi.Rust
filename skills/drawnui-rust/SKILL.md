@@ -401,6 +401,15 @@ title with a `fill_x()` divider under it is as wide as the title. A child that f
 content of its own (a divider) only adds its own size requests. Give the column a width, or make
 it fill, when it should take all the room.
 
+## A child wider than its parent
+
+A child gets at most the room its parent gives it: a `width_request` larger than that room is
+arranged at the room's width, and its cache records only that much. To have a 2000 pt strip inside a
+1000 pt clipped field (a parallax layer that slides by up to 1000 pt), give it the room with a
+negative margin on the far side: `.width_request(2000).margin((0.0, 0.0, -1000.0, 0.0))`. One
+continuous strip that slides and starts over is seamless; two copies side by side meet in a visible
+line wherever their edges overlap.
+
 ## Masonry (Pinterest-style columns)
 
 `SkiaMasonry::new()` (a `SkiaLayout` with `LayoutType::Masonry`, `split(2)`, filling the width):
