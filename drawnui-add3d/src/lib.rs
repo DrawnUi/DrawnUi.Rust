@@ -614,6 +614,10 @@ impl Control for SkiaModel3D {
                 self.glide = None;
                 Handled::Yes
             }
+            // A drag on a card that leans toward the finger: mostly up or down is the page's scroll.
+            GestureKind::Panning if self.tilt_to_pointer > 0.0 && !self.orbit && !*self.drag.get_or_insert(gesture.total.x.abs() >= gesture.total.y.abs()) => {
+                return Handled::No;
+            }
             GestureKind::Pointer | GestureKind::Panning if self.tilt_to_pointer > 0.0 && !self.orbit => {
                 let rect = cx.base().rect;
                 self.tilt_toward(cx.point.x - rect.left, cx.point.y - rect.top, (rect.width(), rect.height()));
@@ -628,8 +632,11 @@ impl Control for SkiaModel3D {
                 Handled::No
             }
             GestureKind::Panning if self.orbit => {
-                // A drag that starts up or down is the scroll's when only turning is allowed.
-                let turns = *self.drag.get_or_insert(!self.lock_pitch || gesture.total.x.abs() >= gesture.total.y.abs());
+                // The direction is decided on the first move (past the slop) and kept for the whole
+                // drag: mostly up or down is the page's scroll (a model in a page never stops it, as
+                // a web model viewer's touch-action pan-y), mostly sideways turns the model, its
+                // vertical part tilting it too unless lock_pitch.
+                let turns = *self.drag.get_or_insert(gesture.total.x.abs() >= gesture.total.y.abs());
                 if !turns {
                     return Handled::No;
                 }
@@ -739,8 +746,8 @@ pub trait Model3DBuild: Sized {
     /// Two taps glide back to the home view (`Model3DSet::reset_view`). Off by default.
     fn reset_on_double_tap(self, on: bool) -> Self;
 
-    /// Drags turn the model around its vertical axis only, and a drag that starts up or down is
-    /// left to the scroll around it (3D in a list). Off by default.
+    /// Drags turn the model around its vertical axis only, never tilting it (3D in a list). Off by
+    /// default. A drag that starts up or down is always left to the scroll around the model.
     fn lock_pitch(self, on: bool) -> Self;
 
     /// The model turns toward the mouse over it, or the finger on it, up to `degrees` at the

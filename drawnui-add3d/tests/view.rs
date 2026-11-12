@@ -168,11 +168,33 @@ fn with_lock_pitch_a_vertical_drag_scrolls_the_list_and_a_sideways_one_turns_the
     assert!(offset(&host).abs() < 1.0, "the list stayed: {}", offset(&host));
     assert!((model(&host).view().0 - before).abs() > 20.0, "the model turned: {before} -> {:?}", model(&host).view());
 
-    // Without the lock, a vertical drag on the model is the model's.
+}
+
+#[test]
+fn a_vertical_drag_on_a_model_scrolls_the_page_and_a_sideways_one_turns_and_tilts_it() {
+    // Mostly vertical: the scroll around takes it, the model does not move (web model viewer,
+    // touch-action pan-y).
+    let mut host = list(false);
+    for _ in 0..3 {
+        host.frame_after(16.0);
+    }
+    let pitch = model(&host).view().1;
+    host.pan((200.0, 120.0), (204.0, 40.0), 160.0, 8);
+    for _ in 0..40 {
+        host.frame_after(16.0);
+    }
+    assert!(offset(&host) > 30.0, "the page scrolled: {}", offset(&host));
+    assert_eq!(model(&host).view().1, pitch, "no tilt");
+
+    // Mostly sideways: the model turns, and the drag's vertical part tilts it; the page stays.
     let mut host = list(false);
     host.frame_after(16.0);
-    host.pan((200.0, 120.0), (204.0, 40.0), 160.0, 8);
-    assert!(offset(&host).abs() < 1.0, "{}", offset(&host));
+    let (yaw, pitch) = (model(&host).view().0, model(&host).view().1);
+    host.pan((200.0, 75.0), (300.0, 115.0), 160.0, 8);
+    assert!(offset(&host).abs() < 1.0, "the page stayed: {}", offset(&host));
+    let now = model(&host).view();
+    assert!((now.0 - yaw).abs() > 20.0, "the model turned: {yaw} -> {now:?}");
+    assert!((now.1 - pitch).abs() > 1.0, "and tilted: {pitch} -> {now:?}");
 }
 
 #[test]
@@ -269,9 +291,31 @@ fn a_drag_moves_the_surface_with_the_finger() {
     let after = model(&host).screen_position(point).unwrap();
     assert!(after.x > before.x + 5.0, "a drag to the right moves the surface right: {before:?} -> {after:?}");
 
+    // Tilting: the vertical part of a mostly sideways drag (a mostly vertical one is the page's).
     let mut host = single(SkiaModel3D::from_model(&ball()).view_angles(0.0, 0.0));
-    host.pan((100.0, 60.0), (100.0, 100.0), 160.0, 8);
+    host.pan((60.0, 60.0), (100.0, 90.0), 160.0, 8);
     host.settle();
     let after = model(&host).screen_position(point).unwrap();
-    assert!(after.y > before.y + 5.0, "a drag down moves the surface down: {before:?} -> {after:?}");
+    assert!(after.y > before.y + 3.0, "a drag down moves the surface down: {before:?} -> {after:?}");
+}
+
+#[test]
+fn a_vertical_drag_on_a_card_that_leans_toward_the_finger_scrolls_the_page() {
+    let ui = Ui::new(App::default(), move |app: &mut App| {
+        SkiaScroll::new().fill().assign(&mut app.scroll).content(SkiaLayout::column().fill_x().children(
+            (0..4)
+                .map(|i| {
+                    let card = SkiaModel3D::from_model(&ball()).orbit(false).tilt_to_pointer(14.0).fill_x().height_request(300);
+                    if i == 0 { card.assign(&mut app.model) } else { card }
+                })
+                .collect::<Vec<_>>(),
+        ))
+    });
+    let mut host = Headless::new(ui, 400, 400, 1.0);
+    host.settle();
+    host.pan((200.0, 300.0), (204.0, 120.0), 160.0, 8);
+    for _ in 0..40 {
+        host.frame_after(16.0);
+    }
+    assert!(offset(&host) > 50.0, "the page scrolled: {}", offset(&host));
 }
