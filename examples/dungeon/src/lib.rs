@@ -367,9 +367,10 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
             prompt.set_font_size(if canvas.width < 520.0 { 28.0 } else { 44.0 });
         }
     }
-    // The display's rate: the frame-rate cap when one is set, else 60 Hz.
+    // The display's rate: the frame-rate cap when one is set, else the display's own (read every
+    // frame: a phone knows it only after its first frames, and it can change).
     let rate = match drawnui::max_fps() {
-        0 => 60.0,
+        0 => drawnui::display_refresh_rate(),
         fps => fps as f32,
     };
     app.render.frame(delta, rate);
