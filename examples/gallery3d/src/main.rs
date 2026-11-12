@@ -960,6 +960,9 @@ fn product_list(app: &mut App) -> Build<SkiaShape> {
                 // A bar to drag through the thirty rows, as the .NET gallery's shop.
                 .scroll_bar_thumb_color(BUTTON)
                 .scroll_bar_track_color(Color::from_argb(34, 255, 255, 255))
+                // Shown at rest too, as the .NET shop (a bar that only shows while scrolling is easy
+                // to miss on a phone).
+                .keep_scroll_bars_visible(true)
                 .scroll_bar(SkiaScrollBar::new().is_draggable(true).thickness(8))
                 .content(SkiaLayout::column().fill_x().spacing(2).children(rows)),)),
         ),
