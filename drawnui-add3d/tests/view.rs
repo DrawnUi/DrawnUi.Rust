@@ -291,12 +291,19 @@ fn a_drag_moves_the_surface_with_the_finger() {
     let after = model(&host).screen_position(point).unwrap();
     assert!(after.x > before.x + 5.0, "a drag to the right moves the surface right: {before:?} -> {after:?}");
 
-    // Tilting: the vertical part of a mostly sideways drag (a mostly vertical one is the page's).
+    // With no scroll around, a vertical drag is the model's: it tilts (the Boss fight dragon).
+    let mut host = single(SkiaModel3D::from_model(&ball()).view_angles(0.0, 0.0));
+    host.pan((100.0, 60.0), (100.0, 100.0), 160.0, 8);
+    host.settle();
+    let after = model(&host).screen_position(point).unwrap();
+    assert!(after.y > before.y + 5.0, "a drag down moves the surface down: {before:?} -> {after:?}");
+
+    // In a scroll, the vertical part of a mostly sideways drag tilts it.
     let mut host = single(SkiaModel3D::from_model(&ball()).view_angles(0.0, 0.0));
     host.pan((60.0, 60.0), (100.0, 90.0), 160.0, 8);
     host.settle();
     let after = model(&host).screen_position(point).unwrap();
-    assert!(after.y > before.y + 3.0, "a drag down moves the surface down: {before:?} -> {after:?}");
+    assert!(after.y > before.y + 3.0, "a slanted drag tilts it too: {before:?} -> {after:?}");
 }
 
 #[test]

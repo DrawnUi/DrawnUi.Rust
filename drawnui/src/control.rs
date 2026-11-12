@@ -701,6 +701,25 @@ impl<'a> GestureCx<'a> {
 }
 
 impl GestureCx<'_> {
+    /// A scroll around this control moves on that axis (vertical or horizontal) now and would take
+    /// a pan this control leaves (scroll chaining, drawnui-cross 6bo). False with no scroll around.
+    pub fn scroll_around(&self, vertical: bool) -> bool {
+        let moves = |(h, v): (bool, bool)| if vertical { v } else { h };
+        // Offered by a scroll that routes it: its ancestors are out of the tree then.
+        if self.tree.outer_scrolls.iter().any(|&axes| moves(axes)) {
+            return true;
+        }
+        // Delivered to this control directly (it owns the press): its ancestors are in the tree.
+        let mut at = self.tree.parent(self.id);
+        while let Some(id) = at {
+            if self.tree.find::<crate::controls::scroll::SkiaScroll>(id).is_some_and(|s| moves(s.scroll_axes())) {
+                return true;
+            }
+            at = self.tree.parent(id);
+        }
+        false
+    }
+
     pub fn base(&self) -> &Base {
         &self.tree.node(self.id).expect("control is mounted").base
     }

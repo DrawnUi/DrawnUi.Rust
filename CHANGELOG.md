@@ -33,6 +33,8 @@ version before it. Commits in parentheses.
 - `Gesture::wheel_zoom`: the wheel asks to zoom (Ctrl or Cmd held, or a touchpad pinch, which browsers
   send as Ctrl + wheel); controls that zoom take only these and leave a plain wheel to the scroll.
   Hosts flag it with `App::wheel_zoom`.
+- `GestureCx::scroll_around(vertical)`: whether a scroll around the control moves on that axis and would take a
+  pan the control leaves (a model viewer keeps every drag when nothing could scroll).
 - Idle GPU work for controls: `LayoutCx::request_idle_gpu` asks for one `Control::idle_gpu` call
   after a coming frame, with the GPU context and the control's place on the canvas; at most one
   control works after a frame (add-ons render ahead of being seen with it). Nothing runs while no
