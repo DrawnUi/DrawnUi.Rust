@@ -1119,3 +1119,22 @@ fn the_scroll_page_of_the_sample_scrolls_the_scrolls_in_it() {
     assert!(close(y(&host), -1041.143) && inner_x(&host) == -150.0, "{} {}", y(&host), inner_x(&host));
 }
 
+
+#[test]
+fn a_wheel_spin_stays_on_the_scroll_it_started_on_and_the_next_spin_moves_the_page() {
+    // DrawnUI WheelGestureGapMs: wheel events less than 300 ms apart are one gesture.
+    let mut host = list_in_page();
+    inner_to(&mut host, -560.0);
+    // A spin of notches 50 ms apart over the list: it reaches the list's end on the way.
+    for _ in 0..10 {
+        assert!(host.wheel(200.0, 250.0, -1.0), "the spin is used");
+        host.frame_after(34.0);
+    }
+    host.settle();
+    assert!(inner_y(&host) < -590.0 && y(&host) == 0.0, "the list took the spin to its end, the page stayed: list {} page {}", inner_y(&host), y(&host));
+    // A pause, then a new spin: the list is at its end, so the page moves.
+    host.frame_after(400.0);
+    assert!(host.wheel(200.0, 250.0, -1.0));
+    host.settle();
+    assert!(y(&host) < -50.0, "the next spin moves the page: {}", y(&host));
+}

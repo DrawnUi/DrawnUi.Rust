@@ -280,6 +280,11 @@ fn drawn_over(tree: &Tree, a: ControlId, b: ControlId) -> bool {
     }
 }
 
+/// Wheel events less than this apart are one gesture (DrawnUI WheelGestureGapMs): a spin stays on
+/// the scroll it started on, also once that one reached its end; the next spin goes to what is
+/// under the pointer again (the page).
+const WHEEL_GESTURE_GAP_MS: f64 = 300.0;
+
 /// How long the keyboard waits for a closed dialog's opener to take input again (drawnui-cross 6bs).
 const FOCUS_RETURN_WAIT_MS: f64 = 1000.0;
 
@@ -416,6 +421,9 @@ pub struct Ui<S: 'static> {
     hover_popup: Option<u32>,
     /// A press outside the popups closed them: the rest of that press goes nowhere (native menus).
     eating_press: bool,
+    /// The control that used the last wheel event, its time and axis: the events of one spin stay
+    /// on it (`WHEEL_GESTURE_GAP_MS`).
+    wheel_latch: Option<(ControlId, f64, bool)>,
     /// When the mouse left the last window it was over (`close_on_pointer_leave`).
     left_all_at: Option<f64>,
     /// Runs when the app's window gets or loses the keyboard (`on_window_focus`).
@@ -562,6 +570,7 @@ impl<S: 'static> Ui<S> {
             press_popup: None,
             hover_popup: None,
             eating_press: false,
+            wheel_latch: None,
             left_all_at: None,
             window_focus: None,
             system_theme: None,
@@ -2748,8 +2757,25 @@ impl<S: 'static> Ui<S> {
                 self.owner = None;
             }
         }
+        // A wheel event of the spin going on: to the control that used the spin's first one, which
+        // keeps it even when it cannot move further (the page around does not take over halfway).
+        if gesture.kind == GestureKind::Wheel
+            && !gesture.wheel_zoom
+            && let Some((latched, at, horizontal)) = self.wheel_latch
+            && horizontal == gesture.wheel_horizontal
+            && gesture.time_ms - at < WHEEL_GESTURE_GAP_MS
+            && router.tree.node(latched).is_some_and(|n| n.base.p.is_visible && !n.base.p.input_transparent)
+        {
+            router.route(latched, &gesture, to_local(router.tree, latched, gesture.location));
+            self.wheel_latch = Some((latched, gesture.time_ms, horizontal));
+            self.apply_focus_request();
+            return Some(latched);
+        }
         let point = to_local(router.tree, root, gesture.location);
         let consumed = router.route(root, &gesture, point);
+        if gesture.kind == GestureKind::Wheel {
+            self.wheel_latch = consumed.filter(|_| !gesture.wheel_zoom).map(|c| (c, gesture.time_ms, gesture.wheel_horizontal));
+        }
         // Only the press has an owner: a wheel between presses, a hover, a long press and the
         // context menu go to what is under the pointer every time.
         match gesture.kind {
