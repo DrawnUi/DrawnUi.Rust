@@ -492,7 +492,7 @@ struct App {
     // Games.
     field: Handle<SkiaScene3D>,
     /// The side-scroller's moving layers, far to near, and how far it has panned.
-    scenery: [[Handle<SkiaLayout>; 2]; 4],
+    scenery: [Handle<SkiaLayout>; 4],
     pan: f32,
     walkers: Vec<Walker>,
     mobs: usize,
@@ -1382,15 +1382,14 @@ fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
     }
     // The scene pans: every layer slides by its share, the ground (and the mobs on it) the most.
     app.pan += PAN_SPEED * delta;
-    for (pair, share) in app.scenery.iter().zip(PARALLAX) {
+    for (layer, share) in app.scenery.iter().zip(PARALLAX) {
         // Every frame the exact share of the pan, a fraction of a pixel too: snapped to whole pixels a
-        // slow layer stood still for frames and then jumped a pixel. The copies overlap by a point,
-        // so no blended seam shows where they meet (the hills repeat every 1000 points).
-        let shift = (app.pan * share).rem_euclid(REPEAT);
-        for (copy, layer) in pair.iter().enumerate() {
-            if let Some(mut layer) = cx.get_mut(*layer) {
-                layer.set_translation_x(copy as f32 * REPEAT - shift);
-            }
+        // slow layer stood still for frames and then jumped a pixel. A layer holds its scenery twice
+        // over (2000 points) as continuous shapes, so it slides by up to 1000 points and starts over
+        // with nothing joined anywhere.
+        let shift = (app.pan * share).rem_euclid(FIELD.0);
+        if let Some(mut layer) = cx.get_mut(*layer) {
+            layer.set_translation_x(-shift);
         }
     }
     if let Some(mut field) = cx.get_mut(app.field) {
@@ -1420,36 +1419,41 @@ fn ink_none() -> Color {
     Color::TRANSPARENT
 }
 
-/// A layer copy every this many points: a point less than the layer, so the copies overlap.
-const REPEAT: f32 = FIELD.0 - 1.0;
 const PARALLAX: [f32; 4] = [0.08, 0.2, 0.45, 1.0];
 
-/// A ridge line across the field (1000 points) down to `bottom`, as a shape: its waves repeat every
-/// 1000 points, so two copies side by side join seamlessly. A shape stretches its path's own box over
+/// A ridge line across two fields (2000 points) down to `bottom`, as one shape: its waves repeat every
+/// 1000 points, so a layer slid back by 1000 looks the same. A shape stretches its path's own box over
 /// its rect, so the rect is set to exactly that box.
 fn ridge(base: f32, waves: &[(f32, f32, f32)], bottom: f32, colors: (Color, Color)) -> Build<SkiaShape> {
     let y = |x: f32| base - waves.iter().map(|(amp, period, phase)| amp * (x / period * TAU + phase).sin()).sum::<f32>();
-    let points: Vec<(f32, f32)> = (0..=100).map(|i| (i as f32 * 10.0, y(i as f32 * 10.0))).collect();
+    let points: Vec<(f32, f32)> = (0..=200).map(|i| (i as f32 * 10.0, y(i as f32 * 10.0))).collect();
     let top = points.iter().map(|p| p.1).fold(bottom, f32::min);
     let mut d = format!("M0 {bottom}");
     for (x, y) in &points {
         d.push_str(&format!(" L{x:.0} {y:.1}"));
     }
-    d.push_str(&format!(" L1000 {bottom} Z"));
+    d.push_str(&format!(" L2000 {bottom} Z"));
     SkiaShape::new()
         .shape_type(ShapeType::Path)
         .path_data(d)
-        .width_request(FIELD.0)
+        .width_request(2.0 * FIELD.0)
         .height_request(bottom - top)
         .top(top)
         .background_color(colors.0)
         .fill_gradient(gradient(colors.0, colors.1))
 }
 
-/// A layer the field's size, cached as one picture: the frame loop only slides it (with its twin
-/// beside it).
+/// A moving layer: its scenery twice over (2000 points), cached as one picture; the frame loop only
+/// slides it. Two separate copies met in a line: the second copy's grass, drawn after the first
+/// copy's dirt, showed through the second copy's edge. A child gets no more than the room its parent
+/// gives it, so the negative right margin gives the layer the second 1000 points.
 fn layer(children: impl IntoChildren) -> Build<SkiaLayout> {
-    SkiaLayout::new().width_request(FIELD.0).height_request(FIELD.1).use_cache(CacheType::Operations).children(children)
+    SkiaLayout::new()
+        .width_request(2.0 * FIELD.0)
+        .height_request(FIELD.1)
+        .margin((0.0, 0.0, -FIELD.0, 0.0))
+        .use_cache(CacheType::Operations)
+        .children(children)
 }
 
 fn gradient(from: Color, to: Color) -> SkiaGradient {
@@ -1467,7 +1471,12 @@ fn scenery_layers() -> [Build<SkiaLayout>; 4] {
         ))
     };
     [
-        layer([(60.0, 26.0, 1.0), (340.0, 52.0, 0.7), (610.0, 18.0, 1.2), (860.0, 60.0, 0.8)].map(|(x, y, k)| cloud(x, y, k)).into_iter().collect::<Vec<_>>()),
+        layer(
+            [(60.0, 26.0, 1.0), (340.0, 52.0, 0.7), (610.0, 18.0, 1.2), (860.0, 60.0, 0.8)]
+                .into_iter()
+                .flat_map(|(x, y, k)| [cloud(x, y, k), cloud(x + FIELD.0, y, k)])
+                .collect::<Vec<_>>(),
+        ),
         layer((ridge(150.0, &[(22.0, 1000.0, 0.3), (12.0, 500.0, 1.7), (5.0, 250.0, 0.4)], h, (Color::from_rgb(150, 190, 196), Color::from_rgb(176, 210, 210))),)),
         layer((ridge(190.0, &[(26.0, 1000.0, 2.1), (14.0, 333.33, 0.9), (6.0, 200.0, 2.5)], h, (Color::from_rgb(98, 160, 104), Color::from_rgb(70, 128, 80))),)),
         layer((
@@ -1480,7 +1489,7 @@ fn scenery_layers() -> [Build<SkiaLayout>; 4] {
 
 /// Sky and sun standing still, then each moving layer twice, side by side (their handles go to
 /// `layers`), painted with gradients and smooth outlines.
-fn side_scroller(layers: &mut [[Handle<SkiaLayout>; 2]; 4]) -> Vec<Detached> {
+fn side_scroller(layers: &mut [Handle<SkiaLayout>; 4]) -> Vec<Detached> {
     let mut children: Vec<Detached> = vec![
         SkiaShape::new().fill().background_color(Color::from_rgb(120, 190, 240)).fill_gradient(gradient(Color::from_rgb(92, 164, 232), Color::from_rgb(214, 238, 250))).into(),
         SkiaShape::new()
@@ -1493,12 +1502,9 @@ fn side_scroller(layers: &mut [[Handle<SkiaLayout>; 2]; 4]) -> Vec<Detached> {
             .shadows(SkiaShadow::new(Color::from_rgb(255, 230, 150)).x(0).y(0).blur(26).opacity(0.9))
             .into(),
     ];
-    // Far layers first, the two copies of each depth together.
-    let (mut left, mut right) = (scenery_layers().into_iter(), scenery_layers().into_iter());
-    for handles in layers.iter_mut() {
-        let (a, b) = (left.next().expect("four layers"), right.next().expect("four layers"));
-        children.push(a.assign(&mut handles[0]).into());
-        children.push(b.translation_x(REPEAT).assign(&mut handles[1]).into());
+    // Far layers first.
+    for (handle, layer) in layers.iter_mut().zip(scenery_layers()) {
+        children.push(layer.assign(handle).into());
     }
     children
 }
