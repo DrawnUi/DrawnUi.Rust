@@ -490,9 +490,10 @@ static REFRESH_MILLIHERTZ: std::sync::atomic::AtomicU32 = std::sync::atomic::Ato
 
 /// The refresh rate of the display the app shows on, in Hz (DrawnUI
 /// `Super.GetDisplayRefreshRate`): what a frame budget is judged against (90 on a 90 Hz phone,
-/// 120 on ProMotion). The desktop host reads the monitor's rate, Android the vsync period
-/// Choreographer reports, iOS and macOS the screen's highest rate, the web the measured period of
-/// its animation frames. 60 until the host knows it.
+/// 120 on ProMotion). Known before the first frame where the system tells it: the desktop host
+/// reads the monitor's rate, Android the display's rate (and its changes from Choreographer, API
+/// 30+), iOS and macOS the screen's highest rate. The web has no such API: the measured period of
+/// its animation frames, 60 until then.
 pub fn display_refresh_rate() -> f32 {
     match REFRESH_MILLIHERTZ.load(std::sync::atomic::Ordering::Relaxed) {
         0 => 60.0,
@@ -501,6 +502,7 @@ pub fn display_refresh_rate() -> f32 {
 }
 
 /// A measured rate (Hz) as the display rate it is within 3% of (90 for 92.1), else as measured.
+#[cfg_attr(not(any(target_os = "android", target_os = "emscripten")), allow(dead_code))]
 pub(crate) fn snap_refresh_rate(measured: f64) -> f64 {
     const RATES: [f64; 13] = [24.0, 30.0, 48.0, 50.0, 60.0, 72.0, 75.0, 90.0, 100.0, 120.0, 144.0, 165.0, 240.0];
     RATES.into_iter().find(|rate| (measured - rate).abs() <= rate * 0.03).unwrap_or(measured)

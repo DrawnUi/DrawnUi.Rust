@@ -286,6 +286,13 @@ impl Desktop {
         let shown_size = window.inner_size();
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         let ticker = ticker::Ticker::new(proxy.clone(), &window);
+        // macOS before 14 has no display link for the window: the monitor's rate, from winit.
+        #[cfg(target_os = "macos")]
+        if ticker.is_none()
+            && let Some(mhz) = window.current_monitor().and_then(|monitor| monitor.refresh_rate_millihertz()).filter(|&mhz| mhz >= 20_000)
+        {
+            crate::set_display_refresh_rate(mhz as f64 / 1000.0);
+        }
         #[cfg(windows)]
         exe_icon(&window);
         #[cfg(target_os = "linux")]
@@ -501,6 +508,11 @@ impl Desktop {
     fn report_safe_area(&mut self) {
         if self.insets_read {
             return;
+        }
+        // The display's rate from the system, read with the insets (start, resize, resume): known
+        // before the first frame. Changes while the app runs come from Choreographer (API 30+).
+        if let Some(hz) = android::display_refresh_rate() {
+            crate::set_display_refresh_rate(hz);
         }
         let Some([left, top, right, bottom]) = android::system_insets() else { return };
         self.insets_read = true;
@@ -1145,6 +1157,7 @@ mod android {
     }
 
     type Post64 = unsafe extern "C" fn(*mut AChoreographer, unsafe extern "C" fn(i64, *mut c_void), *mut c_void);
+    type RegisterRefreshRate = unsafe extern "C" fn(*mut AChoreographer, unsafe extern "C" fn(i64, *mut c_void), *mut c_void);
 
     unsafe extern "C" {
         fn __android_log_write(priority: c_int, tag: *const c_char, text: *const c_char) -> c_int;
@@ -1179,6 +1192,27 @@ mod android {
         on_vsync(nanos as i64);
     }
 
+    /// The display's refresh rate changed (battery saver, the system's own rate choice).
+    unsafe extern "C" fn on_refresh_rate(vsync_period_ns: i64, _data: *mut c_void) {
+        if vsync_period_ns > 0 {
+            crate::set_display_refresh_rate(crate::snap_refresh_rate(1e9 / vsync_period_ns as f64));
+        }
+    }
+
+    /// `AChoreographer_registerRefreshRateCallback` (API 30+): the rate's changes while the app
+    /// runs, as the system sends them. Before API 30 the rate is the one read at start or resume.
+    fn watch_refresh_rate(choreographer: *mut AChoreographer) {
+        // SAFETY: dlsym of a libandroid function of this signature (API 30+); absent before. The
+        // callback runs on this thread's looper and stays valid for the process (a plain fn).
+        unsafe {
+            let library = dlopen(c"libandroid.so".as_ptr(), 2);
+            let symbol = if library.is_null() { std::ptr::null_mut() } else { dlsym(library, c"AChoreographer_registerRefreshRateCallback".as_ptr()) };
+            if !symbol.is_null() {
+                std::mem::transmute::<*mut c_void, RegisterRefreshRate>(symbol)(choreographer, on_refresh_rate, std::ptr::null_mut());
+            }
+        }
+    }
+
     /// Asks Choreographer for a callback at the next vsync; false when there is no Choreographer.
     pub(super) fn post_frame(proxy: &EventLoopProxy<super::Arrived>) -> bool {
         static POST64: OnceLock<Option<Post64>> = OnceLock::new();
@@ -1188,15 +1222,19 @@ mod android {
             let symbol = if library.is_null() { std::ptr::null_mut() } else { dlsym(library, c"AChoreographer_postFrameCallback64".as_ptr()) };
             (!symbol.is_null()).then(|| std::mem::transmute::<*mut c_void, Post64>(symbol))
         });
-        PROXY.with(|cell| {
-            cell.get_or_init(|| proxy.clone());
-        });
         // SAFETY: called on android_main's thread, which has the looper Choreographer needs.
         unsafe {
             let choreographer = AChoreographer_getInstance();
             if choreographer.is_null() {
                 return false;
             }
+            // Once per thread (one per activity), with its first frame.
+            PROXY.with(|cell| {
+                if cell.get().is_none() {
+                    let _ = cell.set(proxy.clone());
+                    watch_refresh_rate(choreographer);
+                }
+            });
             match post64 {
                 Some(post) => post(choreographer, on_frame64, std::ptr::null_mut()),
                 None => AChoreographer_postFrameCallback(choreographer, on_frame, std::ptr::null_mut()),
@@ -1303,11 +1341,6 @@ mod android {
             }
             self.last_vsync = vsync_ns;
             let period = *self.intervals.iter().min().unwrap_or(&16_666_667);
-            // The display's own rate: the usual interval, not the shortest (a 90 Hz panel's
-            // callbacks come 10.9 to 11.3 ms apart), snapped to the rate it is closest to.
-            let mut sorted = self.intervals;
-            sorted.sort_unstable();
-            crate::set_display_refresh_rate(crate::snap_refresh_rate(1e9 / sorted[sorted.len() / 2] as f64));
             let ms = (vsync_ns + period - self.origin_ns) as f64 / 1_000_000.0;
             let ms = if (ms - now_ms).abs() > 250.0 { now_ms } else { ms };
             self.last_ms = ms.max(self.last_ms);
@@ -1424,6 +1457,51 @@ mod android {
                     delete(env, local);
                 }
             }
+        }
+    }
+
+    /// The display's refresh rate, Hz: `getWindowManager().getDefaultDisplay().getRefreshRate()`
+    /// (the active mode's rate, every API level). `None` when a call throws.
+    pub(super) fn display_refresh_rate() -> Option<f64> {
+        use jni_sys::{JNIEnv, JavaVM, jobject};
+        use std::ptr::{null, null_mut};
+        let app = super::android_app()?;
+        let (vm, activity) = (app.vm_as_ptr() as *mut JavaVM, app.activity_as_ptr() as jobject);
+        // SAFETY: as `system_insets`: framework methods present at every API level, on the
+        // activity, from a thread attached to its VM; each call checked for a thrown exception,
+        // local references deleted.
+        unsafe {
+            let mut env: *mut JNIEnv = null_mut();
+            ((**vm).AttachCurrentThread?)(vm, &mut env as *mut *mut JNIEnv as *mut *mut std::ffi::c_void, null_mut());
+            let e = &**env;
+            let failed = |env: *mut JNIEnv| {
+                let thrown = (e.ExceptionCheck.unwrap())(env) != 0;
+                if thrown {
+                    (e.ExceptionClear.unwrap())(env);
+                }
+                thrown
+            };
+            let method = |obj: jobject, name: &std::ffi::CStr, signature: &std::ffi::CStr| {
+                let class = (e.GetObjectClass?)(env, obj);
+                let method = (e.GetMethodID?)(env, class, name.as_ptr(), signature.as_ptr());
+                (e.DeleteLocalRef?)(env, class);
+                if method.is_null() || failed(env) { None } else { Some(method) }
+            };
+            let call_object = |obj: jobject, name: &std::ffi::CStr, signature: &std::ffi::CStr| -> Option<jobject> {
+                let id = method(obj, name, signature)?;
+                let result = (e.CallObjectMethodA?)(env, obj, id, null());
+                if failed(env) || result.is_null() { None } else { Some(result) }
+            };
+            let manager = call_object(activity, c"getWindowManager", c"()Landroid/view/WindowManager;")?;
+            let display = call_object(manager, c"getDefaultDisplay", c"()Landroid/view/Display;");
+            (e.DeleteLocalRef?)(env, manager);
+            let display = display?;
+            let hz = method(display, c"getRefreshRate", c"()F").and_then(|id| {
+                let hz = (e.CallFloatMethodA?)(env, display, id, null());
+                (!failed(env)).then_some(hz as f64)
+            });
+            (e.DeleteLocalRef?)(env, display);
+            hz
         }
     }
 
