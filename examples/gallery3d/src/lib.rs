@@ -774,7 +774,12 @@ fn product_viewer(app: &mut App) -> Build<SkiaShape> {
         .background_color(STAGE)
         .is_clipped_to_bounds(true)
         .children((
-            SkiaLayout::new().fill().assign(&mut app.viewer_slot).children((viewer(Source::App, &mut app.viewer),)),
+            // Narrow, the hint below wraps to two lines: the model keeps clear of it.
+            SkiaLayout::new()
+                .fill()
+                .observe(|me, app: &App| me.set_margin((0.0, 0.0, 0.0, if two_columns(app) { 0.0 } else { 44.0 })))
+                .assign(&mut app.viewer_slot)
+                .children((viewer(Source::App, &mut app.viewer),)),
             // Loading: a turning arc.
             SkiaLayout::column()
                 .spacing(12)
@@ -834,6 +839,7 @@ fn product_viewer(app: &mut App) -> Build<SkiaShape> {
             SkiaLabel::new("Drag to turn  ·  pinch or Ctrl+scroll to zoom  ·  double-tap to reset")
                 .font_size(12)
                 .text_color(MUTED)
+                .horizontal_text_alignment(TextAlignment::Center)
                 .horizontal_options(LayoutOptions::Center)
                 .vertical_options(LayoutOptions::End)
                 .margin((0.0, 0.0, 0.0, 10.0)),
