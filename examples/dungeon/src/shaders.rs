@@ -394,7 +394,9 @@ half4 main(float2 fragCoord) {
     float3 field = float3(0.045, 0.035, 0.055) + amber * (grid * 0.045 + sheen * 0.09 + haze * 0.05 + depth * 0.07);
 
     // The frame: a thin line, two lights running around it.
-    float a = atan(p.y * half_size.x, p.x * half_size.y);
+    // The same angle from small numbers: the products p * half_size reach tens of thousands, past what a
+    // reduced-precision atan on a phone's GPU keeps, and the running lights then hop in wedges.
+    float a = atan(p.y / half_size.y, p.x / half_size.x);
     float run = pow(0.5 + 0.5 * cos(a - iTime * 1.5), 10.0) + pow(0.5 + 0.5 * cos(a - iTime * 1.5 + 3.14159), 10.0);
     float line = exp(-d * d / 1.6);
     float pulse = 0.85 + 0.15 * sin(iTime * 2.6);
