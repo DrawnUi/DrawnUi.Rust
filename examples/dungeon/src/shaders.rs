@@ -75,7 +75,7 @@ float2 main(const Varyings v, out half4 color) {
     // Past the door the air is clear: only the corridor's stretch of the way is fogged, and
     // daylight pierces it a little.
     float outside = step(uTorch.w, P.z);
-    float fogDist = mix(dist, dist * max(uTorch.w - uTC.w, 0.0) / max(P.z - uTC.w, 0.001), outside);
+    float fogDist = outside > 0.5 ? mix(dist, dist * max(uTorch.w - uTC.w, 0.0) / max(P.z - uTC.w, 0.001), outside) : dist;
     float fog = (1.0 - exp(-fogDist * uFog.w)) * (1.0 - 0.3 * outside);
     // Seen from the dark corridor the world outside is brighter and flatter: lifted toward white.
     // The corridor's air in front of it glows with the daylight: veiled toward warm white, not
@@ -267,12 +267,19 @@ float2 main(const Varyings v, out half4 color) {
     lit += float3(1.0, 0.3, 0.05) * glow * 1.5;
     // Daylight from the exit, along the corridor: the walls and the floor catch it, what faces
     // the runner stays in its own shadow; weaker with the way left to the door.
-    float toExit = max(uTorch.w - P.z, 0.0);
-    float sun = uAccent.w * exp(-toExit * 0.012) * (0.3 + 0.7 * max(n.z, 0.0) + 0.55 * abs(n.x) + 0.35 * max(n.y, 0.0));
-    lit += float3(1.0, 0.9, 0.7) * sun * 2.4;
+    // (Skipped while no daylight reaches the corridor: it adds nothing then.)
+    if (uAccent.w > 0.0) {
+        float toExit = max(uTorch.w - P.z, 0.0);
+        float sun = uAccent.w * exp(-toExit * 0.012) * (0.3 + 0.7 * max(n.z, 0.0) + 0.55 * abs(n.x) + 0.35 * max(n.y, 0.0));
+        lit += float3(1.0, 0.9, 0.7) * sun * 2.4;
+    }
     float3 c = mix(base * lit + emis, uFog.rgb, fog * (1.0 - outside));
-    float3 tc = mix(1.0 - exp(-c * 1.6), daylight, fog * outside);
-    color = half4(half3(mix(tc, float3(1.0), lift)), 1.0);
+    float3 tc = 1.0 - exp(-c * 1.6);
+    // Only past the door: the daylight veil and the lift toward white.
+    if (outside > 0.5) {
+        tc = mix(mix(tc, daylight, fog * outside), float3(1.0), lift);
+    }
+    color = half4(half3(tc), 1.0);
     return v.position;
 }";
 
@@ -305,7 +312,7 @@ half4 main(float2 fragCoord) {
     float2 ca = float2(c.x * iResolution.x / iResolution.y, c.y);
     float r2 = dot(ca, ca);
     float r = sqrt(r2);
-    float rip = sin(r * 34.0 - uFx.w * 16.0) * uFx.y * 0.012;
+    float rip = uFx.y > 0.0 ? sin(r * 34.0 - uFx.w * 16.0) * uFx.y * 0.012 : 0.0;
     // 0 in the middle of the screen, 1 at its borders: the pickup effects stay out of the run's way.
     float border = smoothstep(0.6, 0.98, max(abs(c.x), abs(c.y)) * 2.0);
     float2 d = c * (0.985 - uFx.y * 0.06 * (1.0 - r) + rip - uFx2.y * 0.05 * border);
@@ -319,13 +326,15 @@ half4 main(float2 fragCoord) {
     // The ghost took the run: everything goes black, the ghost comes out of the dark, then the
     // color drains and a blood-red vignette beats at the borders while the runner lies under it
     // (haunt = 2 added to the fading blackout).
-    float haunt = step(1.5, uFx2.w);
-    float cold = uFx2.w - 2.0 * haunt;
-    col *= 1.0 - smoothstep(0.3, 0.7, cold) * 0.97;
-    // Drained while the blackout fades (a bell over it); for good when the ghost took the run.
-    float drain = haunt * max(4.0 * cold * (1.0 - cold), step(uFx2.w, 2.0));
-    col = mix(col, float3(dot(col, float3(0.33))) * float3(1.0, 0.55, 0.5), drain * 0.65);
-    col = mix(col, float3(0.42, 0.0, 0.06), drain * min(r2 * 1.1, 0.85) * (0.75 + 0.25 * sin(uFx.w * 7.0)));
+    if (uFx2.w > 0.0) {
+        float haunt = step(1.5, uFx2.w);
+        float cold = uFx2.w - 2.0 * haunt;
+        col *= 1.0 - smoothstep(0.3, 0.7, cold) * 0.97;
+        // Drained while the blackout fades (a bell over it); for good when the ghost took the run.
+        float drain = haunt * max(4.0 * cold * (1.0 - cold), step(uFx2.w, 2.0));
+        col = mix(col, float3(dot(col, float3(0.33))) * float3(1.0, 0.55, 0.5), drain * 0.65);
+        col = mix(col, float3(0.42, 0.0, 0.06), drain * min(r2 * 1.1, 0.85) * (0.75 + 0.25 * sin(uFx.w * 7.0)));
+    }
     col += float3(0.5, 0.8, 1.0) * uFx.y * 0.12;
     // the grain: a new noise every frame, from a hash without sin (sin of the large numbers a 3x screen's pixels make
     // loses its precision on a phone's GPU and the grain turns to stripes)
