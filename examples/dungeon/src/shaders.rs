@@ -23,7 +23,14 @@ uniform float4 uAccent; // lava, runes; the exit's light (0 to 1)
 uniform float4 uFog;    // color, density
 uniform float4 uOut;    // how far the world outside the door is lifted toward white
 
-float hash(float2 p) { return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453); }
+// A hash without sin: sin() of a large dot product loses precision on the GPU and rounds
+// differently on the two sides of a noise cell's edge. This one keeps the noise continuous and
+// moving at every scale (the lava up close, the sky's far coordinates).
+float hash(float2 p) {
+    float3 q = fract(float3(p.x, p.y, p.x) * float3(0.1031, 0.1030, 0.0973));
+    q += dot(q, float3(q.y, q.x, q.z) + 33.33);
+    return fract((q.x + q.y) * q.z);
+}
 
 float vnoise(float2 p) {
     float2 i = floor(p);
@@ -31,21 +38,6 @@ float vnoise(float2 p) {
     f = f * f * (3.0 - 2.0 * f);
     return mix(mix(hash(i), hash(i + float2(1.0, 0.0)), f.x),
                mix(hash(i + float2(0.0, 1.0)), hash(i + float2(1.0, 1.0)), f.x), f.y);
-}
-
-// A hash without sin, for inputs that grow large (the sky's coordinates): sin() of a number in
-// the thousands loses its precision on the GPU and the noise freezes.
-float hash2(float2 p) {
-    float3 q = fract(float3(p.x, p.y, p.x) * float3(0.1031, 0.1030, 0.0973));
-    q += dot(q, float3(q.y, q.x, q.z) + 33.33);
-    return fract((q.x + q.y) * q.z);
-}
-float vnoise2(float2 p) {
-    float2 i = floor(p);
-    float2 f = p - i;
-    f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(hash2(i), hash2(i + float2(1.0, 0.0)), f.x),
-               mix(hash2(i + float2(0.0, 1.0)), hash2(i + float2(1.0, 1.0)), f.x), f.y);
 }
 
 // x: 1 inside a brick, 0 in the mortar. yz: the bevel's slope. w: the brick's own random.
@@ -139,13 +131,13 @@ float2 main(const Varyings v, out half4 color) {
             float3 top = float3(0.28, 0.48, 0.88);
             float3 horizon = float3(0.96, 0.84, 0.66);
             float3 sky = mix(horizon, top, smoothstep(0.18, 0.85, h));
-            float cloud = smoothstep(0.52, 0.72, vnoise2(float2(x * 2.5 + t * 0.003, h * 5.0)) * 0.65 + vnoise2(float2(x * 6.0 - t * 0.004, h * 12.0)) * 0.35);
+            float cloud = smoothstep(0.52, 0.72, vnoise(float2(x * 2.5 + t * 0.003, h * 5.0)) * 0.65 + vnoise(float2(x * 6.0 - t * 0.004, h * 12.0)) * 0.35);
             cloud *= smoothstep(0.3, 0.45, h) * (1.0 - smoothstep(0.7, 0.95, h));
             sky = mix(sky, float3(1.0, 0.97, 0.94), cloud * 0.7);
             float2 sunP = float2(0.6, 0.5);
             float ds = length((float2(x, h) - sunP) * float2(2.0, 1.0));
             float sun = exp(-ds * ds * 900.0) * 3.0 + exp(-ds * ds * 14.0) * 0.9 + exp(-ds * 3.0) * 0.5;
-            float ridge = 0.2 + 0.08 * vnoise2(float2(x * 5.0, 1.3)) + 0.03 * vnoise2(float2(x * 17.0, 4.1));
+            float ridge = 0.2 + 0.08 * vnoise(float2(x * 5.0, 1.3)) + 0.03 * vnoise(float2(x * 17.0, 4.1));
             float mountain = 1.0 - smoothstep(ridge - 0.004, ridge + 0.004, h);
             float3 rock = mix(float3(0.32, 0.34, 0.48), horizon, 0.45 + 0.4 * smoothstep(0.0, ridge, h));
             e = mix(sky, rock, mountain) + float3(1.0, 0.93, 0.8) * sun * (1.0 - mountain * 0.7);
@@ -221,7 +213,7 @@ float2 main(const Varyings v, out half4 color) {
     float3 emis = float3(0.0);
     if (mat < 0.5) {
         float4 b = brick(float2(P.x * 0.5 + 0.5, zz * 0.5));
-        float grit = vnoise(P.xz * 7.0);
+        float grit = vnoise(float2(P.x, zz) * 7.0);
         base = mix(float3(0.05, 0.045, 0.04), float3(0.42, 0.38, 0.34) * (0.7 + 0.5 * b.w), b.x) * (0.75 + 0.5 * grit);
         n = normalize(N + float3(b.y, 0.0, b.z) * 0.7);
     } else if (mat < 1.5) {
@@ -237,8 +229,10 @@ float2 main(const Varyings v, out half4 color) {
     } else if (mat < 3.5) {
         // Lava: a dark crust broken by glowing veins that drift and pulse. The veins are the
         // ridges of a warped noise, colored by heat like a glowing body: red at their edges,
-        // orange inside, yellow-white only in the core. (One flat red reads as blood.)
-        float2 q = P.xz * 0.8;
+        // orange inside, yellow-white only in the core. (One flat red reads as blood.) Keyed by z
+        // wrapped at the rebase period, like the bricks: the pattern stays on its pit when the
+        // origin moves on (a pit never spans a wrap).
+        float2 q = float2(P.x, zz) * 0.8;
         float2 warp = float2(vnoise(q * 1.3 + float2(0.0, t * 0.25)), vnoise(q * 1.3 + float2(5.2, -t * 0.2)));
         q += (warp - 0.5) * 1.3;
         // Turned between the octaves, so the square cells of the noise do not show.
