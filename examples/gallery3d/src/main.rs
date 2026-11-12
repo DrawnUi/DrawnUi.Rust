@@ -1774,8 +1774,8 @@ fn build(app: &mut App) -> Build<SkiaLayout> {
                         })
                         .children(SkiaLabel::new("3D").font_size(13).font_family(TITLE).text_color(Color::WHITE).center()),
                     SkiaLayout::column().spacing(0).vertical_options(LayoutOptions::Center).children((
-                        SkiaLabel::new("DrawnUI 3D").font_size(17).font_family(TITLE).text_color(INK).accessibility_role(Aria::HEADING),
-                        SkiaLabel::new("The drawnui-add3d add-on for DrawnUI for Rust").font_size(12).text_color(MUTED),
+                        SkiaLabel::new("DrawnUI 3D Demo").font_size(17).font_family(TITLE).text_color(INK).accessibility_role(Aria::HEADING),
+                        SkiaLabel::new("Add3D addon to DrawnUI for Rust").font_size(12).text_color(MUTED),
                     )),
                 )),
                 SkiaLayout::row()
