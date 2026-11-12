@@ -287,8 +287,9 @@ const FOCUS_RETURN_WAIT_MS: f64 = 1000.0;
 enum ModalFocus {
     /// A modal became active: into it, when the keyboard is in use.
     Into(ControlId),
-    /// The modal went: back to this control, when the keyboard was in the modal or nowhere.
-    Back { modal: ControlId, to: Option<ControlId> },
+    /// The modals went (the first one opened first): back to this control, when the keyboard was
+    /// in one of them or nowhere.
+    Back { gone: Vec<ControlId>, to: Option<ControlId> },
 }
 
 /// The pointer's own finger among the fingers (`Ui::pointer_finger` ids are the host's).
@@ -438,6 +439,9 @@ pub struct Ui<S: 'static> {
     screen_reader: bool,
     /// The modals that were active, oldest first, with where the keyboard was as each came.
     modal_stack: Vec<(ControlId, Option<ControlId>)>,
+    /// A modal the keyboard goes into once something in it takes input, until this time (its
+    /// buttons can show a moment after it: drawnui-cross 6bs).
+    modal_into: Option<(ControlId, f64)>,
 }
 
 /// The FPS overlay: frames per second over the last half second of frames drawn one after the
@@ -570,6 +574,7 @@ impl<S: 'static> Ui<S> {
             key_marked: None,
             screen_reader: true,
             modal_stack: Vec::new(),
+            modal_into: None,
         }
     }
 
@@ -1088,6 +1093,12 @@ impl<S: 'static> Ui<S> {
         }
         self.keyboard.apply(kind, key, modifiers);
         let marked = self.key_marked.take().is_some_and(|k| k == key) && kind == KeyKind::Down;
+        // The browser's overlay moves the focus with Tab and activates with Enter or Space itself:
+        // the keyboard is in use all the same (a dialog opened now takes it, drawnui-cross 6bs).
+        // Only our own navigation draws a ring, so nothing shows for it.
+        if kind == KeyKind::Down && !self.keyboard_navigation && (key == "Tab" || marked) {
+            self.focus_ring = true;
+        }
         let Ui { tree, state, keyboard, state_dirty, .. } = self;
         let event = KeyEvent { kind, key, text, repeat, keyboard, handled: false };
         let focused = tree.focused.filter(|f| tree.node(*f).is_some());
@@ -2396,6 +2407,17 @@ impl<S: 'static> Ui<S> {
         }
         if self.group_request.is_some() {
             self.process_group_request();
+        }
+        // A modal whose buttons show a moment after it: the keyboard goes in once one does, unless
+        // the modal went, the wait ended or the keyboard is in it already.
+        if let Some((modal, deadline)) = self.modal_into {
+            let tree = &self.tree;
+            let inside = self.tree.accessibility_focused.is_some_and(|k| std::iter::successors(Some(k), |c| tree.parent(*c)).any(|c| c == modal));
+            if self.active_modal != Some(modal) || self.tree.time_ms > deadline || inside || self.focus_into(modal) {
+                self.modal_into = None;
+            } else {
+                self.tree.needs_frame = true;
+            }
         }
         // A "keep" waits for the popup that closed to be reported (next frame), then goes.
         if matches!(self.tree.accessibility_focus_request, Some((None, _))) && self.tree.popups_closed.is_empty() {
@@ -3988,9 +4010,10 @@ impl<S: 'static> Ui<S> {
         self.active_modal = active;
         // The one that went, and the one under it that is active again.
         if let Some(i) = active.and_then(|a| self.modal_stack.iter().position(|(m, _)| *m == a)) {
-            let fallback = (self.modal_stack[i].0, None);
-            let (modal, to) = self.modal_stack.drain(i + 1..).next().unwrap_or(fallback);
-            return Some(ModalFocus::Back { modal, to });
+            let gone: Vec<_> = self.modal_stack.drain(i + 1..).collect();
+            let to = gone.first().and_then(|g| g.1);
+            let gone = if gone.is_empty() { vec![self.modal_stack[i].0] } else { gone.into_iter().map(|g| g.0).collect() };
+            return Some(ModalFocus::Back { gone, to });
         }
         match active {
             Some(modal) => {
@@ -3998,8 +4021,9 @@ impl<S: 'static> Ui<S> {
                 Some(ModalFocus::Into(modal))
             }
             None => {
-                let (modal, to) = self.modal_stack.drain(..).next()?;
-                Some(ModalFocus::Back { modal, to })
+                let gone: Vec<_> = self.modal_stack.drain(..).collect();
+                let to = gone.first()?.1;
+                Some(ModalFocus::Back { gone: gone.into_iter().map(|g| g.0).collect(), to })
             }
         }
     }
@@ -4039,17 +4063,18 @@ impl<S: 'static> Ui<S> {
         let inside = |tree: &Tree, control: ControlId, modal: ControlId| std::iter::successors(Some(control), |c| tree.parent(*c)).any(|c| c == modal);
         match focus {
             ModalFocus::Into(modal) => {
+                self.modal_into = None;
                 if !self.focus_ring {
                     return;
                 }
-                let first = self.tree.accessibility.iter().find(|n| n.can_interact && inside(&self.tree, n.control, modal)).map(|n| n.control);
-                if let Some(first) = first {
-                    self.keyboard_focus(first);
+                if !self.focus_into(modal) {
+                    self.modal_into = Some((modal, self.tree.time_ms + FOCUS_RETURN_WAIT_MS));
+                    self.tree.needs_frame = true;
                 }
             }
-            ModalFocus::Back { modal, to } => {
+            ModalFocus::Back { gone, to } => {
                 let keyboard = self.tree.accessibility_focused;
-                if keyboard.is_some_and(|k| self.tree.node(k).is_some() && !inside(&self.tree, k, modal)) {
+                if keyboard.is_some_and(|k| self.tree.node(k).is_some() && !gone.iter().any(|m| inside(&self.tree, k, *m))) {
                     return;
                 }
                 let Some(to) = to.filter(|t| self.tree.node(*t).is_some()) else { return };
@@ -4065,6 +4090,18 @@ impl<S: 'static> Ui<S> {
                 }
             }
         }
+    }
+
+    /// The keyboard to the first item of `modal` that takes input, from a fresh snapshot; false
+    /// when it has none yet.
+    fn focus_into(&mut self, modal: ControlId) -> bool {
+        self.accessibility_stale = true;
+        self.fresh_accessibility();
+        let tree = &self.tree;
+        let inside = |control: ControlId| std::iter::successors(Some(control), |c| tree.parent(*c)).any(|c| c == modal);
+        let Some(first) = tree.accessibility.iter().find(|n| n.can_interact && n.control != modal && inside(n.control)).map(|n| n.control) else { return false };
+        self.keyboard_focus(first);
+        true
     }
 
     /// Tells the app which popup windows closed (`on_popup_window_closed`). The accessibility

@@ -242,6 +242,7 @@ fn a_removed_or_closed_modal_leaves_the_registry() {
 struct HelpApp {
     shell: Handle<SkiaShell>,
     help: Handle<SkiaShape>,
+    late: Handle<SkiaShape>,
 }
 
 fn help_button(name: &'static str) -> Build<SkiaShape> {
@@ -334,4 +335,69 @@ fn the_keyboard_goes_back_to_an_opener_shown_again_only_after_the_close() {
     }
     host.settle();
     assert_eq!(help_keyboard_on(&host).as_deref(), Some("Help"));
+}
+
+#[test]
+fn the_keyboard_goes_into_a_dialog_whose_buttons_show_a_moment_after_it_opened() {
+    let mut host = help_host();
+    host.press_key("Tab");
+    host.press_key("Tab");
+    assert_eq!(help_keyboard_on(&host).as_deref(), Some("Help"));
+    let shell = host.ui.state.shell;
+    let mut late = Handle::default();
+    let dialog = SkiaLayout::column()
+        .width_request(200)
+        .accessibility_role(Aria::DIALOG)
+        .accessibility_label("Paused")
+        .children((SkiaLabel::new("Paused"), help_button("Resume").is_visible(false).assign(&mut late)));
+    host.ui.state.late = late;
+    host.ui.tree.cx().open_popup(shell, dialog, PopupOptions { animated: false, ..Default::default() });
+    for _ in 0..12 {
+        host.frame_after(16.0);
+    }
+    if let Some(mut b) = host.ui.tree.cx().get_mut(host.ui.state.late) {
+        b.set_is_visible(true);
+    }
+    host.settle();
+    assert_eq!(help_keyboard_on(&host).as_deref(), Some("Resume"));
+}
+
+#[test]
+fn a_dialog_takes_the_keyboard_the_browser_tab_put_on_a_control() {
+    // The web overlay: the browser's Tab focuses the element and the host reports it; the engine
+    // only hears the key (no navigation of its own).
+    let mut host = help_host();
+    host.ui.set_keyboard_navigation(false);
+    host.press_key("Tab");
+    let help: ControlId = host.ui.state.help.into();
+    let node = host.ui.accessibility_nodes().iter().find(|n| n.control == help).map(|n| n.id).expect("Help has a node");
+    host.ui.accessibility_focus(node, true);
+    host.frame_after(16.0);
+    let shell = host.ui.state.shell;
+    host.ui.tree.cx().open_popup(shell, help_dialog(), PopupOptions::default());
+    host.settle();
+    assert_eq!(help_keyboard_on(&host).as_deref(), Some("OK"));
+}
+
+#[test]
+fn a_dialog_that_hands_over_to_another_gives_the_keyboard_back_to_the_first_opener_when_both_went() {
+    // The Dungeon: Help opens "How to play", closing it shows "Paused", closing that resumes the game.
+    let mut host = host();
+    host.press_key("Tab");
+    host.press_key("Tab");
+    assert_eq!(keyboard_on(&host).as_deref(), Some("Page B"));
+    show(&mut host, |s| s.dialog, true);
+    assert_eq!(keyboard_on(&host).as_deref(), Some("OK"));
+    let (dialog, second) = (host.ui.state.dialog, host.ui.state.second);
+    if let Some(mut c) = host.ui.tree.cx().get_mut(dialog) {
+        c.set_is_visible(false);
+    }
+    if let Some(mut c) = host.ui.tree.cx().get_mut(second) {
+        c.set_is_visible(true);
+    }
+    host.settle();
+    assert_eq!(keyboard_on(&host).as_deref(), Some("Yes"));
+    show(&mut host, |s| s.second, false);
+    host.settle();
+    assert_eq!(keyboard_on(&host).as_deref(), Some("Page B"));
 }
