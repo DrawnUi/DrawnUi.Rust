@@ -3,12 +3,12 @@
 //! scaled up to the screen with linear filtering; a tablet's bigger screen gets proportionally
 //! more pixels. A screen whose density is within the cap draws the scene 1:1, straight to the
 //! canvas. The HUD, the texts and the dialogs always stay at full resolution. Off by default; the
-//! Dungeon turns it on for Android at 1 pixel per point. DUNGEON_MAXDENSITY changes it for tries
+//! Dungeon turns it on for Android at 1.33 pixels per point. DUNGEON_MAXDENSITY changes it for tries
 //! (0 = off).
 
 /// The cap on Android, pixels per point.
 #[cfg(target_os = "android")]
-const ANDROID_MAX_DENSITY: f32 = 1.0;
+const ANDROID_MAX_DENSITY: f32 = 1.33;
 
 pub struct RenderScale {
     /// Pixels per point of the scene at most; 0 = no cap.
