@@ -2,13 +2,12 @@
 //! scene's size in points times at most `max_density` pixels per point, keeping the aspect, and
 //! scaled up to the screen with linear filtering; a tablet's bigger screen gets proportionally
 //! more pixels. A screen whose density is within the cap draws the scene 1:1, straight to the
-//! canvas. The HUD, the texts and the dialogs always stay at full resolution. Off by default; the
-//! Dungeon turns it on for Android at 1.33 pixels per point. DUNGEON_MAXDENSITY changes it for tries
-//! (0 = off).
+//! canvas. The HUD, the texts and the dialogs always stay at full resolution. The Dungeon caps it at
+//! 1.33 pixels per point on every host: screens at a scale of 1.33 or less draw 1:1, Retina and
+//! high-DPI screens get the cap. DUNGEON_MAXDENSITY changes it for tries (0 = off).
 
-/// The cap on Android, pixels per point.
-#[cfg(target_os = "android")]
-const ANDROID_MAX_DENSITY: f32 = 1.33;
+/// The cap, pixels per point.
+const MAX_DENSITY: f32 = 1.33;
 
 pub struct RenderScale {
     /// Pixels per point of the scene at most; 0 = no cap.
@@ -17,11 +16,7 @@ pub struct RenderScale {
 
 impl Default for RenderScale {
     fn default() -> Self {
-        #[cfg(target_os = "android")]
-        let fallback = ANDROID_MAX_DENSITY;
-        #[cfg(not(target_os = "android"))]
-        let fallback = 0.0;
-        let max_density = std::env::var("DUNGEON_MAXDENSITY").ok().and_then(|v| v.trim().parse::<f32>().ok()).filter(|d| *d >= 0.0).unwrap_or(fallback);
+        let max_density = std::env::var("DUNGEON_MAXDENSITY").ok().and_then(|v| v.trim().parse::<f32>().ok()).filter(|d| *d >= 0.0).unwrap_or(MAX_DENSITY);
         Self { max_density }
     }
 }
