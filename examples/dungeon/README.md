@@ -1,3 +1,5 @@
+![Dungeon Run for DrawnUI for Rust](docs/banner.png)
+
 # Dungeon Run
 
 A first-person dungeon runner made with DrawnUI for Rust. It runs in the browser, as a desktop
