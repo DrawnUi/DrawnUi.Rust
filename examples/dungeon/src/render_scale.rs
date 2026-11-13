@@ -1,35 +1,36 @@
-//! The scene's pixel cap: the 3D scene and its post effect are drawn into a picture whose longer
-//! side is at most `max_px` pixels, keeping the aspect, and scaled up to the screen with linear
-//! filtering. A screen already within the cap draws the scene 1:1, straight to the canvas. The
-//! HUD, the texts and the dialogs always stay at full resolution. Off by default; the Dungeon turns
-//! it on for Android at 1280 pixels. DUNGEON_MAXPX changes it for tries (0 = off).
+//! The scene's density cap: the 3D scene and its post effect are drawn into a picture of the
+//! scene's size in points times at most `max_density` pixels per point, keeping the aspect, and
+//! scaled up to the screen with linear filtering; a tablet's bigger screen gets proportionally
+//! more pixels. A screen whose density is within the cap draws the scene 1:1, straight to the
+//! canvas. The HUD, the texts and the dialogs always stay at full resolution. Off by default; the
+//! Dungeon turns it on for Android at 1 pixel per point. DUNGEON_MAXDENSITY changes it for tries
+//! (0 = off).
 
-/// The cap on Android, pixels of the longer side.
+/// The cap on Android, pixels per point.
 #[cfg(target_os = "android")]
-const ANDROID_MAX_PX: u32 = 1280;
+const ANDROID_MAX_DENSITY: f32 = 1.0;
 
 pub struct RenderScale {
-    /// Pixels of the scene's longer side at most; 0 = no cap.
-    max_px: u32,
+    /// Pixels per point of the scene at most; 0 = no cap.
+    max_density: f32,
 }
 
 impl Default for RenderScale {
     fn default() -> Self {
         #[cfg(target_os = "android")]
-        let fallback = ANDROID_MAX_PX;
+        let fallback = ANDROID_MAX_DENSITY;
         #[cfg(not(target_os = "android"))]
-        let fallback = 0;
-        let max_px = std::env::var("DUNGEON_MAXPX").ok().and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(fallback);
-        Self { max_px }
+        let fallback = 0.0;
+        let max_density = std::env::var("DUNGEON_MAXDENSITY").ok().and_then(|v| v.trim().parse::<f32>().ok()).filter(|d| *d >= 0.0).unwrap_or(fallback);
+        Self { max_density }
     }
 }
 
 impl RenderScale {
-    /// The scale of the scene's picture for a screen of `width` x `height` points at `pixels`
-    /// per point: 1 within the cap, else the share that brings the longer side to the cap.
-    pub fn value(&self, width: f32, height: f32, pixels: f32) -> f32 {
-        let long = width.max(height) * pixels;
-        if self.max_px == 0 || long <= self.max_px as f32 { 1.0 } else { self.max_px as f32 / long }
+    /// The scale of the scene's picture at `pixels` per point: 1 within the cap, else the share
+    /// that brings it to the cap's pixels per point.
+    pub fn value(&self, pixels: f32) -> f32 {
+        if self.max_density <= 0.0 || pixels <= self.max_density { 1.0 } else { self.max_density / pixels }
     }
 
     /// Tells the scene's picture size, once per change (logcat tag `dungeon` on Android).
@@ -40,7 +41,7 @@ impl RenderScale {
             height * pixels * scale,
             width * pixels,
             height * pixels,
-            if self.max_px == 0 { "off".to_string() } else { format!("{} px", self.max_px) }
+            if self.max_density <= 0.0 { "off".to_string() } else { format!("{} px per point", self.max_density) }
         );
         // Android: logcat, tag `dungeon` (stdout goes nowhere there).
         #[cfg(target_os = "android")]
@@ -62,17 +63,17 @@ impl RenderScale {
 mod tests {
     use super::*;
 
-    /// Within the cap the scene draws 1:1; past it the longer side comes down to the cap, both axes
-    /// alike; no cap leaves it at 1.
+    /// Within the cap the scene draws 1:1; past it the scene gets the cap's pixels per point (both
+    /// axes alike, so a bigger screen gets more pixels); no cap leaves it at 1.
     #[test]
-    fn caps_the_longer_side() {
-        let cap = RenderScale { max_px: 1280 };
-        // A phone held upright, 360 x 802 points at 3: 2406 pixels tall.
-        let s = cap.value(360.0, 802.0, 3.0);
-        assert!((802.0 * 3.0 * s - 1280.0).abs() < 0.01);
-        assert!((360.0 * 3.0 * s - 360.0 * 1280.0 / 802.0).abs() < 0.01, "the aspect stays");
-        assert_eq!(cap.value(1280.0, 720.0, 1.0), 1.0, "at the cap: 1:1");
-        assert_eq!(cap.value(800.0, 600.0, 1.0), 1.0, "below it: 1:1");
-        assert_eq!(RenderScale { max_px: 0 }.value(360.0, 802.0, 3.0), 1.0, "no cap");
+    fn caps_the_pixels_per_point() {
+        let cap = RenderScale { max_density: 1.0 };
+        // A phone held upright, 360 x 715 points at 3: the scene 360 x 715 pixels.
+        let s = cap.value(3.0);
+        assert!((715.0 * 3.0 * s - 715.0).abs() < 0.01);
+        assert!((cap.value(2.0) - 0.5).abs() < 1e-6, "a tablet at 2: half");
+        assert_eq!(cap.value(1.0), 1.0, "at the cap: 1:1");
+        assert_eq!(cap.value(0.75), 1.0, "below it: 1:1");
+        assert_eq!(RenderScale { max_density: 0.0 }.value(3.0), 1.0, "no cap");
     }
 }

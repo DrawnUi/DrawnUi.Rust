@@ -30,7 +30,7 @@ const SYMBOLS: &str = "FontSymbols";
 pub struct App {
     shell: Handle<SkiaShell>,
     scene: Handle<Scene>,
-    /// The scene with its post effect, drawn at most `render_scale`'s cap of pixels and scaled
+    /// The scene with its post effect, drawn at most `render_scale`'s pixels per point and scaled
     /// back up (the HUD, texts and dialogs stay at full resolution); and what it was last given.
     stage: Handle<SkiaLayout>,
     render: render_scale::RenderScale,
@@ -324,13 +324,13 @@ fn flash_score(app: &mut App, cx: &mut Cx) {
     }
 }
 
-/// The stage under the pixel cap: within it the stage fills the screen and is drawn directly;
-/// past it the stage is the screen's size brought down to the cap, cached on the GPU (the scene
+/// The stage under the density cap: within it the stage fills the screen and is drawn directly;
+/// past it the stage has the cap's pixels per point, cached on the GPU (the scene
 /// and its post effect render into it at that resolution) and scaled back up to fill the screen.
 fn set_stage(app: &mut App, cx: &mut Cx, width: f32, height: f32) {
     // Pixels per point from the HUD: the stage's own scale would count its scaling up.
     let pixels = cx.get_mut(app.hud).map_or(0.0, |hud| hud.base().scale);
-    let s = app.render.value(width, height, pixels);
+    let s = app.render.value(pixels);
     if (width, height, s) == app.shown_stage {
         return;
     }
@@ -1060,7 +1060,7 @@ fn build(app: &mut App) -> Build<SkiaShell> {
             gesture(app, cx, g, scale)
         })
         // Draws every frame: no cache. The post effect reads what it drew. The stage around them is
-        // their pixel cap (`set_stage`).
+        // their density cap (`set_stage`).
         .children(
             SkiaLayer::new()
                 .fill()
