@@ -203,7 +203,7 @@ frame.
 dev\android.ps1 -Example dungeon
 ```
 
-The game as the native library of a GameActivity: `../dungeon-android` holds the `cdylib` with
+The game as the native library of a GameActivity: `android/` holds the `cdylib` with
 `android_main` and the Gradle app (package `net.drawnui.dungeon`). The script builds the library with
 cargo-ndk (x86_64 for the emulator; `-Abi arm64-v8a` for a phone, `-Abi all` for both), packs the APK
 with Gradle into `target\android\dungeon\dungeon.apk`, installs and starts it. Drag to change lane,

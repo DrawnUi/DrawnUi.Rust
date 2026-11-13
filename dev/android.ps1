@@ -1,6 +1,6 @@
 # Builds an example for Android (cargo-ndk) and packs the APK with Gradle (GameActivity), then
 # installs and starts it on the device or emulator adb sees (one only). An example <x> has its
-# Android crate in examples\<x>-android: the cdylib with android_main and the Gradle app.
+# Android crate in examples\<x>\android: the cdylib with android_main and the Gradle app.
 #   dev\android.ps1                       -> HelloRust, x86_64 (the emulator), build + pack + install + start
 #   dev\android.ps1 -Example dungeon      -> Dungeon Run
 #   dev\android.ps1 -Abi arm64-v8a        -> a phone
@@ -19,7 +19,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
-$app = Join-Path $repo "examples\$Example-android"
+$app = Join-Path $repo "examples\$Example\android"
 # HelloRust keeps target\android (its build.gradle names it); every other example has a folder in it.
 $out = if ($Example -eq "hellorust") { Join-Path $repo "target\android" } else { Join-Path $repo "target\android\$Example" }
 $sdk = $env:ANDROID_HOME
@@ -55,7 +55,7 @@ try {
     New-Item -ItemType Directory -Force (Join-Path $stage "assets") | Out-Null
     Copy-Item -Recurse (Join-Path $repo "examples\$Example\assets") (Join-Path $stage "assets\assets")
 
-    # The APK (examples\hellorust-android\build.gradle): the libraries, the assets and GameActivity;
+    # The APK (examples\hellorust\android\build.gradle): the libraries, the assets and GameActivity;
     # not debuggable, signed with the debug key. Gradle's own files stay under target\android.
     if (-not $env:JAVA_HOME) { $env:JAVA_HOME = Join-Path $env:ProgramFiles "Android\Android Studio\jbr" }
     & (Join-Path $app "gradlew.bat") -p $app --project-cache-dir (Join-Path $out "gradle-cache") -q assembleRelease

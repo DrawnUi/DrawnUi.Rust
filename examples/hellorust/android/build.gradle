@@ -1,19 +1,19 @@
-// Dungeon Run's APK: libdungeon_android.so (cargo-ndk, dev\android.ps1) under GameActivity, which
+// HelloRust's APK: libhellorust_android.so (cargo-ndk, dev\android.ps1) under GameActivity, which
 // brings the soft keyboard (GameTextInput) and the view TalkBack reads (AccessKit). GameActivity
 // is an AppCompatActivity: AppCompat and core are its dependencies (its POM lists none).
 plugins {
     id 'com.android.application' version '8.5.2'
 }
 
-def repo = file('../..')
+def repo = file('../../..')
 // Build output and the inputs dev\android.ps1 prepares, all under the repo's target dir.
-layout.buildDirectory = new File(repo, 'target/android/dungeon/gradle')
+layout.buildDirectory = new File(repo, 'target/android/gradle')
 
 android {
-    namespace 'net.drawnui.dungeon'
+    namespace 'net.drawnui.hellorust'
     compileSdk 36
     defaultConfig {
-        applicationId 'net.drawnui.dungeon'
+        applicationId 'net.drawnui.hellorust'
         minSdk 26
         targetSdk 37
         versionCode 1
@@ -23,9 +23,9 @@ android {
         manifest.srcFile 'AndroidManifest.xml'
         res.srcDirs = ['res']
         java.srcDirs = []
-        // lib/<abi>/libdungeon_android.so from cargo-ndk; the app's files as assets/assets/...
-        jniLibs.srcDirs = [new File(repo, 'target/android/dungeon/lib')]
-        assets.srcDirs = [new File(repo, 'target/android/dungeon/stage/assets')]
+        // lib/<abi>/libhellorust_android.so from cargo-ndk; the app's files as assets/assets/...
+        jniLibs.srcDirs = [new File(repo, 'target/android/lib')]
+        assets.srcDirs = [new File(repo, 'target/android/stage/assets')]
     }
     buildTypes {
         // Not debuggable, signed with the debug key: what runs on devices for tests and numbers.

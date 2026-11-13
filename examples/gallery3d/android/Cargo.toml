@@ -10,5 +10,5 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-drawnui = { path = "../../drawnui" }
-gallery3d = { path = "../gallery3d" }
+drawnui = { path = "../../../drawnui" }
+gallery3d = { path = ".." }

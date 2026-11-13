@@ -5,7 +5,7 @@ plugins {
     id 'com.android.application' version '8.5.2'
 }
 
-def repo = file('../..')
+def repo = file('../../..')
 // Build output and the inputs dev\android.ps1 prepares, all under the repo's target dir.
 layout.buildDirectory = new File(repo, 'target/android/gallery3d/gradle')
 

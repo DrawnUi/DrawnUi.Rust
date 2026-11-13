@@ -10,7 +10,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-drawnui = { path = "../../drawnui" }
-hellorust = { path = "../hellorust" }
+drawnui = { path = "../../../drawnui" }
+hellorust = { path = ".." }
 # The bench scene for measurements on a device (`debug.drawnui.bench`).
-bench = { path = "../bench" }
+bench = { path = "../../bench" }

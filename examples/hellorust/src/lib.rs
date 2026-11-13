@@ -1,5 +1,5 @@
 //! HelloRust: the demo app of DrawnUI for Rust, a port of HelloMaui (C#) and the React demo.
-//! One source for the desktop window, the browser and Android (`examples/hellorust-android`).
+//! One source for the desktop window, the browser and Android (`examples/hellorust/android`).
 
 use drawnui::prelude::*;
 
