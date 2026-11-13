@@ -30,7 +30,7 @@ const SYMBOLS: &str = "FontSymbols";
 pub struct App {
     shell: Handle<SkiaShell>,
     scene: Handle<Scene>,
-    /// The scene with its post effect, drawn at `render_scale` of the screen's pixels and scaled
+    /// The scene with its post effect, drawn at most `render_scale`'s cap of pixels and scaled
     /// back up (the HUD, texts and dialogs stay at full resolution); and what it was last given.
     stage: Handle<SkiaLayout>,
     render: render_scale::RenderScale,
@@ -324,15 +324,18 @@ fn flash_score(app: &mut App, cx: &mut Cx) {
     }
 }
 
-/// The stage at the render scale: at 1 it fills the screen and is drawn directly; below 1 it is that
-/// share of the screen's size, cached on the GPU (the scene and its post effect render into it at
-/// that resolution) and scaled back up to fill the screen.
+/// The stage under the pixel cap: within it the stage fills the screen and is drawn directly;
+/// past it the stage is the screen's size brought down to the cap, cached on the GPU (the scene
+/// and its post effect render into it at that resolution) and scaled back up to fill the screen.
 fn set_stage(app: &mut App, cx: &mut Cx, width: f32, height: f32) {
-    let s = app.render.value();
+    // Pixels per point from the HUD: the stage's own scale would count its scaling up.
+    let pixels = cx.get_mut(app.hud).map_or(0.0, |hud| hud.base().scale);
+    let s = app.render.value(width, height, pixels);
     if (width, height, s) == app.shown_stage {
         return;
     }
     app.shown_stage = (width, height, s);
+    app.render.log(width, height, pixels, s);
     let Some(mut stage) = cx.get_mut(app.stage) else { return };
     let full = s >= 1.0;
     let options = if full { LayoutOptions::Fill } else { LayoutOptions::Start };
@@ -367,13 +370,6 @@ fn tick(app: &mut App, cx: &mut Cx, delta: f32) {
             prompt.set_font_size(if canvas.width < 520.0 { 28.0 } else { 44.0 });
         }
     }
-    // The display's rate: the frame-rate cap when one is set, else the display's own (read every
-    // frame: a phone knows it only after its first frames, and it can change).
-    let rate = match drawnui::max_fps() {
-        0 => drawnui::display_refresh_rate(),
-        fps => fps as f32,
-    };
-    app.render.frame(delta, rate);
     set_stage(app, cx, canvas.width, canvas.height);
     let narrow = canvas.width < NARROW;
     if narrow != app.narrow {
@@ -1064,7 +1060,7 @@ fn build(app: &mut App) -> Build<SkiaShell> {
             gesture(app, cx, g, scale)
         })
         // Draws every frame: no cache. The post effect reads what it drew. The stage around them is
-        // their render scale (`set_stage`).
+        // their pixel cap (`set_stage`).
         .children(
             SkiaLayer::new()
                 .fill()

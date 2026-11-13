@@ -1,89 +1,47 @@
-//! Adaptive render scale, as a video player adapts its quality: the 3D scene and its post effect are
-//! drawn into a smaller picture and scaled up to the screen when the device cannot draw them at the
-//! display's rate. The HUD, the texts and the dialogs always stay at full resolution.
+//! The scene's pixel cap: the 3D scene and its post effect are drawn into a picture whose longer
+//! side is at most `max_px` pixels, keeping the aspect, and scaled up to the screen with linear
+//! filtering. A screen already within the cap draws the scene 1:1, straight to the canvas. The
+//! HUD, the texts and the dialogs always stay at full resolution. Off by default; the Dungeon turns
+//! it on for Android at 1280 pixels. DUNGEON_MAXPX changes it for tries (0 = off).
 
-/// Seconds of frames judged together, and of good windows before a step up.
-const WINDOW: f32 = 2.0;
-const UP_AFTER: f32 = 10.0;
-const STEPS: [f32; 3] = [1.0, 0.75, 0.5];
+/// The cap on Android, pixels of the longer side.
+#[cfg(target_os = "android")]
+const ANDROID_MAX_PX: u32 = 1280;
 
-/// Picks the render scale of the 3D scene from the frame intervals: 1.0, 0.75 or 0.5. It starts at
-/// 1.0. When more than half of the frames of a 2 s window miss the display's rate, it steps down;
-/// after 10 s of windows where almost every frame keeps the rate, it steps up. A step down within
-/// 10 s after a step up keeps the lower step for the rest of the session, so the scale never
-/// pumps. Allocates nothing; the caller resizes only on a step.
 pub struct RenderScale {
-    /// A fixed scale for tests (0 = adaptive), from DUNGEON_SCALE (desktop).
-    forced: f32,
-    step: usize,
-    window: f32,
-    good: f32,
-    since_up: f32,
-    frames: u32,
-    slow: u32,
-    locked: bool,
+    /// Pixels of the scene's longer side at most; 0 = no cap.
+    max_px: u32,
 }
 
 impl Default for RenderScale {
     fn default() -> Self {
-        let forced = std::env::var("DUNGEON_SCALE").ok().and_then(|v| v.parse::<f32>().ok()).filter(|s| *s > 0.0).map_or(0.0, |s| s.clamp(0.5, 1.0));
-        Self { forced, step: 0, window: 0.0, good: 0.0, since_up: f32::MAX, frames: 0, slow: 0, locked: false }
+        #[cfg(target_os = "android")]
+        let fallback = ANDROID_MAX_PX;
+        #[cfg(not(target_os = "android"))]
+        let fallback = 0;
+        let max_px = std::env::var("DUNGEON_MAXPX").ok().and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(fallback);
+        Self { max_px }
     }
 }
 
 impl RenderScale {
-    /// The scale now.
-    pub fn value(&self) -> f32 {
-        if self.forced > 0.0 { self.forced } else { STEPS[self.step] }
+    /// The scale of the scene's picture for a screen of `width` x `height` points at `pixels`
+    /// per point: 1 within the cap, else the share that brings the longer side to the cap.
+    pub fn value(&self, width: f32, height: f32, pixels: f32) -> f32 {
+        let long = width.max(height) * pixels;
+        if self.max_px == 0 || long <= self.max_px as f32 { 1.0 } else { self.max_px as f32 / long }
     }
 
-    /// One frame of `interval` seconds at a display of `rate` Hz. Returns true when the scale changed.
-    pub fn frame(&mut self, interval: f32, rate: f32) -> bool {
-        if self.forced > 0.0 || rate <= 0.0 {
-            return false;
-        }
-        self.since_up += interval;
-        // A pause, a load or a step's own resize is no measure of the drawing: start the window again.
-        if interval > 0.25 || interval <= 0.0 {
-            (self.window, self.frames, self.slow) = (0.0, 0, 0);
-            return false;
-        }
-        self.window += interval;
-        self.frames += 1;
-        // Missed the display's rate: an interval of 1.5 refreshes or more.
-        if interval > 1.5 / rate {
-            self.slow += 1;
-        }
-        if self.window < WINDOW {
-            return false;
-        }
-        let slow = self.slow as f32 / self.frames as f32;
-        let window = self.window;
-        (self.window, self.frames, self.slow) = (0.0, 0, 0);
-        if slow > 0.5 {
-            self.good = 0.0;
-            if self.step == STEPS.len() - 1 {
-                return false;
-            }
-            if self.since_up < UP_AFTER {
-                self.locked = true;
-            }
-            self.step += 1;
-            self.log(&format!("down, {:.0} % of the frames missed {rate:.0} Hz{}", slow * 100.0, if self.locked { ", stays there" } else { "" }));
-            return true;
-        }
-        self.good = if slow < 0.1 { self.good + window } else { 0.0 };
-        if self.good < UP_AFTER || self.step == 0 || self.locked {
-            return false;
-        }
-        (self.good, self.since_up) = (0.0, 0.0);
-        self.step -= 1;
-        self.log(&format!("up, {UP_AFTER:.0} s at {rate:.0} Hz"));
-        true
-    }
-
-    fn log(&self, why: &str) {
-        let line = format!("dungeon: render scale {:.0} % ({why})", STEPS[self.step] * 100.0);
+    /// Tells the scene's picture size, once per change (logcat tag `dungeon` on Android).
+    pub fn log(&self, width: f32, height: f32, pixels: f32, scale: f32) {
+        let line = format!(
+            "dungeon: scene {:.0}x{:.0} px for a {:.0}x{:.0} px screen (cap {})",
+            width * pixels * scale,
+            height * pixels * scale,
+            width * pixels,
+            height * pixels,
+            if self.max_px == 0 { "off".to_string() } else { format!("{} px", self.max_px) }
+        );
         // Android: logcat, tag `dungeon` (stdout goes nowhere there).
         #[cfg(target_os = "android")]
         {
@@ -104,53 +62,17 @@ impl RenderScale {
 mod tests {
     use super::*;
 
-    fn adaptive() -> RenderScale {
-        RenderScale { forced: 0.0, ..RenderScale::default() }
-    }
-
-    /// Steps down after a slow window, up after 10 s of good ones, and stays down when it drops
-    /// again soon after a step up.
+    /// Within the cap the scene draws 1:1; past it the longer side comes down to the cap, both axes
+    /// alike; no cap leaves it at 1.
     #[test]
-    fn steps_down_up_and_locks() {
-        let mut s = adaptive();
-        let run = |s: &mut RenderScale, interval: f32, seconds: f32| {
-            let mut changed = 0;
-            for _ in 0..(seconds / interval) as usize {
-                changed += s.frame(interval, 60.0) as u32;
-            }
-            changed
-        };
-        // Fast frames stay at 1.0; so do occasional hitches (one slow frame in ten).
-        assert_eq!(run(&mut s, 1.0 / 60.0, 6.0), 0);
-        for _ in 0..30 {
-            assert!(!s.frame(1.0 / 30.0, 60.0));
-            for _ in 0..9 {
-                assert!(!s.frame(1.0 / 60.0, 60.0));
-            }
-        }
-        assert_eq!(s.value(), 1.0);
-        // A pause (a long frame) starts the window again, so the slow frames fill whole windows.
-        assert!(!s.frame(0.3, 60.0));
-        assert_eq!(run(&mut s, 1.0 / 30.0, 2.1), 1);
-        assert_eq!(s.value(), 0.75);
-        assert_eq!(run(&mut s, 1.0 / 30.0, 2.1), 1);
-        assert_eq!(s.value(), 0.5);
-        // The floor.
-        assert_eq!(run(&mut s, 1.0 / 30.0, 4.1), 0);
-        assert_eq!(s.value(), 0.5);
-        // Good frames: up after 10 s.
-        assert_eq!(run(&mut s, 1.0 / 60.0, 9.0), 0);
-        assert_eq!(run(&mut s, 1.0 / 60.0, 3.0), 1);
-        assert_eq!(s.value(), 0.75);
-        // Slow again within 10 s of the step up (the open window of good frames first): down, and
-        // locked there.
-        assert_eq!(run(&mut s, 1.0 / 30.0, 4.1), 1);
-        assert_eq!(s.value(), 0.5);
-        assert_eq!(run(&mut s, 1.0 / 60.0, 30.0), 0);
-        assert_eq!(s.value(), 0.5);
-        // A pause starts the window again: no step from one long frame.
-        let mut t = adaptive();
-        assert!(!t.frame(1.0, 60.0));
-        assert_eq!(t.value(), 1.0);
+    fn caps_the_longer_side() {
+        let cap = RenderScale { max_px: 1280 };
+        // A phone held upright, 360 x 802 points at 3: 2406 pixels tall.
+        let s = cap.value(360.0, 802.0, 3.0);
+        assert!((802.0 * 3.0 * s - 1280.0).abs() < 0.01);
+        assert!((360.0 * 3.0 * s - 360.0 * 1280.0 / 802.0).abs() < 0.01, "the aspect stays");
+        assert_eq!(cap.value(1280.0, 720.0, 1.0), 1.0, "at the cap: 1:1");
+        assert_eq!(cap.value(800.0, 600.0, 1.0), 1.0, "below it: 1:1");
+        assert_eq!(RenderScale { max_px: 0 }.value(360.0, 802.0, 3.0), 1.0, "no cap");
     }
 }

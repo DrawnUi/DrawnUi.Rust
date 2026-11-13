@@ -3,18 +3,19 @@
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 fn android_main(app: drawnui::AndroidApp) {
-    // A fixed render scale for tests: adb shell am start -n <package>/<activity> --ef scale 0.5
-    if let Some(scale) = intent_scale(&app) {
+    // The scene's pixel cap for tries: adb shell am start -n <package>/<activity> --ei maxpx 1080
+    // (0 = no cap).
+    if let Some(max_px) = intent_max_px(&app) {
         // SAFETY: set before the game starts, while no other thread reads the environment.
-        unsafe { std::env::set_var("DUNGEON_SCALE", scale.to_string()) };
+        unsafe { std::env::set_var("DUNGEON_MAXPX", max_px.to_string()) };
     }
     drawnui::set_android_app(app);
     dungeon::run();
 }
 
-/// The activity intent's float extra `scale`, when it has one above 0.
+/// The activity intent's int extra `maxpx`, when it has one (0 or more).
 #[cfg(target_os = "android")]
-fn intent_scale(app: &drawnui::AndroidApp) -> Option<f32> {
+fn intent_max_px(app: &drawnui::AndroidApp) -> Option<i32> {
     use jni_sys::{JNI_OK, JNIEnv, JavaVM, jobject, jvalue};
     use std::ptr::null_mut;
     // SAFETY: the VM and activity pointers come from android-activity for this process; every
@@ -36,10 +37,10 @@ fn intent_scale(app: &drawnui::AndroidApp) -> Option<f32> {
             return None;
         }
         let intent_class = (f.GetObjectClass?)(env, intent);
-        let get_float = (f.GetMethodID?)(env, intent_class, c"getFloatExtra".as_ptr(), c"(Ljava/lang/String;F)F".as_ptr());
-        let key = (f.NewStringUTF?)(env, c"scale".as_ptr());
-        let args = [jvalue { l: key }, jvalue { f: 0.0 }];
-        let scale = (f.CallFloatMethodA?)(env, intent, get_float, args.as_ptr());
+        let get_int = (f.GetMethodID?)(env, intent_class, c"getIntExtra".as_ptr(), c"(Ljava/lang/String;I)I".as_ptr());
+        let key = (f.NewStringUTF?)(env, c"maxpx".as_ptr());
+        let args = [jvalue { l: key }, jvalue { i: -1 }];
+        let max_px = (f.CallIntMethodA?)(env, intent, get_int, args.as_ptr());
         let failed = (f.ExceptionCheck?)(env) != 0;
         if failed {
             (f.ExceptionClear?)(env);
@@ -47,6 +48,6 @@ fn intent_scale(app: &drawnui::AndroidApp) -> Option<f32> {
         (f.DeleteLocalRef?)(env, key);
         (f.DeleteLocalRef?)(env, intent_class);
         (f.DeleteLocalRef?)(env, intent);
-        (!failed && scale > 0.0).then_some(scale)
+        (!failed && max_px >= 0).then_some(max_px)
     }
 }

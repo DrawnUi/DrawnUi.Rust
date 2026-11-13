@@ -12,5 +12,5 @@ crate-type = ["cdylib"]
 [dependencies]
 drawnui = { path = "../../drawnui" }
 dungeon = { path = "../dungeon" }
-# The intent extra `scale` (a fixed render scale for tests), read through JNI.
+# The intent extra `maxpx` (the scene's pixel cap for tries), read through JNI.
 jni-sys = "0.3"
