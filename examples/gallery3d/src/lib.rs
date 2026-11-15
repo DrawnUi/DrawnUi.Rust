@@ -2203,7 +2203,7 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
         ),
     ));
     let mobs = panel(
-        "Mobs on a 2D field",
+        "3D mobs on a 2D field",
         "Many 3D monsters from one model, moved like sprites and drawn by one layer in one pass. Tap one to hit it.",
         (
             // The whole field scaled down to the card when the card is narrower than it.
