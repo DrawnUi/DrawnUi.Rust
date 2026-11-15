@@ -14,7 +14,8 @@
 //! A header with two tabs: the gallery and the boss fight (a glTF dragon with its animations,
 //! driven by the app: moves, a tap that hits it, skin and eyes recolored by material name).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::f32::consts::TAU;
 use std::rc::Rc;
 
@@ -41,6 +42,12 @@ const AVATAR: &str = "assets/avatar.glb";
 const MOB: &str = "assets/mob.glb";
 const DRAGON: &str = "assets/dragon.glb";
 const EARTH: &str = "assets/earth.jpg";
+/// What a cover waits for besides model files: the fonts of the drawn textures, the Earth.
+const FONTS: &str = "fonts";
+const EARTH_KEY: &str = "earth";
+/// The files below the first screen start in page order, this many at a time, so the next section
+/// down is usually ready first.
+const LOADS_AT_ONCE: usize = 2;
 /// The fonts of the textures drawn in code (the card, the box labels), the UI's own files.
 const FONT_FILE: &str = "assets/OpenSans-Regular.ttf";
 const TITLE_FONT_FILE: &str = "assets/OpenSans-Semibold.ttf";
@@ -483,8 +490,16 @@ struct App {
     /// The box labels, drawn once the gallery's fonts are here (`fetch_pictures`).
     labels: Rc<RefCell<Vec<Texture3D>>>,
     label: usize,
-    /// The pictures below the first screen were asked for.
-    files_asked: bool,
+    /// The views still loading a file or a picture (`cover`), and what has arrived, by key: a
+    /// model's url, `FONTS`, `EARTH_KEY`. Fetches mark `arrived` and raise `news`; the game loop
+    /// then fades those covers out.
+    covers: Vec<Cover>,
+    arrived: Rc<RefCell<HashSet<&'static str>>>,
+    news: Rc<Cell<bool>>,
+    /// The files below the first screen in page order, and which of them were started.
+    loads: Vec<(&'static str, bool)>,
+    /// The covers' spinners turn.
+    spinning: bool,
     smooth_edges: bool,
     // Model files.
     chest: Handle<SkiaModel3D>,
@@ -907,7 +922,12 @@ fn product_list(app: &mut App) -> Build<SkiaShape> {
         .map(|i| {
             let (model, name, detail, price) = PRODUCTS[i % PRODUCTS.len()];
             let (finish, tint, extra) = FINISHES[i / PRODUCTS.len()];
-            let mut thumb = SkiaModel3D::from_url(model).view_angles(32.0, 14.0).lock_pitch(true).fill().assign(&mut app.thumbs[i]);
+            let mut thumb = SkiaModel3D::from_url("")
+                .view_angles(32.0, 14.0)
+                .lock_pitch(true)
+                .fill()
+                .assign(&mut app.thumbs[i])
+                .on_load_state(move |_me, app: &mut App, cx, state| loaded(app, cx, model, state));
             if let Some(tint) = tint {
                 // Every piece is one material: the finish tints all of it.
                 thumb = thumb.on_view_changed(move |me, app: &mut App, _cx| {
@@ -932,7 +952,13 @@ fn product_list(app: &mut App) -> Build<SkiaShape> {
                     }
                 })
                 .children((
-                    SkiaShape::new().corner_radius(10).background_color(STAGE).width_request(68).height_request(68).vertical_options(LayoutOptions::Center).children((thumb,)),
+                    SkiaShape::new()
+                        .corner_radius(10)
+                        .background_color(STAGE)
+                        .width_request(68)
+                        .height_request(68)
+                        .vertical_options(LayoutOptions::Center)
+                        .children((thumb, cover(app, model, STAGE, 10.0, true))),
                     SkiaLayout::column().spacing(2).vertical_options(LayoutOptions::Center).children((
                         SkiaLabel::new(format!("{name}, {finish}")).font_size(15).text_color(INK),
                         SkiaLabel::new(if i >= 15 { format!("{detail} · large") } else { detail.to_owned() }).font_size(12).text_color(MUTED),
@@ -1004,7 +1030,7 @@ fn card_flip(app: &mut App) -> Build<SkiaShape> {
                 .antialias(true)
                 .fill()
                 .assign(&mut app.card)
-                .on_tapped_3d(|_me, app: &mut App, _cx, _hit| flip(app)),)),
+                .on_tapped_3d(|_me, app: &mut App, _cx, _hit| flip(app)), cover(app, FONTS, STAGE, 14.0, false))),
             SkiaLayout::column().spacing(12).fill_x().children((
                 SkiaLabel::new("Drawn Rewards Gold").font_size(24).font_family(TITLE).text_color(INK),
                 SkiaLabel::new("12,480 points · member since 2021").font_size(14).text_color(MUTED),
@@ -1111,6 +1137,7 @@ fn globe_with_pins(app: &mut App) -> Build<SkiaShape> {
                 .collect::<Vec<_>>(),
             (0..CITIES.len()).map(|i| chip_label(CITIES[i].0).assign(&mut app.pin_names[i])).collect::<Vec<_>>(),
         )),
+        cover(app, EARTH_KEY, Color::from_rgb(8, 10, 22), 14.0, false),
     ));
     panel(
         "Globe with pins",
@@ -1290,13 +1317,14 @@ fn sign_up(app: &mut App) -> Build<SkiaShape> {
                 .fill_x()
                 .height_request(VIEW.1)
                 .observe(|me, app: &App| me.set_height_request(if two_columns(app) { VIEW.1 } else { STACKED_VIEW }))
-                .children((SkiaModel3D::from_url(AVATAR)
+                .children((SkiaModel3D::from_url("")
+                .on_load_state(|_me, app: &mut App, cx, state| loaded(app, cx, AVATAR, state))
                 .animation("CharacterArmature|Idle")
                 // Seen from its left: it faces the form, which is to the left on screen.
                 .view_angles(MASCOT_YAW, 8.0)
                 .orbit(false)
                 .fill()
-                .assign(&mut app.mascot),)),
+                .assign(&mut app.mascot), cover(app, AVATAR, STAGE, 14.0, false))),
         )),),
     )
 }
@@ -1304,9 +1332,13 @@ fn sign_up(app: &mut App) -> Build<SkiaShape> {
 // ---------------------------------------------------------------- the frame loop
 
 fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
-    if !app.files_asked {
-        app.files_asked = true;
-        fetch_pictures(app, cx);
+    if !app.spinning {
+        app.spinning = true;
+        reveal(app, cx);
+    }
+    pump_loads(app, cx);
+    if app.news.replace(false) {
+        reveal(app, cx);
     }
     app.time += delta;
     let t = app.time;
@@ -1407,6 +1439,9 @@ fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
             field.set_facing(&name, if w.speed > 0.0 { 90.0 } else { -90.0 });
             app.walkers.push(w);
         }
+    }
+    if !app.walkers.is_empty() && !app.arrived.borrow().contains(MOB) {
+        arrive(app, cx, MOB);
     }
     // The scene pans: every layer slides by its share, the ground (and the mobs on it) the most.
     app.pan += PAN_SPEED * delta;
@@ -1545,37 +1580,160 @@ fn medal_colors(app: &App, cx: &mut Cx) {
     }
 }
 
-/// The pictures of the models below the first screen: the Earth and the textures drawn in code
-/// with the gallery's fonts (the card, the box labels). Each goes on its model when it arrives.
-fn fetch_pictures(app: &App, cx: &mut Cx) {
-    let globe = app.globe;
+/// A view still loading its file or picture.
+struct Cover {
+    key: &'static str,
+    root: Handle<SkiaShape>,
+    spinner: Handle<SkiaShape>,
+    spin: Option<AnimationId>,
+    gone: bool,
+}
+
+/// What a 3D view shows until its file or picture is there: its own surface (`color`, corners of
+/// `radius`), a small spinner and "Loading…" (the spinner alone when `small`). It fades out when
+/// `key` has arrived (`reveal`).
+fn cover(app: &mut App, key: &'static str, color: Color, radius: f32, small: bool) -> Build<SkiaShape> {
+    let mut c = Cover { key, root: Handle::default(), spinner: Handle::default(), spin: None, gone: false };
+    let size = if small { 20.0 } else { 30.0 };
+    let spinner = SkiaShape::new()
+        .shape_type(ShapeType::Arc)
+        .width_request(size)
+        .height_request(size)
+        .stroke_color(BUTTON)
+        .stroke_width(3)
+        .value2(270.0)
+        .horizontal_options(LayoutOptions::Center)
+        .assign(&mut c.spinner);
+    let content = SkiaLayout::column().spacing(10).horizontal_options(LayoutOptions::Center).vertical_options(LayoutOptions::Center);
+    let content = match small {
+        true => content.children((spinner,)),
+        false => content.children((spinner, SkiaLabel::new("Loading…").font_size(13).text_color(MUTED).horizontal_options(LayoutOptions::Center))),
+    };
+    let built = SkiaShape::new()
+        .fill()
+        .corner_radius(radius)
+        .background_color(color)
+        .input_transparent(true)
+        .children((content,))
+        .assign(&mut c.root);
+    app.covers.push(c);
+    built
+}
+
+/// A model view's file loaded (or failed): the covers of `key` go.
+fn loaded(app: &mut App, cx: &mut Cx, key: &'static str, state: LoadState3D) {
+    if state != LoadState3D::Loading {
+        arrive(app, cx, key);
+    }
+}
+
+/// `key` is here: its covers fade out.
+fn arrive(app: &mut App, cx: &mut Cx, key: &'static str) {
+    app.arrived.borrow_mut().insert(key);
+    reveal(app, cx);
+}
+
+/// Fades out the covers of what arrived, and starts the spinners of the rest once.
+fn reveal(app: &mut App, cx: &mut Cx) {
+    let arrived = app.arrived.borrow();
+    for c in app.covers.iter_mut().filter(|c| !c.gone) {
+        if arrived.contains(c.key) {
+            c.gone = true;
+            if let Some(spin) = c.spin.take() {
+                cx.stop_animation(spin);
+            }
+            cx.fade_to(c.root, 0.0, 300, easing::sin_out);
+        } else if c.spin.is_none() {
+            let spinner = c.spinner;
+            let turn = ValueAnimator::new(0.0, 360.0, 900.0, easing::linear).repeat(-1);
+            c.spin = Some(cx.start_animator(spinner, turn, move |degrees, cx| {
+                if let Some(mut spinner) = cx.get_mut(spinner) {
+                    spinner.set_rotation(degrees);
+                }
+            }));
+        }
+    }
+}
+
+/// Starts the files below the first screen in page order, `LOADS_AT_ONCE` at a time.
+fn pump_loads(app: &mut App, cx: &mut Cx) {
+    let busy = {
+        let arrived = app.arrived.borrow();
+        app.loads.iter().filter(|(key, started)| *started && !arrived.contains(key)).count()
+    };
+    let mut free = LOADS_AT_ONCE.saturating_sub(busy);
+    for i in 0..app.loads.len() {
+        if free == 0 {
+            break;
+        }
+        let (key, started) = app.loads[i];
+        if started {
+            continue;
+        }
+        app.loads[i].1 = true;
+        free -= 1;
+        match key {
+            FONTS => fetch_fonts(app, cx),
+            EARTH_KEY => fetch_earth(app, cx),
+            url => {
+                for model in models_of(app, url) {
+                    if let Some(mut model) = cx.get_mut(model) {
+                        model.set_source(url);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The views showing the model at `url`, which wait for their file (`pump_loads`).
+fn models_of(app: &App, url: &str) -> Vec<Handle<SkiaModel3D>> {
+    let mut models: Vec<Handle<SkiaModel3D>> = (0..ROWS).filter(|i| PRODUCTS[i % PRODUCTS.len()].0 == url).map(|i| app.thumbs[i]).collect();
+    if url == AVATAR {
+        models.extend([app.mascot, app.avatar]);
+    }
+    if url == CHEST {
+        models.push(app.chest);
+    }
+    models
+}
+
+/// The Earth, on the globe.
+fn fetch_earth(app: &App, cx: &mut Cx) {
+    let (globe, arrived, news) = (app.globe, app.arrived.clone(), app.news.clone());
     cx.fetch_bytes(EARTH, move |cx, bytes| {
         if let Some(mut globe) = cx.get_mut(globe) {
             globe.set_material_image("earth", Texture3D::decode(&bytes));
         }
+        arrived.borrow_mut().insert(EARTH_KEY);
+        news.set(true);
     });
-    // Both fonts, then the card's faces and the labels.
+}
+
+/// The gallery's fonts, then the textures drawn with them: the card's faces and the box labels.
+fn fetch_fonts(app: &App, cx: &mut Cx) {
     let fonts: Rc<RefCell<[Option<Vec<u8>>; 2]>> = Rc::default();
     let (card, product, labels, label) = (app.card, app.product, app.labels.clone(), app.label);
     for (i, file) in [FONT_FILE, TITLE_FONT_FILE].into_iter().enumerate() {
-        let (fonts, labels) = (fonts.clone(), labels.clone());
+        let (fonts, labels, arrived, news) = (fonts.clone(), labels.clone(), app.arrived.clone(), app.news.clone());
         cx.fetch_bytes(file, move |cx, bytes| {
             let mut fonts = fonts.borrow_mut();
             fonts[i] = Some(bytes);
             let [Some(font), Some(title_font)] = &*fonts else { return };
-            if font.is_empty() || title_font.is_empty() {
-                return;
+            if !font.is_empty() && !title_font.is_empty() {
+                let (front, back) = card_faces(font);
+                *labels.borrow_mut() = self::labels(title_font);
+                if let Some(mut card) = cx.get_mut(card) {
+                    card.set_material_image("front", Some(front));
+                    card.set_material_image("back", Some(back));
+                }
+                let first = labels.borrow()[label].clone();
+                if let Some(mut product) = cx.get_mut(product) {
+                    product.set_material_image("box", Some(first));
+                }
             }
-            let (front, back) = card_faces(font);
-            *labels.borrow_mut() = self::labels(title_font);
-            if let Some(mut card) = cx.get_mut(card) {
-                card.set_material_image("front", Some(front));
-                card.set_material_image("back", Some(back));
-            }
-            let first = labels.borrow()[label].clone();
-            if let Some(mut product) = cx.get_mut(product) {
-                product.set_material_image("box", Some(first));
-            }
+            arrived.borrow_mut().insert(FONTS);
+            news.set(true);
         });
     }
 }
@@ -1720,7 +1878,9 @@ fn boss_page(app: &mut App) -> Build<SkiaLayout> {
                     }
                     app.boss_news = format!("Hit on {}", hit.material.replace('_', " "));
                 })
-                .on_animation_ended(|_me, app: &mut App, _cx, name| app.boss_news = format!("{} finished", move_caption(name))),
+                .on_animation_ended(|_me, app: &mut App, _cx, name| app.boss_news = format!("{} finished", move_caption(name)))
+                .on_load_state(|_me, app: &mut App, cx, state| loaded(app, cx, DRAGON, state)),
+            cover(app, DRAGON, Color::TRANSPARENT, 0.0, false).row(1),
             SkiaLabel::new("")
                 .font_size(15)
                 .text_color(Color::WHITE)
@@ -1860,6 +2020,8 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
     // The heart starts liked and the medal unlocked, as the .NET gallery.
     (app.liked, app.unlocked) = (true, true);
     app.fabrics = SWATCHES.iter().filter_map(|s| Texture3D::decode(s.1)).collect();
+    // Page order: the shop, the card, the globe, the form's mascot (and the avatar), the chest.
+    app.loads = PRODUCTS.iter().map(|p| p.0).chain([FONTS, EARTH_KEY, AVATAR, CHEST]).map(|key| (key, false)).collect();
     app.price_shown = SWATCHES[0].4;
     let micro = SkiaLayout::wrap().spacing(16).horizontal_options(LayoutOptions::Center).children((
         tile(
@@ -1910,10 +2072,13 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
     let images = SkiaLayout::wrap().spacing(16).horizontal_options(LayoutOptions::Center).children((tile(
         "Product box",
         "A box with its label: tap it or switch the design.",
-        shaded(&product_box(), 28.0, 18.0)
-            .auto_rotate(40.0)
-            .assign(&mut app.product)
-            .on_tapped_3d(|_me, app: &mut App, cx, _hit| next_label(app, cx)),
+        (
+            shaded(&product_box(), 28.0, 18.0)
+                .auto_rotate(40.0)
+                .assign(&mut app.product)
+                .on_tapped_3d(|_me, app: &mut App, cx, _hit| next_label(app, cx)),
+            cover(app, FONTS, STAGE, 12.0, false),
+        ),
         (
             ui_button("Next design").width_request(120).background_color(BUTTON).on_tapped(|_me, app: &mut App, cx| next_label(app, cx)),
             ui_button("Edges: hard").width_request(120).background_color(STAGE).observe(|me, app: &App| me.set_text(if app.smooth_edges { "Edges: smooth" } else { "Edges: hard" })).on_tapped(
@@ -1930,9 +2095,18 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
         tile(
             "Avatar",
             "A character that idles, and waves when tapped.",
-            SkiaModel3D::from_url(AVATAR).animation("CharacterArmature|Idle").view_angles(25.0, 10.0).fill().assign(&mut app.avatar).on_tapped_3d(|me, _app: &mut App, _cx, _hit| {
-                me.play_once("CharacterArmature|Wave");
-            }),
+            (
+                SkiaModel3D::from_url("")
+                    .animation("CharacterArmature|Idle")
+                    .view_angles(25.0, 10.0)
+                    .fill()
+                    .assign(&mut app.avatar)
+                    .on_load_state(|_me, app: &mut App, cx, state| loaded(app, cx, AVATAR, state))
+                    .on_tapped_3d(|me, _app: &mut App, _cx, _hit| {
+                        me.play_once("CharacterArmature|Wave");
+                    }),
+                cover(app, AVATAR, STAGE, 12.0, false),
+            ),
             (button("Wave").on_tapped(|_me, app: &mut App, cx| {
                 if let Some(mut avatar) = cx.get_mut(app.avatar) {
                     avatar.play_once("CharacterArmature|Wave");
@@ -1942,7 +2116,17 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
         tile(
             "Reward",
             "A chest that opens and closes.",
-            SkiaModel3D::from_url(CHEST).animation("Chest_Open").playing(false).view_angles(30.0, 20.0).orbit(false).fill().assign(&mut app.chest),
+            (
+                SkiaModel3D::from_url("")
+                    .animation("Chest_Open")
+                    .playing(false)
+                    .view_angles(30.0, 20.0)
+                    .orbit(false)
+                    .fill()
+                    .assign(&mut app.chest)
+                    .on_load_state(|_me, app: &mut App, cx, state| loaded(app, cx, CHEST, state)),
+                cover(app, CHEST, STAGE, 12.0, false),
+            ),
             (button("Open").observe(|me, app: &App| me.set_text(if app.open { "Close" } else { "Open" })).on_tapped(|_me, app: &mut App, cx| {
                 app.open = !app.open;
                 if let Some(mut chest) = cx.get_mut(app.chest) {
@@ -1974,6 +2158,7 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
                     .on_tapped_3d(|me, _app: &mut App, _cx, hit| {
                         me.play_once(&hit.object, "CharacterArmature|HitRecieve");
                     }),
+                cover(app, MOB, STAGE, 0.0, false),
             )),)),
             // How many, then how they look: 3D (shaded) or Drawn, switched in place.
             SkiaLayout::wrap().spacing(8).margin((0.0, 10.0, 0.0, 0.0)).children((
