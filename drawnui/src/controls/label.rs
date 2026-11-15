@@ -446,6 +446,8 @@ struct Selection {
     selecting: bool,
     /// Made by a long press on touch: the Copy button shows, a tap drops it.
     touch: bool,
+    /// The app showed its own context menu for the touch selection: no Copy button.
+    copy_hidden: bool,
     copy_pressed: bool,
     /// Time and place of the last click, for a double click.
     last_click: (f64, Point),
@@ -767,7 +769,7 @@ impl SkiaLabel {
     /// clips and its hit box is the label): above the selection, else below it, else beside it on
     /// its first line, overlapping it only when none fits (C# DrawTextSelection).
     fn copy_button(&self, rects: &[Rect], bounds: Rect, scale: f32) -> Option<(Rect, Font)> {
-        let (first, last) = (rects.first().filter(|_| self.selection.touch)?, rects.last()?);
+        let (first, last) = (rects.first().filter(|_| self.selection.touch && !self.selection.copy_hidden)?, rects.last()?);
         let font = self.layout.fonts.first()?.with_size(14.0 * scale)?;
         let text_width = font.measure_str(COPY_BUTTON_TEXT, None).0;
         let (height, width, gap) = (32.0 * scale, text_width + 28.0 * scale, 6.0 * scale);
@@ -862,9 +864,15 @@ impl SkiaLabel {
                 if mouse {
                     return self.selection.selecting;
                 }
-                let anchor = self.anchor_at(point, true);
-                (self.selection.anchor, self.selection.touch, self.selection.selecting) = (anchor, true, true);
+                // Over the selection it stays, for the context menu that follows; else the word.
+                let (index, _) = self.anchor_at(point, false);
+                let (start, end) = (self.selection.start, self.selection.start + self.selection.length);
+                let over = self.selection.length > 0 && (start..end).contains(&index);
+                let anchor = if over { (start, end) } else { self.anchor_at(point, true) };
+                let s = &mut self.selection;
+                (s.anchor, s.touch, s.selecting, s.copy_hidden) = (anchor, true, true, false);
                 self.select(cx, anchor.0, anchor.1);
+                cx.invalidate(Dirty::DRAW);
                 cx.focus();
                 true
             }
@@ -2164,6 +2172,14 @@ impl Control for SkiaLabel {
                 true
             }
             _ => false,
+        }
+    }
+
+    /// The app showed its own menu for a touch selection: the Copy button stays away.
+    fn on_touch_context_menu(&mut self, cx: &mut GestureCx, taken: bool) {
+        if taken && self.selection.touch && !self.selection.copy_hidden {
+            self.selection.copy_hidden = true;
+            cx.invalidate(Dirty::DRAW);
         }
     }
 

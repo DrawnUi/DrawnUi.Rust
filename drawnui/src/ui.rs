@@ -327,6 +327,9 @@ pub struct Ui<S: 'static> {
     gestures: GesturesMode,
     input: VecDeque<PointerInput>,
     recognizer: Recognizer,
+    /// The touch press (its `Recognizer::last_press_ms`) whose long press raised the context menu,
+    /// and whether it was taken: one menu per press, also where the browser raises its own.
+    touch_menu: Option<(f64, bool)>,
     /// The fingers down, for pinch and turn (`Gesture::manipulation`).
     fingers: Multitouch,
     /// The control that consumed the current gesture keeps receiving it until it lets go.
@@ -520,6 +523,7 @@ impl<S: 'static> Ui<S> {
             gestures: GesturesMode::Enabled,
             input: VecDeque::new(),
             recognizer: Recognizer::default(),
+            touch_menu: None,
             fingers: Multitouch::default(),
             owner: None,
             state_dirty: true,
@@ -1024,6 +1028,42 @@ impl<S: 'static> Ui<S> {
         self.flush_input();
         self.input_popup = None;
         self.tree.time_ms = self.tree.time_ms.max(time_ms);
+        if source == ContextMenuSource::Touch {
+            // The browser's own long press menu (Android Chrome), before the engine's long press
+            // is due: the long press comes now, then its one menu (drawnui-cross 6cb).
+            if let Some(gesture) = self.recognizer.long_press_now(self.tree.time_ms) {
+                self.input_popup = self.press_popup;
+                return self.long_press_menu(gesture);
+            }
+            if let Some((_, taken)) = self.touch_menu.filter(|(press, _)| *press == self.recognizer.last_press_ms()) {
+                return taken;
+            }
+        }
+        self.raise_context_menu(x, y, source, time_ms)
+    }
+
+    /// A touch long press, then the context menu of the press (drawnui-cross 6cb): over a selectable
+    /// label, after it selected the word. A control that took the long press hears whether the menu
+    /// was taken (a label then hides its Copy button). True when the menu was taken.
+    fn long_press_menu(&mut self, gesture: Gesture) -> bool {
+        let consumed = self.process_gesture(gesture);
+        if !gesture.touch {
+            return false;
+        }
+        let press = self.recognizer.last_press_ms();
+        if let Some((_, taken)) = self.touch_menu.filter(|(at, _)| *at == press) {
+            return taken;
+        }
+        let taken = self.raise_context_menu(gesture.location.x, gesture.location.y, ContextMenuSource::Touch, gesture.time_ms);
+        self.touch_menu = Some((press, taken));
+        if let Some(id) = consumed {
+            with_kind(&mut self.tree, id, |kind, cx| kind.on_touch_context_menu(cx, taken));
+        }
+        taken
+    }
+
+    /// Routes a context menu request through the controls under (x, y), then the app's fallback.
+    fn raise_context_menu(&mut self, x: f32, y: f32, source: ContextMenuSource, time_ms: f64) -> bool {
         let mut gesture = plain_gesture(GestureKind::ContextMenu, Point::new(x, y), time_ms);
         gesture.source = source;
         let consumed = self.process_gesture(gesture);
@@ -1853,7 +1893,7 @@ impl<S: 'static> Ui<S> {
         // The press was held long enough: fires once, between the frames' input.
         if let Some(gesture) = self.recognizer.long_press(self.tree.time_ms) {
             self.input_popup = self.press_popup;
-            self.process_gesture(gesture);
+            self.long_press_menu(gesture);
         }
     }
 

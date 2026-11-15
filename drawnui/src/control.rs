@@ -141,6 +141,14 @@ pub trait Control: Any {
         }
     }
 
+    /// The control took a touch long press, and the context menu it raised was taken by a handler
+    /// (`true`: the app shows its own menu) or not (drawnui-cross 6cb).
+    fn on_touch_context_menu(&mut self, cx: &mut GestureCx, taken: bool) {
+        if let Some(inner) = self.inner_mut() {
+            inner.on_touch_context_menu(cx, taken)
+        }
+    }
+
     /// The focused control (`Ui::focused`) hears the app's window get the keyboard (`true`) or
     /// lose it to another app (`false`); it keeps the focus either way (an editor hides its caret).
     fn on_window_focus(&mut self, cx: &mut GestureCx, active: bool) {

@@ -211,7 +211,8 @@ pub extern "C" fn dui_resize(s: *mut WebState, width: i32, height: i32, scale: f
 }
 
 /// kind: 0 down, 1 move, 2 up, 3 cancel, 4 hover (no button down), 5 leave. button: the DOM
-/// `PointerEvent.button` (0 left, 1 middle, 2 right, 3 back, 4 forward). Coordinates in pixels;
+/// `PointerEvent.button` (0 left, 1 middle, 2 right, 3 back, 4 forward), plus 16 for a finger or a
+/// pen (`Gesture::touch`). Coordinates in pixels;
 /// `time_ms` is the DOM event time stamp, the clock requestAnimationFrame uses.
 #[unsafe(no_mangle)]
 pub extern "C" fn dui_pointer(s: *mut WebState, kind: i32, button: i32, x: f32, y: f32, time_ms: f64) {
@@ -223,6 +224,10 @@ pub extern "C" fn dui_pointer(s: *mut WebState, kind: i32, button: i32, x: f32, 
         5 => PointerKind::Leave,
         _ => PointerKind::Cancel,
     };
+    // Bit 4: a finger or a pen.
+    if button & 16 != 0 {
+        return state(s).app.pointer_touch(kind, x, y, time_ms);
+    }
     let button = match button {
         1 => MouseButton::Middle,
         2 => MouseButton::Right,

@@ -417,7 +417,9 @@ window.DrawnUi = {
       } else if (kind === 3 || button === press.button) {
         press = null;
       }
-      module._dui_pointer(app, kind, button, x, y, e.timeStamp);
+      // Bit 4: a finger or a pen (Gesture::touch): touch text selection, the long press menu.
+      const touch = e.pointerType === "touch" || e.pointerType === "pen" ? 16 : 0;
+      module._dui_pointer(app, kind, button | touch, x, y, e.timeStamp);
       requestFrame();
     };
     canvas.addEventListener("pointerdown", pointer(0));

@@ -332,6 +332,8 @@ struct Pressed {
 #[derive(Default)]
 pub(crate) struct Recognizer {
     down: Option<Pressed>,
+    /// The time of the latest press, kept after its release: which press a context menu belongs to.
+    last_down_ms: f64,
 }
 
 impl Recognizer {
@@ -345,9 +347,25 @@ impl Recognizer {
         self.down.filter(|p| !p.long_press_done).map(|p| p.down_ms + LONG_PRESS_MS)
     }
 
+    /// The time of the latest press, also after its release.
+    pub fn last_press_ms(&self) -> f64 {
+        self.last_down_ms
+    }
+
     /// The LongPressing gesture when the press was held long enough at `time_ms`; fires once.
     pub fn long_press(&mut self, time_ms: f64) -> Option<Gesture> {
-        let pressed = self.down.as_mut().filter(|p| !p.long_press_done && time_ms >= p.down_ms + LONG_PRESS_MS)?;
+        self.long_press_when(time_ms, false)
+    }
+
+    /// The LongPressing gesture of the current press now, before its time (the browser asked for
+    /// the context menu of a touch press earlier than `LONG_PRESS_MS`); none when it already fired
+    /// or the press moved.
+    pub fn long_press_now(&mut self, time_ms: f64) -> Option<Gesture> {
+        self.long_press_when(time_ms, true)
+    }
+
+    fn long_press_when(&mut self, time_ms: f64, now: bool) -> Option<Gesture> {
+        let pressed = self.down.as_mut().filter(|p| !p.long_press_done && (now || time_ms >= p.down_ms + LONG_PRESS_MS))?;
         (pressed.long_press_done, pressed.long_pressed) = (true, true);
         let (start, button, touch) = (pressed.start, pressed.button, pressed.touch);
         let zero = Point::default();
@@ -431,6 +449,7 @@ impl Recognizer {
                 let (start, previous, velocity, down_ms, long_press_done, long_pressed) = (location, location, zero, time_ms, false, false);
                 let mut trail = Trail::default();
                 trail.push(location, time_ms);
+                self.last_down_ms = time_ms;
                 self.down = Some(Pressed { start, previous, velocity, trail, button, down_ms, long_press_done, long_pressed, touch, multi: false });
                 [Some(gesture(GestureKind::Down, location, location, zero, button)), None]
             }
