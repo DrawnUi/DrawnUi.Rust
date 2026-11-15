@@ -1991,7 +1991,7 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
 
 /// Starts the gallery: a window on the desktop, the page in the browser, the activity on Android.
 pub fn run() {
-    drawnui::run("DrawnUI 3D Gallery", || {
+    drawnui::run("DrawnUI 3D Demo", || {
         Box::new(
             Ui::new(App::default(), build)
                 .font("Default", "assets/OpenSans-Regular.ttf")
