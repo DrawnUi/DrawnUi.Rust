@@ -8,6 +8,11 @@ version before it. Commits in parentheses.
 
 ### Changed
 
+- Images decode at full size; every image on the same source shares one copy, so a picture is
+  sharp at every size it is shown at from its first frame (as DrawnUi.Net).
+- A cached picture is served for 30 minutes (`cx.images().set_max_age`, DrawnUi.Net
+  CacheLongevitySecs); after that the next control showing it loads it again, so a picture updated
+  on its server shows.
 - Shader `iTime` from `Cx::animate_shaders` counts seconds from the first shader frame of the app (one
   origin for all effects), so animated shaders stay smooth however long the device or page has been up.
 - A drag that starts on a scroll inside another one (a list in a page) goes on to the outer scroll when the

@@ -1,11 +1,13 @@
 //! The image manager (DrawnUI SkiaImageManager): one load per source however many controls show
 //! it, a few loads with the host at a time, decoded bitmaps kept by source inside a byte budget.
 //! The host decodes off the frame thread: `Host::fetch_image` out, `App::image` back, so nothing
-//! here or in a paint ever decodes. A bitmap is asked for at the size it is shown at.
+//! here or in a paint ever decodes. Controls ask for the whole file (DrawnUi.Net): one copy per
+//! source, shared by every control showing it.
 
 use std::any::Any;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::time::Duration;
 
 use skia_safe::{
     AlphaType, Codec, ColorType, ConditionallySend, Data, FilterMode, ISize, Image, ImageInfo, MipmapMode, Paint,
@@ -22,7 +24,7 @@ use crate::types::Dirty;
 /// is the full size of the file.
 pub(crate) type Want = (u32, u32);
 
-const FULL: Want = (0, 0);
+pub(crate) const FULL: Want = (0, 0);
 
 /// A bitmap decoded for `have` is good for `want`.
 pub(crate) fn within(want: Want, have: Want) -> bool {
@@ -75,6 +77,8 @@ struct Bitmap {
     bytes: usize,
     /// `Images::tick` when a control last got it.
     shown: u64,
+    /// The frame clock when it arrived: past `Images::max_age` it is loaded again.
+    loaded_ms: f64,
 }
 
 struct Loading {
@@ -122,6 +126,9 @@ pub struct Images {
     budget: usize,
     used: usize,
     tick: u64,
+    max_age: Duration,
+    /// The frame clock of the frame being drawn, milliseconds.
+    pub(crate) now_ms: f64,
 }
 
 impl Default for Images {
@@ -139,6 +146,8 @@ impl Default for Images {
             budget: Self::DEFAULT_BUDGET,
             used: 0,
             tick: 0,
+            max_age: Self::DEFAULT_MAX_AGE,
+            now_ms: 0.0,
         }
     }
 }
@@ -152,6 +161,30 @@ impl Images {
     /// screens) fit too. With the same bytes again as textures it stays within a mobile browser tab.
     pub const DEFAULT_BUDGET: usize = 128 << 20;
 
+    /// How long a decoded picture is served from the cache: 30 min (DrawnUi.Net
+    /// CacheLongevitySecs), so a file changed on its server shows after that at the latest.
+    pub const DEFAULT_MAX_AGE: Duration = Duration::from_secs(30 * 60);
+
+    pub fn max_age(&self) -> Duration {
+        self.max_age
+    }
+
+    /// How long a decoded picture is served from the cache; the next control asking for an older
+    /// one loads the source again (DrawnUi.Net CacheLongevitySecs). Controls showing it keep it.
+    pub fn set_max_age(&mut self, age: Duration) {
+        self.max_age = age;
+    }
+
+    /// Forgets the bitmap and frames of `source` when they are older than `max_age`.
+    fn expire(&mut self, source: &str) {
+        let Some(entry) = self.entries.get_mut(source) else { return };
+        let age = self.max_age.as_secs_f64() * 1000.0;
+        if entry.bitmap.as_ref().is_some_and(|bitmap| self.now_ms - bitmap.loaded_ms > age) {
+            self.used -= entry.bitmap.take().map_or(0, |bitmap| bitmap.bytes);
+            self.used -= entry.frames.take().map_or(0, |frames| frames.bytes());
+        }
+    }
+
     /// Loads sources ahead of the controls that will show them, at full size (DrawnUI
     /// PreloadImages). They go to the host after everything a control is waiting for.
     pub fn preload<S: AsRef<str>>(&mut self, sources: impl IntoIterator<Item = S>) {
@@ -160,6 +193,7 @@ impl Images {
             if source.is_empty() {
                 continue;
             }
+            self.expire(source);
             let entry = self.entries.entry(source.to_owned()).or_default();
             match &mut entry.loading {
                 Some(loading) => loading.preload = true,
@@ -192,9 +226,11 @@ impl Images {
         std::mem::take(&mut self.outbox)
     }
 
-    /// The decoded bitmap of a source, if it is loaded (DrawnUI GetFromCache).
+    /// The decoded bitmap of a source, if it is loaded and younger than `max_age` (DrawnUI
+    /// GetFromCache).
     pub fn get(&self, source: &str) -> Option<&Image> {
-        Some(&self.entries.get(source)?.bitmap.as_ref()?.image)
+        let bitmap = self.entries.get(source)?.bitmap.as_ref()?;
+        (self.now_ms - bitmap.loaded_ms <= self.max_age.as_secs_f64() * 1000.0).then_some(&bitmap.image)
     }
 
     /// Bytes of decoded pixels the cache holds.
@@ -244,6 +280,7 @@ impl Images {
     /// A control plays a source: its frames when they are loaded, else the control waits for them.
     pub(crate) fn request_frames(&mut self, source: &str, control: ControlId) -> Option<Arc<Frames>> {
         self.tick += 1;
+        self.expire(source);
         let entry = self.entries.entry(source.to_owned()).or_default();
         if let Some(frames) = &entry.frames {
             if let Some(bitmap) = &mut entry.bitmap {
@@ -274,6 +311,7 @@ impl Images {
     /// the load (showing the small one meanwhile).
     pub(crate) fn request(&mut self, source: &str, control: ControlId, want: Want) -> Option<(Image, ISize)> {
         self.tick += 1;
+        self.expire(source);
         let entry = self.entries.entry(source.to_owned()).or_default();
         let bitmap = entry.bitmap.as_mut();
         let enough = bitmap.as_ref().is_some_and(|bitmap| within(want, bitmap.good_for));
@@ -448,8 +486,8 @@ pub(crate) fn deliver(tree: &mut Tree, id: u32, decoded: Option<Decoded>) {
             let full = image.width() >= source_size.width && image.height() >= source_size.height;
             let bytes = image.image_info().compute_min_byte_size();
             let good_for = if full { FULL } else { loading.want };
-            let (image, source_size, shown) = (image.clone(), *source_size, images.tick);
-            let old = entry.bitmap.replace(Bitmap { image, source_size, good_for, bytes, shown });
+            let (image, source_size, shown, loaded_ms) = (image.clone(), *source_size, images.tick, images.now_ms);
+            let old = entry.bitmap.replace(Bitmap { image, source_size, good_for, bytes, shown, loaded_ms });
             images.used = images.used + bytes - old.map_or(0, |old| old.bytes);
             if let Some(frames) = frames {
                 let old = entry.frames.replace(frames.clone());

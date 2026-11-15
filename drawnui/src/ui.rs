@@ -2238,6 +2238,7 @@ impl<S: 'static> Ui<S> {
     pub fn prepare(&mut self, width: f32, height: f32, scale: f32, time_ms: f64) {
         self.tree.needs_frame = false;
         self.tree.time_ms = time_ms;
+        self.tree.images.now_ms = time_ms;
         self.scale = scale;
 
         // Text sizes depend on the fonts: a layout made before they arrive would jump, and input

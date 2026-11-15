@@ -10,8 +10,7 @@
 //! The rows were read from the built upstream engine (DrawnUi.Net, HeadlessCanvasHost) and from
 //! React's `SkiaImage.Paint` on a CPU surface of its CanvasKit (a node script over its dist): the
 //! baboon of both demos' Images page (1024 x 931) in a 220 x 120 point box, default AspectCover,
-//! every eighth pixel of the middle row. A control that alone shows a source gets a bitmap the
-//! host reduced for its box: it is compared with React's full bitmap within a wider margin.
+//! every eighth pixel of the middle row.
 
 use drawnui::prelude::*;
 use drawnui::testing::Headless;
@@ -69,9 +68,8 @@ const REACT: [(f32, &[u32]); 2] = [
     ]),
 ];
 
-/// The middle row of the photo in the box at `scale`, every eighth pixel from 4. With `alone`
-/// the control is the only one showing the source: it gets a bitmap reduced for its box.
-fn row(bytes: &[u8], quality: Option<FilterQuality>, scale: f32, alone: bool) -> Vec<Color> {
+/// The middle row of the photo in the box at `scale`, every eighth pixel from 4.
+fn row(bytes: &[u8], quality: Option<FilterQuality>, scale: f32) -> Vec<Color> {
     let (width, height) = ((220.0 * scale) as i32, (120.0 * scale) as i32);
     let ui = Ui::new((), move |_: &mut ()| {
         let photo = SkiaImage::new("baboon").width_request(220).height_request(120);
@@ -79,21 +77,14 @@ fn row(bytes: &[u8], quality: Option<FilterQuality>, scale: f32, alone: bool) ->
             Some(quality) => photo.rescaling_quality(quality),
             None => photo,
         };
-        // Off the canvas, a control that shows the file pixel for pixel, as the "None" tile of
-        // the page does: every control of the source draws the full bitmap.
-        let full = SkiaImage::new(if alone { "" } else { "baboon" })
-            .aspect(TransformAspect::None)
-            .width_request(8)
-            .height_request(8)
-            .margin((0, 900, 0, 0));
-        SkiaLayout::new().fill().children((photo, full))
+        SkiaLayout::new().fill().children((photo,))
     });
     let mut host = Headless::new(ui.background(Color::BLACK), width, height, scale);
     host.settle();
     host.deliver_images(|_| Some(bytes.to_vec()));
     host.settle();
-    let decoded = host.ui.tree.images.get("baboon").map(|image| image.width());
-    assert!(if alone { decoded < Some(1024) } else { decoded == Some(1024) }, "{decoded:?}");
+    // The whole file is decoded, whatever the box.
+    assert_eq!(host.ui.tree.images.get("baboon").map(|image| image.width()), Some(1024));
     (0..).map(|i| i * 8 + 4).take_while(|x| *x < width).map(|x| host.pixel(x, height / 2)).collect()
 }
 
@@ -113,18 +104,11 @@ fn farthest(drawn: &[Color], expected: &[u32]) -> i32 {
 fn the_default_sampling_draws_what_react_draws() {
     let Ok(bytes) = std::fs::read(BABOON) else { return };
     for (scale, expected) in REACT {
-        // The shared full bitmap: the same pixels as React, within rounding.
-        let shared = farthest(&row(&bytes, None, scale, false), expected);
-        assert!(shared <= 8, "shared at {scale}: {shared}");
-        // Reduced for the box by the host: a little sharper than React's mip levels.
-        let alone = farthest(&row(&bytes, None, scale, true), expected);
-        assert!(alone <= ALONE_SLACK, "alone at {scale}: {alone}");
+        // The full bitmap: the same pixels as React, within rounding.
+        let far = farthest(&row(&bytes, None, scale), expected);
+        assert!(far <= 8, "at {scale}: {far}");
     }
 }
-
-/// How far a bitmap the host reduced for the box draws from React's full one, per channel: 11
-/// at scale 1 and 24 at 1.25 in the fur (measured), where React blends two mip levels.
-const ALONE_SLACK: i32 = 24;
 
 #[test]
 fn a_shared_bitmap_drawn_smaller_matches_the_upstream_rescale() {
@@ -133,7 +117,7 @@ fn a_shared_bitmap_drawn_smaller_matches_the_upstream_rescale() {
     for (quality, scale, row) in ROWS {
         // None copies pixels and is exact; the filters differ by rounding (5 of 255 at most here).
         let slack = if quality == FilterQuality::None { 0 } else { 8 };
-        let far = farthest(&self::row(&bytes, Some(quality), scale, false), row);
+        let far = farthest(&self::row(&bytes, Some(quality), scale), row);
         assert!(far <= slack, "{quality:?} at {scale}: {far} from upstream");
     }
 }

@@ -1,10 +1,9 @@
-//! The decoded path: a bitmap is asked for at the size it is shown at and decoded by the host
-//! (here `Images::decode`, what the desktop host runs on its worker), never enlarged, replaced by
-//! a bigger one when a bigger box asks; the cache keeps a byte budget.
+//! The decoded path: the host decodes the file (here `Images::decode`, what the desktop host runs on
+//! its worker), turned as its EXIF says; every control of a source shares the one copy; the cache
+//! keeps a byte budget. Controls always ask for the whole file (`image_full_decode`).
 
 mod image_common;
 
-use drawnui::App as _;
 use drawnui::prelude::*;
 use drawnui::skia::ISize;
 use drawnui::testing::Headless;
@@ -59,125 +58,6 @@ fn image(host: &Headless<App>, i: usize) -> &SkiaImage {
 fn decoded(host: &Headless<App>, source: &str) -> (i32, i32) {
     let image = host.ui.tree.images.get(source).expect("loaded");
     (image.width(), image.height())
-}
-
-#[test]
-fn a_bitmap_is_asked_for_in_pixels_of_its_box_and_decoded_no_larger() {
-    // 100 x 60 points at 2 pixels per point.
-    let mut host = host(2.0, "wide.png", &[(100.0, 60.0)]);
-    let answered = host.deliver_images(bytes);
-    assert_eq!(boxes(&answered), [("wide.png", 200, 120)]);
-    host.settle();
-
-    // 800 x 200 covers 200 x 120 at 0.6: 480 x 120 pixels, not 800 x 200.
-    assert_eq!(decoded(&host, "wide.png"), (480, 120));
-    assert_eq!(host.ui.tree.images.memory_bytes(), 480 * 120 * 4);
-    // The control still measures and scales by the file's size.
-    assert_eq!(image(&host, 0).source_size(), Some(ISize::new(800, 200)));
-    let display = image(&host, 0).display_rect(host.rect(host.ui.state.images[0]), 2.0).unwrap();
-    let close = |a: f32, b: f32| (a - b).abs() < 0.01;
-    assert!(close(display.left, -140.0) && close(display.top, 0.0) && close(display.right, 340.0), "{display:?}");
-    // AspectCover, centered: the quadrants meet at the center of the box.
-    assert_eq!(host.pixel(50, 30), Color::RED);
-    assert_eq!(host.pixel(150, 30), Color::GREEN);
-    assert_eq!(host.pixel(50, 90), Color::BLUE);
-    assert_eq!(host.pixel(150, 90), Color::YELLOW);
-}
-
-#[test]
-fn a_bitmap_is_never_enlarged_and_pixel_exact_aspects_get_every_pixel() {
-    let mut host = host(1.0, "small.png", &[(100.0, 60.0)]);
-    assert_eq!(boxes(&host.deliver_images(bytes)), [("small.png", 100, 60)]);
-    host.settle();
-    assert_eq!(decoded(&host, "small.png"), (40, 20));
-
-    // Aspect None shows the file pixel for pixel: the whole file is asked for. The small one
-    // already has every pixel, so it is good for it.
-    let id = host.ui.state.images[0];
-    host.ui.tree.get_mut(id).unwrap().set_aspect(TransformAspect::None);
-    host.settle();
-    assert!(host.ui.tree.images.take_requests().is_empty());
-    host.ui.tree.get_mut(id).unwrap().set_source("wide.png");
-    host.settle();
-    assert_eq!(boxes(&host.deliver_images(bytes)), [("wide.png", 0, 0)]);
-    host.settle();
-    assert_eq!(decoded(&host, "wide.png"), (800, 200));
-}
-
-#[test]
-fn a_bigger_box_loads_again_and_replaces_the_smaller_bitmap() {
-    let mut host = host(1.0, "", &[(40.0, 40.0), (100.0, 100.0)]);
-    let (small, big) = (host.ui.state.images[0], host.ui.state.images[1]);
-    // The host has the request of the first control when the second one asks.
-    host.ui.tree.get_mut(small).unwrap().set_source("wide.png");
-    host.settle();
-    let first = host.ui.tree.images.take_requests();
-    assert_eq!(boxes(&first), [("wide.png", 40, 40)]);
-    host.ui.tree.get_mut(big).unwrap().set_source("wide.png");
-    host.settle();
-    assert!(host.ui.tree.images.take_requests().is_empty());
-    host.ui.image(first[0].id, decode(&first[0], bytes));
-    host.settle();
-    // Both show what arrived; the second one waits for a bitmap good for its box.
-    assert_eq!(decoded(&host, "wide.png"), (160, 40));
-    assert!(image(&host, 1).image().is_some());
-    assert_eq!(host.pixel(10, 50), Color::RED);
-    assert_eq!(host.ui.state.log, ["wide.png", "wide.png"]);
-
-    assert_eq!(boxes(&host.deliver_images(bytes)), [("wide.png", 100, 100)]);
-    host.settle();
-    assert_eq!(decoded(&host, "wide.png"), (400, 100));
-    assert_eq!(host.ui.tree.images.memory_bytes(), 400 * 100 * 4);
-    let width = |host: &Headless<App>, i: usize| image(host, i).image().unwrap().width();
-    assert_eq!((width(&host, 0), width(&host, 1)), (160, 400));
-    // The bigger bitmap is the same picture: no second success, no other size.
-    assert_eq!(host.ui.state.log.len(), 2);
-    assert_eq!(host.rect(big).size(), Size::new(100.0, 100.0));
-    assert_eq!(host.pixel(10, 50), Color::RED);
-
-    // The small control grows past everything loaded: it keeps its picture and asks once more.
-    host.ui.tree.get_mut(small).unwrap().set_width_request(200);
-    host.ui.tree.get_mut(small).unwrap().set_height_request(200);
-    host.settle();
-    assert_eq!(host.pixel(10, 10), Color::RED);
-    assert_eq!(boxes(&host.deliver_images(bytes)), [("wide.png", 200, 200)]);
-    host.settle();
-    assert_eq!(decoded(&host, "wide.png"), (800, 200));
-    assert!(host.ui.tree.images.take_requests().is_empty());
-    // Shrinking asks for nothing.
-    host.ui.tree.get_mut(small).unwrap().set_width_request(20);
-    host.settle();
-    assert!(host.ui.tree.images.take_requests().is_empty());
-    assert_eq!(host.ui.state.log.len(), 2);
-}
-
-#[test]
-fn controls_asking_in_one_frame_share_one_request_for_the_largest_box() {
-    let mut host = host(1.0, "wide.png", &[(40.0, 40.0), (100.0, 30.0)]);
-    // Wider than the first box, taller than the second.
-    assert_eq!(boxes(&host.deliver_images(bytes)), [("wide.png", 100, 40)]);
-    host.settle();
-    assert_eq!(decoded(&host, "wide.png"), (160, 40));
-    assert_eq!(host.ui.state.log, ["wide.png", "wide.png"]);
-    assert!(host.ui.tree.images.take_requests().is_empty());
-}
-
-/// The host delivers in rounds: a control that joined a load already with the host and needs
-/// more gets it from the same call.
-#[test]
-fn one_delivery_call_answers_what_its_answers_make_the_controls_ask() {
-    let mut host = host(1.0, "", &[(40.0, 40.0), (100.0, 100.0)]);
-    host.ui.tree.get_mut(host.ui.state.images[0]).unwrap().set_source("wide.png");
-    host.settle();
-    // In flight for the small box; the host code under test is `deliver_images`, so the request
-    // goes back as it would arrive from a real host.
-    let first = host.ui.tree.images.take_requests();
-    host.ui.tree.get_mut(host.ui.state.images[1]).unwrap().set_source("wide.png");
-    host.settle();
-    host.ui.image(first[0].id, decode(&first[0], bytes));
-    assert_eq!(boxes(&host.deliver_images(bytes)), [("wide.png", 100, 100)]);
-    host.settle();
-    assert_eq!(image(&host, 1).image().map(|image| image.width()), Some(400));
 }
 
 #[test]

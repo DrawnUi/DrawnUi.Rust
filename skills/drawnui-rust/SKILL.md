@@ -444,6 +444,15 @@ column, Left / Right to the nearest tile of the next column, PageUp / PageDown o
 column. The item under a point (drag and drop): `layout.item_at(x, y)`, pixels from the layout's
 top left corner; it works for every templated layout with items side by side.
 
+## Images: one full copy per source
+
+A `SkiaImage` decodes the whole file, and every control showing the same source shares that one
+copy, as in DrawnUi.Net: a picture shown as a thumbnail and then full width is sharp at once, with
+no second load. Decoded pictures stay in a cache of 128 MB by default (`cx.images().set_budget`;
+over it, the pictures no control shows go, shown longest ago first) and are served for 30 minutes
+(`cx.images().set_max_age(Duration)`): after that the next control showing one loads it again, so a
+picture updated on its server shows. `cx.images().clear_source(url)` drops one at once.
+
 ## Cache types
 
 `use_cache`: `Operations`, `OperationsFull` (records the canvas clip, for a control that paints

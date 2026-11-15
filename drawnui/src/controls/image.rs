@@ -11,7 +11,7 @@ use skia_safe::{
 };
 
 use crate::control::{Control, Has, LayoutCx, PaintCx, part_mut};
-use crate::images::{Want, grow, within};
+use crate::images::FULL;
 use crate::props;
 use crate::tree::{Build, ControlProps, Cx, Handle, wrong_state};
 use crate::types::{Dirty, IntoProp, LayoutOptions};
@@ -187,13 +187,11 @@ pub(crate) type Loaded = Box<dyn FnMut(&mut dyn Any, &mut Cx<'_>, &str)>;
 #[derive(Default)]
 pub struct SkiaImage {
     pub p: ImageProps,
-    /// The decoded bitmap of `resolved`: a CPU image, shared with the manager's cache. It may
-    /// have fewer pixels than the file: it is decoded for the box it is shown in.
+    /// The decoded bitmap of `resolved`: a CPU image of the whole file, shared with the manager's
+    /// cache and every control showing the same source.
     pub(crate) image: Option<Image>,
     /// Pixel size of the file: what the control measures and scales by, whatever was decoded.
     pub(crate) source_size: ISize,
-    /// The largest box the manager was asked to cover with `resolved`.
-    wanted: Want,
     /// The source the manager was last asked for: `image` and the load in flight belong to it.
     pub(crate) resolved: String,
     pub(crate) loading: bool,
@@ -403,8 +401,7 @@ impl SkiaImage {
         self.image.as_ref().filter(|_| self.resolved == self.p.source)
     }
 
-    /// Pixel size of the file shown (DrawnUI SourceImageSize). The bitmap itself may have fewer
-    /// pixels: it is decoded for the box it is shown in.
+    /// Pixel size of the file shown (DrawnUI SourceImageSize).
     pub fn source_size(&self) -> Option<ISize> {
         self.image().map(|_| self.source_size)
     }
@@ -427,41 +424,20 @@ impl SkiaImage {
         Some(place(self.source_size, dest, self.p.aspect, h, v, (self.p.zoom_x, self.p.zoom_y), moved))
     }
 
-    /// The box the bitmap must cover when the control is `width` x `height` pixels (an unbounded
-    /// side does not count). Aspects that show a bitmap larger than the box pixel for pixel need
-    /// every pixel of the file.
-    fn want(&self, width: f32, height: f32) -> Want {
-        use TransformAspect::*;
-        if matches!(self.p.aspect, None | Tile | Fill | AspectFill) {
-            return (0, 0);
-        }
-        let zoom = self.p.zoom_x.max(self.p.zoom_y).max(1.0);
-        let side = |pixels: f32| if pixels.is_finite() { (pixels * zoom).ceil() as u32 } else { 0 };
-        (side(width), side(height))
-    }
-
-    /// Asks the manager for the current source in a box of `width` x `height` pixels: once per
-    /// source, and again when the box outgrew what was asked for. The bitmap of the previous
-    /// source goes at once: a recycled cell never shows the picture of its last item. True when
-    /// the source was another one.
-    // ponytail: every growth is a load (a window dragged larger loads per size it passes, one
-    // at a time, off the frame). Round the box up to steps when that shows.
-    fn resolve(&mut self, cx: &mut LayoutCx, width: f32, height: f32) -> bool {
-        let want = self.want(width, height);
-        let changed = self.resolved != self.p.source;
-        if !changed && within(want, self.wanted) {
+    /// Asks the manager for the whole picture of the current source (DrawnUi.Net: every image is
+    /// decoded in full, one copy shared by every control of the source), once per source. The
+    /// bitmap of the previous source goes at once: a recycled cell never shows the picture of its
+    /// last item. True when the source was another one.
+    fn resolve(&mut self, cx: &mut LayoutCx) -> bool {
+        if self.resolved == self.p.source {
             return false;
         }
         let images = &mut cx.tree.images;
-        if changed {
-            images.release(&self.resolved, cx.id);
-            self.resolved.clone_from(&self.p.source);
-            (self.image, self.wanted, self.error) = (Option::None, want, false);
-        } else {
-            self.wanted = grow(self.wanted, want);
-        }
+        images.release(&self.resolved, cx.id);
+        self.resolved.clone_from(&self.p.source);
+        (self.image, self.error) = (Option::None, false);
         if !self.resolved.is_empty()
-            && let Some((image, source_size)) = images.request(&self.resolved, cx.id, self.wanted)
+            && let Some((image, source_size)) = images.request(&self.resolved, cx.id, FULL)
         {
             // Cached: success is reported in this frame, before the first paint.
             if self.image.is_none() && self.on_success.is_some() {
@@ -470,7 +446,7 @@ impl SkiaImage {
             (self.image, self.source_size) = (Some(image), source_size);
         }
         self.loading = self.image.is_none() && !self.resolved.is_empty();
-        changed
+        true
     }
 }
 
@@ -489,7 +465,7 @@ impl Control for SkiaImage {
     /// times the aspect scale for that box, never more than the box. Padding is not applied.
     fn measure(&mut self, cx: &mut LayoutCx, width: f32, height: f32) -> Size {
         if !self.p.load_source_on_first_draw {
-            self.resolve(cx, width, height);
+            self.resolve(cx);
         }
         let bounded = |side: f32| if side.is_finite() { side } else { 0.0 };
         if self.image().is_none() {
@@ -508,13 +484,11 @@ impl Control for SkiaImage {
         Size::new((iw * sx).min(w), (ih * sy).min(h))
     }
 
-    /// The final box is known: a bitmap decoded for a smaller one is asked for again. With
-    /// `load_source_on_first_draw` the load starts here: the control is placed, so it will be
+    /// With `load_source_on_first_draw` the load starts here: the control is placed, so it will be
     /// drawn. A cached bitmap is there for this frame's paint; an auto-sized control takes its
     /// size on the next frame.
     fn arrange(&mut self, cx: &mut LayoutCx) {
-        let rect = cx.base().rect;
-        if self.resolve(cx, rect.width(), rect.height()) && self.image.is_some() && auto_sized(&cx.base().p) {
+        if self.resolve(cx) && self.image.is_some() && auto_sized(&cx.base().p) {
             cx.tree.invalidate(cx.id, Dirty::MEASURE);
         }
     }
