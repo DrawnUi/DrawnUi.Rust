@@ -412,7 +412,11 @@ enum Field {
 
 #[derive(Default)]
 struct App {
-    time: f32,
+    /// The clocks of what moves only while it is in view (`game_loop`), and of the spinners.
+    pulse_time: f32,
+    heart_time: f32,
+    rain_time: f32,
+    spin_time: f32,
     /// The screen shown: 0 the gallery, 1 the boss fight.
     tab: usize,
     /// The canvas width, points: cards and the header follow it.
@@ -1331,7 +1335,11 @@ fn sign_up(app: &mut App) -> Build<SkiaShape> {
 
 // ---------------------------------------------------------------- the frame loop
 
-fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
+/// One frame of the page. A section moves only while some of it is on screen, on a clock of its
+/// own that stands still meanwhile, so it goes on where it was when it scrolls back in. When
+/// nothing on screen moves, the loop stops and the page asks for no frames; scrolling, a resize,
+/// the tab, a tap that starts something and a file that arrives start it again (`wake`).
+fn game_loop(game: &mut Mut<'_, DrawnGame>, app: &mut App, cx: &mut Cx, delta: f32) {
     if !app.spinning {
         app.spinning = true;
         reveal(app, cx);
@@ -1340,21 +1348,41 @@ fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
     if app.news.replace(false) {
         reveal(app, cx);
     }
-    app.time += delta;
-    let t = app.time;
+    let seen = |cx: &Cx, id: ControlId| !cx.visible_rect(id).is_empty();
+    // Something on screen moves, or an animation the app started runs.
+    let mut moving = app.busy();
+
+    // The product viewer's spinner and the covers of what still loads.
+    app.spin_time += delta;
+    let turn = (app.spin_time * 360.0) % 360.0;
     if app.load == LoadState3D::Loading
         && let Some(mut spinner) = cx.get_mut(app.spinner)
     {
-        spinner.set_value1((t * 360.0) % 360.0);
+        spinner.set_value1(turn);
     }
-    for (i, pulse) in app.pulses.iter().enumerate() {
-        // Each pin's pulse grows and fades over 1.6 s, the pins out of step.
-        let phase = (t / 1.6 + i as f32 * 0.17).fract();
-        if let Some(mut ring) = cx.get_mut(*pulse) {
-            let grow = 0.4 + phase;
-            ring.set_scale_x(grow);
-            ring.set_scale_y(grow);
-            ring.set_opacity(1.0 - phase);
+    for c in app.covers.iter().filter(|c| !c.gone) {
+        if seen(cx, c.spinner.into()) {
+            moving = true;
+            if let Some(mut spinner) = cx.get_mut(c.spinner) {
+                spinner.set_rotation(turn);
+            }
+        }
+    }
+
+    // The globe's pins pulse while it is in view.
+    if seen(cx, app.globe.into()) {
+        moving = true;
+        app.pulse_time += delta;
+        let t = app.pulse_time;
+        for (i, pulse) in app.pulses.iter().enumerate() {
+            // Each pin's pulse grows and fades over 1.6 s, the pins out of step.
+            let phase = (t / 1.6 + i as f32 * 0.17).fract();
+            if let Some(mut ring) = cx.get_mut(*pulse) {
+                let grow = 0.4 + phase;
+                ring.set_scale_x(grow);
+                ring.set_scale_y(grow);
+                ring.set_opacity(1.0 - phase);
+            }
         }
     }
     let drawn = app.thumbs.iter().filter(|h| !cx.visible_rect(**h).is_empty()).count();
@@ -1392,11 +1420,19 @@ fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
             medal.set_view_angles(MEDAL_YAW + 360.0 * ease_out(app.spin), 12.0);
         }
     }
+
+    // The heart beats while it is in view.
     app.pop = (app.pop - delta * 3.0).max(0.0);
-    if let Some(mut heart) = cx.get_mut(app.heart) {
-        let beat = 1.0 + 0.05 * (t * 5.0).sin().max(0.0) + 0.35 * app.pop;
-        heart.set_node_scale("heart", [beat, beat, 1.0]);
+    if seen(cx, app.heart.into()) {
+        moving = true;
+        app.heart_time += delta;
+        if let Some(mut heart) = cx.get_mut(app.heart) {
+            let beat = 1.0 + 0.05 * (app.heart_time * 5.0).sin().max(0.0) + 0.35 * app.pop;
+            heart.set_node_scale("heart", [beat, beat, 1.0]);
+        }
     }
+
+    // The confetti falls while it is in view.
     if app.pieces.is_empty()
         && let Some(mut rain) = cx.get_mut(app.rain)
     {
@@ -1409,17 +1445,24 @@ fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
             app.pieces.push(p);
         }
     }
-    if let Some(mut rain) = cx.get_mut(app.rain) {
-        for (i, p) in app.pieces.iter_mut().enumerate() {
-            (p.y, p.facing) = (p.y + p.fall * delta, p.facing + p.spin * delta);
-            if p.y > RAIN.1 + 16.0 {
-                p.y = -12.0;
+    if seen(cx, app.rain.into()) {
+        moving = true;
+        app.rain_time += delta;
+        let t = app.rain_time;
+        if let Some(mut rain) = cx.get_mut(app.rain) {
+            for (i, p) in app.pieces.iter_mut().enumerate() {
+                (p.y, p.facing) = (p.y + p.fall * delta, p.facing + p.spin * delta);
+                if p.y > RAIN.1 + 16.0 {
+                    p.y = -12.0;
+                }
+                let name = format!("c{i}");
+                rain.set_position(&name, p.x + (t * 2.0 + p.sway).sin() * 10.0, p.y);
+                rain.set_facing(&name, p.facing);
             }
-            let name = format!("c{i}");
-            rain.set_position(&name, p.x + (t * 2.0 + p.sway).sin() * 10.0, p.y);
-            rain.set_facing(&name, p.facing);
         }
     }
+
+    // The mobs: placed once their model is here, walking and panning while the field is in view.
     if app.walkers.len() != app.mobs
         && let Some(mut field) = cx.get_mut(app.field)
     {
@@ -1443,29 +1486,57 @@ fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
     if !app.walkers.is_empty() && !app.arrived.borrow().contains(MOB) {
         arrive(app, cx, MOB);
     }
-    // The scene pans: every layer slides by its share, the ground (and the mobs on it) the most.
-    app.pan += PAN_SPEED * delta;
-    for (layer, share) in app.scenery.iter().zip(PARALLAX) {
-        // Every frame the exact share of the pan, a fraction of a pixel too: snapped to whole pixels a
-        // slow layer stood still for frames and then jumped a pixel. A layer holds its scenery twice
-        // over (2000 points) as continuous shapes, so it slides by up to 1000 points and starts over
-        // with nothing joined anywhere.
-        let shift = (app.pan * share).rem_euclid(FIELD.0);
-        if let Some(mut layer) = cx.get_mut(*layer) {
-            layer.set_translation_x(-shift);
+    if seen(cx, app.field.into()) {
+        moving = true;
+        // The scene pans: every layer slides by its share, the ground (and the mobs on it) the most.
+        app.pan += PAN_SPEED * delta;
+        for (layer, share) in app.scenery.iter().zip(PARALLAX) {
+            // Every frame the exact share of the pan, a fraction of a pixel too: snapped to whole pixels
+            // a slow layer stood still for frames and then jumped a pixel. A layer holds its scenery
+            // twice over (2000 points) as continuous shapes, so it slides by up to 1000 points and
+            // starts over with nothing joined anywhere.
+            let shift = (app.pan * share).rem_euclid(FIELD.0);
+            if let Some(mut layer) = cx.get_mut(*layer) {
+                layer.set_translation_x(-shift);
+            }
+        }
+        if let Some(mut field) = cx.get_mut(app.field) {
+            for (i, w) in app.walkers.iter_mut().enumerate() {
+                // Walking on the ground, which moves with the pan; off one side, back in at the other.
+                w.x += (w.speed - PAN_SPEED) * delta;
+                if w.x < -40.0 {
+                    w.x += FIELD.0 + 80.0;
+                } else if w.x > FIELD.0 + 40.0 {
+                    w.x -= FIELD.0 + 80.0;
+                }
+                field.set_position(&format!("m{i}"), w.x, w.y);
+            }
         }
     }
-    if let Some(mut field) = cx.get_mut(app.field) {
-        for (i, w) in app.walkers.iter_mut().enumerate() {
-            // Walking on the ground, which moves with the pan; off one side, back in at the other.
-            w.x += (w.speed - PAN_SPEED) * delta;
-            if w.x < -40.0 {
-                w.x += FIELD.0 + 80.0;
-            } else if w.x > FIELD.0 + 40.0 {
-                w.x -= FIELD.0 + 80.0;
-            }
-            field.set_position(&format!("m{i}"), w.x, w.y);
-        }
+    if !moving {
+        game.stop_loop();
+    }
+}
+
+/// Starts the page's loop again (it stopped when nothing on screen moved): the next frame looks
+/// at what is in view now.
+fn wake(app: &App, cx: &mut Cx) {
+    if let Some(mut game) = cx.get_mut(app.game) {
+        game.start_loop(0.0);
+    }
+}
+
+impl App {
+    /// An animation the app started runs: a flip, the medal's spin, a glide to a city, the price
+    /// counting, the heart's pop, the sofa loading, mobs to place.
+    fn busy(&self) -> bool {
+        self.flip < 1.0
+            || self.spin < 1.0
+            || self.globe_glide.is_some()
+            || self.pop > 0.0
+            || self.price_shown != SWATCHES[self.swatch].4
+            || self.load == LoadState3D::Loading
+            || self.walkers.len() != self.mobs
     }
 }
 
@@ -1585,7 +1656,6 @@ struct Cover {
     key: &'static str,
     root: Handle<SkiaShape>,
     spinner: Handle<SkiaShape>,
-    spin: Option<AnimationId>,
     gone: bool,
 }
 
@@ -1593,7 +1663,7 @@ struct Cover {
 /// `radius`), a small spinner and "Loading…" (the spinner alone when `small`). It fades out when
 /// `key` has arrived (`reveal`).
 fn cover(app: &mut App, key: &'static str, color: Color, radius: f32, small: bool) -> Build<SkiaShape> {
-    let mut c = Cover { key, root: Handle::default(), spinner: Handle::default(), spin: None, gone: false };
+    let mut c = Cover { key, root: Handle::default(), spinner: Handle::default(), gone: false };
     let size = if small { 20.0 } else { 30.0 };
     let spinner = SkiaShape::new()
         .shape_type(ShapeType::Arc)
@@ -1627,30 +1697,20 @@ fn loaded(app: &mut App, cx: &mut Cx, key: &'static str, state: LoadState3D) {
     }
 }
 
-/// `key` is here: its covers fade out.
+/// `key` is here: its covers fade out, and the page's loop starts the next files.
 fn arrive(app: &mut App, cx: &mut Cx, key: &'static str) {
     app.arrived.borrow_mut().insert(key);
     reveal(app, cx);
+    wake(app, cx);
 }
 
-/// Fades out the covers of what arrived, and starts the spinners of the rest once.
+/// Fades out the covers of what arrived (their spinners turn in `game_loop` while in view).
 fn reveal(app: &mut App, cx: &mut Cx) {
     let arrived = app.arrived.borrow();
     for c in app.covers.iter_mut().filter(|c| !c.gone) {
         if arrived.contains(c.key) {
             c.gone = true;
-            if let Some(spin) = c.spin.take() {
-                cx.stop_animation(spin);
-            }
             cx.fade_to(c.root, 0.0, 300, easing::sin_out);
-        } else if c.spin.is_none() {
-            let spinner = c.spinner;
-            let turn = ValueAnimator::new(0.0, 360.0, 900.0, easing::linear).repeat(-1);
-            c.spin = Some(cx.start_animator(spinner, turn, move |degrees, cx| {
-                if let Some(mut spinner) = cx.get_mut(spinner) {
-                    spinner.set_rotation(degrees);
-                }
-            }));
         }
     }
 }
@@ -1700,20 +1760,24 @@ fn models_of(app: &App, url: &str) -> Vec<Handle<SkiaModel3D>> {
 
 /// The Earth, on the globe.
 fn fetch_earth(app: &App, cx: &mut Cx) {
-    let (globe, arrived, news) = (app.globe, app.arrived.clone(), app.news.clone());
+    let (globe, game, arrived, news) = (app.globe, app.game, app.arrived.clone(), app.news.clone());
     cx.fetch_bytes(EARTH, move |cx, bytes| {
         if let Some(mut globe) = cx.get_mut(globe) {
             globe.set_material_image("earth", Texture3D::decode(&bytes));
         }
         arrived.borrow_mut().insert(EARTH_KEY);
         news.set(true);
+        // The loop fades the cover and starts the next file.
+        if let Some(mut game) = cx.get_mut(game) {
+            game.start_loop(0.0);
+        }
     });
 }
 
 /// The gallery's fonts, then the textures drawn with them: the card's faces and the box labels.
 fn fetch_fonts(app: &App, cx: &mut Cx) {
     let fonts: Rc<RefCell<[Option<Vec<u8>>; 2]>> = Rc::default();
-    let (card, product, labels, label) = (app.card, app.product, app.labels.clone(), app.label);
+    let (card, product, game, labels, label) = (app.card, app.product, app.game, app.labels.clone(), app.label);
     for (i, file) in [FONT_FILE, TITLE_FONT_FILE].into_iter().enumerate() {
         let (fonts, labels, arrived, news) = (fonts.clone(), labels.clone(), app.arrived.clone(), app.news.clone());
         cx.fetch_bytes(file, move |cx, bytes| {
@@ -1734,6 +1798,9 @@ fn fetch_fonts(app: &App, cx: &mut Cx) {
             }
             arrived.borrow_mut().insert(FONTS);
             news.set(true);
+            if let Some(mut game) = cx.get_mut(game) {
+                game.start_loop(0.0);
+            }
         });
     }
 }
@@ -2188,8 +2255,15 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
             )),
         ),
     );
-    DrawnGame::new().fill().start_loop(0.0).on_game_loop(|_me, app: &mut App, cx, delta| game_loop(app, cx, delta)).children((
-        SkiaScroll::new().fill().content(
+    DrawnGame::new().fill().start_loop(0.0)
+        .on_game_loop(|me, app: &mut App, cx, delta| game_loop(me, app, cx, delta))
+        // A tap that starts an animation (a flip, a spin, a glide, a new price, more mobs).
+        .observe(|me, app: &App| {
+            if app.busy() {
+                me.start_loop(0.0);
+            }
+        }).children((
+        SkiaScroll::new().fill().on_scrolled(|_me, app: &mut App, cx, _offset| wake(app, cx)).content(
             SkiaLayout::column().fill_x().padding(24).spacing(20).children((
                 SkiaLabel::new("3D, made in the app").font_size(30).font_family(TITLE).text_color(INK).horizontal_options(LayoutOptions::Center),
                 SkiaLabel::new("Where 3D earns its place in an app: products, lists, cards, maps and forms first, then the fun.")
@@ -2225,7 +2299,10 @@ pub fn run() {
                 .font("Default", "assets/OpenSans-Regular.ttf")
                 .font(TITLE, "assets/OpenSans-Semibold.ttf")
                 .background(PAGE)
-                .on_canvas_resized(|app: &mut App, size, _cx| app.width = size.width),
+                .on_canvas_resized(|app: &mut App, size, cx| {
+                    app.width = size.width;
+                    wake(app, cx);
+                }),
         )
     });
 }
