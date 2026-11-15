@@ -64,6 +64,9 @@ enum Arrived {
     Image(u32, Option<Decoded>),
     /// The bitmap of an ImageDoubleBuffered cache (bake workers).
     Baked(u32, Option<skia::Image>),
+    /// The bytes of an asset downloaded from the web (`http` feature); empty = it failed.
+    #[cfg(feature = "http")]
+    Asset(u32, Vec<u8>),
     /// A screen reader connected, asked for an action, or left (AccessKit).
     Access(accesskit_winit::Event),
     /// Another thread marked controls through the app's `Waker`.
@@ -556,6 +559,20 @@ impl Desktop {
     }
 }
 
+/// Downloads an asset from the web on a thread of its own; the bytes come back as an event (empty
+/// when it failed), which wakes the event loop.
+#[cfg(feature = "http")]
+fn download(id: u32, url: String, proxy: EventLoopProxy<Arrived>) {
+    std::thread::spawn(move || {
+        let read = ureq::get(&url).call().and_then(|mut response| response.body_mut().with_config().limit(256 << 20).read_to_vec());
+        let bytes = read.unwrap_or_else(|e| {
+            eprintln!("drawnui: asset {url}: {e}");
+            Vec::new()
+        });
+        let _ = proxy.send_event(Arrived::Asset(id, bytes));
+    });
+}
+
 /// The threads that read and decode image files, so the frame thread never does: one per spare
 /// core, at most as many as the manager has requests out (`Images::MAX_IN_FLIGHT`), which also
 /// keeps the queue that short. Every answer wakes the event loop: an idle app gets the frame
@@ -618,6 +635,11 @@ impl Desktop {
 
     fn deliver_assets(&mut self) {
         for (id, url) in std::mem::take(&mut self.host.requests) {
+            #[cfg(feature = "http")]
+            if url.starts_with("http://") || url.starts_with("https://") {
+                download(id, url, self.proxy.clone());
+                continue;
+            }
             match read_app_file(&url) {
                 Ok(bytes) => self.app.asset(id, bytes),
                 Err(e) => {
@@ -1946,6 +1968,11 @@ impl ApplicationHandler<Arrived> for Desktop {
                 self.stats.image_ms.push(started.elapsed().as_secs_f32() * 1000.0);
             }
             Arrived::Baked(id, image) => self.app.baked(id, image),
+            #[cfg(feature = "http")]
+            Arrived::Asset(id, bytes) => {
+                self.app.asset(id, bytes);
+                self.redraw();
+            }
             #[cfg(windows)]
             Arrived::Theme(theme) => self.app.system_theme(theme),
             Arrived::Access(event) => self.access_event(event.window_event),

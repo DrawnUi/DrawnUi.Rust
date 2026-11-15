@@ -24,6 +24,10 @@ full = ["skia-safe/textlayout", "svg"]
 hot-reload = ["dep:serde"]
 # Tools (DrawnUI Designer): the properties of every control by name (`Tree::props`, `Tree::set_prop`).
 designer = []
+# Files from the web on the desktop and phones: an `http://` or `https://` asset url (a 3D model's
+# `from_url`, an SVG, a Lottie) is downloaded on a thread of its own. The browser fetches them
+# with or without it.
+http = ["dep:ureq"]
 
 [dependencies]
 skia-safe = { workspace = true }
@@ -46,6 +50,7 @@ serde = { version = "1", optional = true }
 serde = { version = "1", features = ["derive"] }
 
 [target.'cfg(not(target_os = "emscripten"))'.dependencies]
+ureq = { version = "3.5", optional = true }
 winit = "0.30"
 raw-window-handle = "0.6"
 # The accessibility snapshot for screen readers: UI Automation (Windows), NSAccessibility (macOS,
