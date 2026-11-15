@@ -796,6 +796,31 @@ impl SkiaLabel {
         self.copy_button(&self.selection_rects(inner, scale, &starts), bounds, scale).map(|(r, _)| r)
     }
 
+    /// Characters of the selectable text (`selection_source`).
+    pub(crate) fn selection_len(&self) -> usize {
+        self.selection_source().0.chars().count()
+    }
+
+    /// The character boundary nearest to `local` (the label's own space, pixels).
+    pub(crate) fn selection_index_at(&self, local: Point) -> usize {
+        let (_, starts) = self.selection_source();
+        self.index_at(local, &starts)
+    }
+
+    /// The range a mouse press on the label started with (a character, or the double-clicked
+    /// word), while that press lasts.
+    pub(crate) fn mouse_press_anchor(&self) -> Option<(usize, usize)> {
+        (self.selection.selecting && !self.selection.touch).then_some(self.selection.anchor)
+    }
+
+    /// Sets the selection from a mouse drag over the canvas. True when it changed.
+    pub(crate) fn set_drag_selection(&mut self, start: usize, end: usize) -> bool {
+        let length = end.saturating_sub(start);
+        let changed = (self.selection.start, self.selection.length) != (start, length) || self.selection.touch;
+        (self.selection.start, self.selection.length, self.selection.touch) = (start, length, false);
+        changed
+    }
+
     fn select(&mut self, cx: &mut GestureCx, start: usize, end: usize) {
         let length = end.saturating_sub(start);
         if (self.selection.start, self.selection.length) != (start, length) {
@@ -879,6 +904,10 @@ impl SkiaLabel {
             GestureKind::Panning => {
                 if !self.selection.selecting {
                     return false;
+                }
+                if mouse {
+                    // A mouse drag selects through the canvas, across labels (`Ui` text drag).
+                    return true;
                 }
                 let (index, _) = self.anchor_at(point, false);
                 let (a, b) = self.selection.anchor;

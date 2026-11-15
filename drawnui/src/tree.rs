@@ -762,6 +762,9 @@ pub struct Tree {
     /// While a pan goes into a scroll's children: the axes (horizontal, vertical) each scroll on the
     /// way can move along, outermost first (scroll chaining).
     pub(crate) outer_scrolls: Vec<(bool, bool)>,
+    /// During a main-button mouse press: the scrolls that hold selectable text, which leave a
+    /// mouse drag to the text selection instead of scrolling (drawnui-cross 6cc).
+    pub(crate) text_scrolls: Vec<ControlId>,
     /// Controls waiting for GPU work after a frame (`LayoutCx::request_idle_gpu`), in order.
     pub(crate) idle_gpu: Vec<ControlId>,
     /// The image manager: loads, the decoded bitmaps by source, `preload`.

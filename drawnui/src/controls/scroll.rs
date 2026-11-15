@@ -1670,6 +1670,11 @@ impl Control for SkiaScroll {
                 by(cx.route_children(gesture))
             }
             GestureKind::Panning => {
+                // A mouse drag over selectable text selects it (drawnui-cross 6cc); the wheel, the
+                // bars and the keys still scroll.
+                if !self.is_user_panning && !gesture.touch && gesture.is_primary() && cx.tree.text_scrolls.contains(&cx.id) {
+                    return by(cx.route_children(gesture));
+                }
                 if !self.is_user_panning && self.p.responds_to_gestures && self.had_down {
                     // A child may own the pan (a scroll or a carousel inside): asked once, before this
                     // scroll takes over, and then the pan is its for the whole press.

@@ -18,6 +18,8 @@ use crate::tree::{Build, ControlId, Cx, Detached, Raw, Tree};
 
 #[path = "tooltip.rs"]
 mod tooltip;
+#[path = "text_drag.rs"]
+mod text_drag;
 pub use tooltip::TooltipStyle;
 use crate::types::{Dirty, GesturesMode, GpuBackend, LockTouch, RenderingModeType};
 use crate::controls::label::LabelSet;
@@ -444,6 +446,10 @@ pub struct Ui<S: 'static> {
     active_modal: Option<ControlId>,
     /// An item of a recycled group a key asked for, not drawn yet: scrolled in, then focused.
     group_request: Option<GroupRequest>,
+    /// A main-button mouse press that may select text across labels (`text_drag`).
+    text_drag: Option<text_drag::TextDrag>,
+    /// The labels the last text drag selected in, page order (copy, a click elsewhere).
+    text_selection: Vec<ControlId>,
     /// `mark_key_handled`: the key a host used itself, for its next Down.
     key_marked: Option<InputKey>,
     /// A screen reader reads the app (`set_screen_reader_running`): true until a host says.
@@ -584,6 +590,8 @@ impl<S: 'static> Ui<S> {
             after_frame: None,
             active_modal: None,
             group_request: None,
+            text_drag: None,
+            text_selection: Vec::new(),
             key_marked: None,
             screen_reader: true,
             modal_stack: Vec::new(),
@@ -1147,6 +1155,11 @@ impl<S: 'static> Ui<S> {
         // Only our own navigation draws a ring, so nothing shows for it.
         if kind == KeyKind::Down && !self.keyboard_navigation && (key == "Tab" || marked) {
             self.focus_ring = true;
+        }
+        // Ctrl+C (Cmd+C) over a drag's selection across labels copies all of it.
+        let copy = kind == KeyKind::Down && key == "KeyC" && (modifiers.ctrl || modifiers.meta) && !self.text_selection.is_empty();
+        if copy && self.focused().is_none_or(|f| self.text_selection.contains(&f)) && self.copy_text_selection() {
+            return true;
         }
         let Ui { tree, state, keyboard, state_dirty, .. } = self;
         let event = KeyEvent { kind, key, text, repeat, keyboard, handled: false };
@@ -1927,7 +1940,9 @@ impl<S: 'static> Ui<S> {
                         if gesture.kind == GestureKind::Panning {
                             gesture.manipulation = manipulation;
                         }
-                        self.process_gesture(gesture);
+                        self.text_drag_before(&gesture);
+                        let consumed = self.process_gesture(gesture);
+                        self.text_drag_after(&gesture, consumed);
                     }
                     if matches!(kind, PointerKind::Up | PointerKind::Cancel) && !self.recognizer.is_pressed() {
                         self.fingers.reset();
@@ -2502,6 +2517,9 @@ impl<S: 'static> Ui<S> {
         }
         if self.group_request.is_some() {
             self.process_group_request();
+        }
+        if self.text_drag.is_some() {
+            self.text_drag_frame();
         }
         // A modal whose buttons show a moment after it: the keyboard goes in once one does, unless
         // the modal went, the wait ended or the keyboard is in it already.
