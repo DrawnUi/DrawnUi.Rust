@@ -121,3 +121,42 @@ fn tab_reaches_both_buttons_of_tall_cards() {
         walk(&mut host, &names((0..3).flat_map(|i| [format!("Top {i}"), format!("Bottom {i}")])));
     }
 }
+
+/// 200 recycled cells, each a row of two buttons "A i" and "B i".
+fn two_button_cells() -> Headless<App> {
+    host(|_| {
+        SkiaStack::new().fill_x().spacing(8).recycling_template(RecyclingTemplate::Enabled).measure_items_strategy(MeasuringStrategy::MeasureFirst).items(
+            |_: &App| 200,
+            || {
+                let (mut a, mut b) = (Handle::default(), Handle::default());
+                let row = SkiaLayout::row().spacing(8).children((button(String::new()).width_request(100).assign(&mut a), button(String::new()).width_request(100).assign(&mut b)));
+                (row, (a, b))
+            },
+            |(a, b): &(Handle<SkiaButton>, Handle<SkiaButton>), _: &App, index, cx| {
+                if let Some(mut a) = cx.get_mut(*a) {
+                    a.set_text(format!("A {index}"));
+                }
+                if let Some(mut b) = cx.get_mut(*b) {
+                    b.set_text(format!("B {index}"));
+                }
+            },
+        )
+        .into()
+    })
+}
+
+#[test]
+fn shift_tab_enters_each_recycled_cell_at_its_last_stop() {
+    let mut host = two_button_cells();
+    // Shift+Tab with nothing focused starts at the end.
+    press(&mut host, "Tab", true);
+    assert_eq!(keyboard_on(&host), "Footer");
+    for i in (0..200).rev() {
+        press(&mut host, "Tab", true);
+        assert_eq!(keyboard_on(&host), format!("B {i}"));
+        press(&mut host, "Tab", true);
+        assert_eq!(keyboard_on(&host), format!("A {i}"));
+    }
+    press(&mut host, "Tab", true);
+    assert_eq!(keyboard_on(&host), "Home");
+}

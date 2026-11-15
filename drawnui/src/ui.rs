@@ -1335,7 +1335,7 @@ impl<S: 'static> Ui<S> {
         // Leaving a recycled layout while it has items on that side that are not made yet: the
         // scroll brings the next one in, then it gets the keyboard (DrawnUi.Net ac70a1d9).
         if group.is_none()
-            && let Some(request) = focused.and_then(|f| self.tab_to_unmade_item(f, back, next.map(|i| stops[i])))
+            && let Some(request) = self.tab_to_unmade_item(focused, back, next.map(|i| stops[i]))
         {
             self.group_request = Some(request);
             self.tree.needs_frame = true;
@@ -1353,21 +1353,34 @@ impl<S: 'static> Ui<S> {
         true
     }
 
-    /// Tab from `focused`, a recycled layout's item, towards `next`: the request for the item after
-    /// (before, `back`) it when `next` is not in that layout and the layout has that item.
-    fn tab_to_unmade_item(&self, focused: ControlId, back: bool, next: Option<ControlId>) -> Option<GroupRequest> {
+    /// Tab (Shift+Tab, `back`) from `focused` towards the stop `next` through a recycled layout,
+    /// whose items not made yet have no stops: leaving its made cells while it has an item on
+    /// that side, the request for that item; entering it from outside, the request for its first
+    /// item (Shift+Tab: its last), when that is not the stop `next` already. Shift+Tab lands on
+    /// the item's last stop (`GroupRequest::last`).
+    fn tab_to_unmade_item(&self, focused: Option<ControlId>, back: bool, next: Option<ControlId>) -> Option<GroupRequest> {
         use crate::controls::layout::SkiaLayout;
         let tree = &self.tree;
-        let (layout, index) = std::iter::successors(Some(focused), |c| tree.parent(*c))
-            .find_map(|cell| tree.parent(cell).and_then(|l| Some((l, tree.find::<SkiaLayout>(l)?.templated_index(cell)?))))?;
-        let inside = |control: ControlId| std::iter::successors(Some(control), |c| tree.parent(*c)).any(|c| c == layout);
-        if next.is_some_and(inside) {
+        let recycled = |control: ControlId| {
+            std::iter::successors(Some(control), |c| tree.parent(*c))
+                .find_map(|cell| tree.parent(cell).and_then(|l| Some((l, tree.find::<SkiaLayout>(l)?.templated_index(cell)?))))
+        };
+        let inside = |control: ControlId, layout: ControlId| std::iter::successors(Some(control), |c| tree.parent(*c)).any(|c| c == layout);
+        let count = |layout: ControlId| tree.find::<SkiaLayout>(layout).map_or(0, |l| l.items_count());
+        let step = if back { -1 } else { 1 };
+        let request = |group, index| GroupRequest { group, index, step, last: back, deadline: tree.time_ms + 3000.0, scrolled: false };
+        if let Some((layout, index)) = focused.and_then(recycled)
+            && !next.is_some_and(|n| inside(n, layout))
+            && let Some(index) = index.checked_add_signed(step).filter(|i| *i < count(layout))
+        {
+            return Some(request(layout, index));
+        }
+        let (layout, index) = next.and_then(recycled)?;
+        if focused.is_some_and(|f| inside(f, layout)) {
             return None;
         }
-        let step = if back { -1 } else { 1 };
-        let count = tree.find::<SkiaLayout>(layout)?.items_count();
-        let index = index.checked_add_signed(step).filter(|i| *i < count)?;
-        Some(GroupRequest { group: layout, index, step, deadline: tree.time_ms + 3000.0, scrolled: false })
+        let target = if back { count(layout).checked_sub(1)? } else { 0 };
+        (index != target).then(|| request(layout, target))
     }
 
     /// Arrows, Home / End and PageUp / PageDown move between the items of a group by index (C#
@@ -1521,7 +1534,7 @@ impl<S: 'static> Ui<S> {
             return true;
         }
         if templated.is_some() {
-            self.group_request = Some(GroupRequest { group, index: target, step, deadline: self.tree.time_ms + 3000.0, scrolled: false });
+            self.group_request = Some(GroupRequest { group, index: target, step, last: false, deadline: self.tree.time_ms + 3000.0, scrolled: false });
             self.tree.needs_frame = true;
             return true;
         }
@@ -1538,6 +1551,12 @@ impl<S: 'static> Ui<S> {
 
     /// The node of a group item the keyboard goes to: the item when it takes input, else the
     /// first node inside it that does (C# FindTarget).
+    /// The last node inside a group item that takes input (Shift+Tab into it).
+    fn item_last_target(&self, item: ControlId) -> Option<ControlId> {
+        let inside = |control: ControlId| std::iter::successors(Some(control), |c| self.tree.parent(*c)).any(|c| c == item);
+        self.tree.accessibility.iter().rev().find(|n| n.can_interact && inside(n.control)).map(|n| n.control)
+    }
+
     fn item_target(&self, item: ControlId) -> Option<ControlId> {
         let inside = |mut at: ControlId| loop {
             if at == item {
@@ -2536,7 +2555,8 @@ impl<S: 'static> Ui<S> {
                 // Realized but not drawn yet.
                 break;
             }
-            if let Some(node) = (!hidden).then(|| self.item_target(cell)).flatten() {
+            let target = if request.last { self.item_last_target(cell) } else { self.item_target(cell) };
+            if let Some(node) = target.filter(|_| !hidden) {
                 self.keyboard_focus(node);
                 return;
             }
@@ -2886,6 +2906,8 @@ struct GroupRequest {
     index: usize,
     /// Where to go on when the item takes no input.
     step: isize,
+    /// The item's last stop takes the keyboard, not its first (Shift+Tab).
+    last: bool,
     deadline: f64,
     scrolled: bool,
 }
