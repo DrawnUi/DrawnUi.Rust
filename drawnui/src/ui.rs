@@ -1332,6 +1332,15 @@ impl<S: 'static> Ui<S> {
             (Some(i), false) => (i + 1 < stops.len()).then_some(i + 1),
             (Some(i), true) => i.checked_sub(1),
         };
+        // Leaving a recycled layout while it has items on that side that are not made yet: the
+        // scroll brings the next one in, then it gets the keyboard (DrawnUi.Net ac70a1d9).
+        if group.is_none()
+            && let Some(request) = focused.and_then(|f| self.tab_to_unmade_item(f, back, next.map(|i| stops[i])))
+        {
+            self.group_request = Some(request);
+            self.tree.needs_frame = true;
+            return true;
+        }
         match next {
             Some(i) => self.keyboard_focus(stops[i]),
             // Past an end the focus leaves; the next Tab starts over.
@@ -1342,6 +1351,23 @@ impl<S: 'static> Ui<S> {
             }
         }
         true
+    }
+
+    /// Tab from `focused`, a recycled layout's item, towards `next`: the request for the item after
+    /// (before, `back`) it when `next` is not in that layout and the layout has that item.
+    fn tab_to_unmade_item(&self, focused: ControlId, back: bool, next: Option<ControlId>) -> Option<GroupRequest> {
+        use crate::controls::layout::SkiaLayout;
+        let tree = &self.tree;
+        let (layout, index) = std::iter::successors(Some(focused), |c| tree.parent(*c))
+            .find_map(|cell| tree.parent(cell).and_then(|l| Some((l, tree.find::<SkiaLayout>(l)?.templated_index(cell)?))))?;
+        let inside = |control: ControlId| std::iter::successors(Some(control), |c| tree.parent(*c)).any(|c| c == layout);
+        if next.is_some_and(inside) {
+            return None;
+        }
+        let step = if back { -1 } else { 1 };
+        let count = tree.find::<SkiaLayout>(layout)?.items_count();
+        let index = index.checked_add_signed(step).filter(|i| *i < count)?;
+        Some(GroupRequest { group: layout, index, step, deadline: tree.time_ms + 3000.0, scrolled: false })
     }
 
     /// Arrows, Home / End and PageUp / PageDown move between the items of a group by index (C#
