@@ -426,6 +426,9 @@ struct App {
     boss: Handle<SkiaModel3D>,
     /// The looping move, by caption.
     boss_looping: &'static str,
+    /// The move whose button is lit: a one-shot move while it plays, else the looping one (or Death,
+    /// which holds its last frame).
+    boss_lit: &'static str,
     boss_skin: &'static str,
     boss_rage: bool,
     boss_turning: bool,
@@ -1870,7 +1873,7 @@ fn boss_caption(text: &str) -> Build<SkiaLabel> {
 fn move_button((caption, animation, kind): (&'static str, &'static str, MoveKind)) -> Build<SkiaButton> {
     boss_button(caption, 100.0)
         .background_color(BOSS_BUTTON)
-        .observe(move |me, app: &App| me.set_background_color(if app.boss_looping == caption { MOVES_ACCENT } else { BOSS_BUTTON }))
+        .observe(move |me, app: &App| me.set_background_color(if app.boss_lit == caption { MOVES_ACCENT } else { BOSS_BUTTON }))
         .on_tapped(move |_me, app: &mut App, cx| {
             if let Some(mut boss) = cx.get_mut(app.boss) {
                 match kind {
@@ -1886,6 +1889,7 @@ fn move_button((caption, animation, kind): (&'static str, &'static str, MoveKind
                         app.boss_looping = caption;
                     }
                 }
+                app.boss_lit = caption;
             }
             app.boss_news = format!("{caption}…");
         })
@@ -1913,7 +1917,7 @@ fn skin_button((caption, color): (&'static str, Option<Color>)) -> Build<SkiaBut
 
 /// The boss fight: a 3D dragon in a DrawnUI screen, driven by the app (the .NET gallery's BossPage).
 fn boss_page(app: &mut App) -> Build<SkiaLayout> {
-    (app.boss_looping, app.boss_skin) = ("Idle", "Ember");
+    (app.boss_looping, app.boss_lit, app.boss_skin) = ("Idle", "Idle", "Ember");
     app.boss_news = "Tap the dragon to hit it.".into();
     SkiaLayout::new().fill().children((
         // The arena: a warm light behind the boss, drawn on the GPU once and kept there.
@@ -1945,7 +1949,14 @@ fn boss_page(app: &mut App) -> Build<SkiaLayout> {
                     }
                     app.boss_news = format!("Hit on {}", hit.material.replace('_', " "));
                 })
-                .on_animation_ended(|_me, app: &mut App, _cx, name| app.boss_news = format!("{} finished", move_caption(name)))
+                .on_animation_ended(|_me, app: &mut App, _cx, name| {
+                    let caption = move_caption(name);
+                    app.boss_news = format!("{caption} finished");
+                    // A one-shot move ended: the looping move's button lights again.
+                    if app.boss_lit == caption {
+                        app.boss_lit = app.boss_looping;
+                    }
+                })
                 .on_load_state(|_me, app: &mut App, cx, state| loaded(app, cx, DRAGON, state)),
             cover(app, DRAGON, Color::TRANSPARENT, 0.0, false).row(1),
             SkiaLabel::new("")
@@ -2298,6 +2309,9 @@ pub fn run() {
             Ui::new(App::default(), build)
                 .font("Default", "assets/OpenSans-Regular.ttf")
                 .font(TITLE, "assets/OpenSans-Semibold.ttf")
+                // Screen readers read every text and reach every button (Tab, Enter).
+                .default_accessibility_role::<SkiaLabel>(Aria::TEXT)
+                .default_accessibility_role::<SkiaButton>(Aria::BUTTON)
                 .background(PAGE)
                 .on_canvas_resized(|app: &mut App, size, cx| {
                     app.width = size.width;
