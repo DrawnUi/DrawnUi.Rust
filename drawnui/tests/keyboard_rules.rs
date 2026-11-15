@@ -97,13 +97,17 @@ fn a_focus_behind_an_open_dialog_is_no_focus() {
     assert_eq!(host.ui.state.pressed, ["OK"]);
 }
 
+/// The whole screen goes (a game screen replaces the menu): without a screen reader no stop of the
+/// old order is left, so the keys are the app's again (DrawnUi.Net); one control of a page going
+/// away hands the keyboard to the next stop instead (focus_moves_when_control_goes.rs).
 #[test]
-fn without_a_screen_reader_the_focus_clears_when_its_control_leaves() {
+fn without_a_screen_reader_the_focus_clears_when_its_screen_leaves() {
     let mut host = host(false);
     host.ui.set_screen_reader_running(false);
     host.press_key("Tab");
     assert_eq!(keyboard_on(&host).as_deref(), Some("One"));
-    if let Some(mut c) = host.ui.tree.cx().get_mut(host.ui.state.first) {
+    let page = host.ui.tree.parent(host.ui.state.first).unwrap();
+    if let Some(mut c) = host.ui.tree.find_mut::<SkiaLayout>(page) {
         c.set_is_visible(false);
     }
     host.frame_after(1100.0);

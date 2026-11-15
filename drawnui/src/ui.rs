@@ -448,12 +448,13 @@ pub struct Ui<S: 'static> {
     group_request: Option<GroupRequest>,
     /// A main-button mouse press that may select text across labels (`text_drag`).
     text_drag: Option<text_drag::TextDrag>,
-    /// The labels the last text drag selected in, page order (copy, a click elsewhere).
-    text_selection: Vec<ControlId>,
     /// `mark_key_handled`: the key a host used itself, for its next Down.
     key_marked: Option<InputKey>,
     /// A screen reader reads the app (`set_screen_reader_running`): true until a host says.
     screen_reader: bool,
+    /// The last snapshot order (controls) that still held the control with the keyboard: when it
+    /// goes away, the keyboard goes on from its place there.
+    focus_order: Vec<ControlId>,
     /// The modals that were active, oldest first, with where the keyboard was as each came.
     modal_stack: Vec<(ControlId, Option<ControlId>)>,
     /// A modal the keyboard goes into once something in it takes input, until this time (its
@@ -591,9 +592,9 @@ impl<S: 'static> Ui<S> {
             active_modal: None,
             group_request: None,
             text_drag: None,
-            text_selection: Vec::new(),
             key_marked: None,
             screen_reader: true,
+            focus_order: Vec::new(),
             modal_stack: Vec::new(),
             modal_into: None,
         }
@@ -1157,8 +1158,8 @@ impl<S: 'static> Ui<S> {
             self.focus_ring = true;
         }
         // Ctrl+C (Cmd+C) over a drag's selection across labels copies all of it.
-        let copy = kind == KeyKind::Down && key == "KeyC" && (modifiers.ctrl || modifiers.meta) && !self.text_selection.is_empty();
-        if copy && self.focused().is_none_or(|f| self.text_selection.contains(&f)) && self.copy_text_selection() {
+        let copy = kind == KeyKind::Down && key == "KeyC" && (modifiers.ctrl || modifiers.meta) && !self.tree.text_selection.is_empty();
+        if copy && self.focused().is_none_or(|f| self.tree.text_selection.contains(&f)) && self.copy_text_selection() {
             return true;
         }
         let Ui { tree, state, keyboard, state_dirty, .. } = self;
@@ -2603,6 +2604,12 @@ impl<S: 'static> Ui<S> {
     fn build_accessibility(&mut self, width: f32, height: f32, scale: f32, time_ms: f64) {
         self.accessibility_built_ms = time_ms;
         self.accessibility_stale = false;
+        if let Some(focused) = self.tree.accessibility_focused
+            && self.tree.accessibility.iter().any(|n| n.control == focused)
+        {
+            self.focus_order.clear();
+            self.focus_order.extend(self.tree.accessibility.iter().map(|n| n.control));
+        }
         let Some(root) = self.tree.root else { return };
         let mut list = std::mem::take(&mut self.accessibility_next);
         list.clear();
@@ -3632,6 +3639,17 @@ impl Cx<'_> {
         self.tree.gesture_point
     }
 
+    /// The text selected on the page (selectable labels: a mouse drag across them, a double click,
+    /// a long press): every label's part in page order, joined by new lines; empty when none.
+    pub fn selected_text(&self) -> String {
+        text_drag::selected_text(self.tree)
+    }
+
+    /// Drops the text selected on the page, in every label (a menu's Cancel).
+    pub fn clear_text_selection(&mut self) {
+        text_drag::clear_selection(self.tree, None);
+    }
+
     /// The control gets every key while it is mounted, focused or not (React
     /// KeyboardManager.Subscribe: a game, a shortcut layer): its `Control::on_key` and its key
     /// handlers, after the focused control. `false` stops it.
@@ -4233,7 +4251,18 @@ impl<S: 'static> Ui<S> {
         let height = self.tree.canvas_size.height;
         let next = match self.screen_reader {
             true => self.tree.accessibility.iter().filter(|n| n.can_interact || !n.label.is_empty()).find(|n| n.rect.bottom > 0.0 && n.rect.top < height).map(|n| n.control),
-            false => None,
+            // No reader: the Tab stop that followed it in the last order that held it and is still on
+            // the page, else the last one before it (a pin turned to the back of a globe, a row
+            // removed: never to nothing); a whole screen replaced leaves none, and the keys are the
+            // app's again (DrawnUi.Net NextStopAfter).
+            false => {
+                let stops = self.tab_stops();
+                let order = &self.focus_order;
+                order.iter().position(|c| *c == focused).and_then(|at| {
+                    let usable = |c: &&ControlId| stops.contains(*c);
+                    order[at + 1..].iter().find(usable).or_else(|| order[..at].iter().rev().find(usable)).copied()
+                })
+            }
         };
         match next {
             Some(next) => {

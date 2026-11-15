@@ -428,8 +428,11 @@ struct Shaders {
     lines: Vec<(Option<Shader>, Option<Shader>)>,
 }
 
-/// Drawn over selected text (C# SkiaLabel.TextSelectionColor).
+/// Drawn over selected text by default (C# SkiaLabel.TextSelectionColor); `SkiaLabel::set_selection_color` changes it.
 pub const TEXT_SELECTION_COLOR: Color = Color::from_argb(90, 13, 110, 253);
+
+/// The selection color of every label (C# static SkiaLabel.TextSelectionColor).
+static SELECTION_COLOR: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x5A0D_6EFD);
 
 /// The caption of the Copy button over a touch selection (C# SkiaLabel.CopyButtonText).
 pub const COPY_BUTTON_TEXT: &str = "Copy";
@@ -796,6 +799,12 @@ impl SkiaLabel {
         self.copy_button(&self.selection_rects(inner, scale, &starts), bounds, scale).map(|(r, _)| r)
     }
 
+    /// The color drawn over selected text in every label (C# SkiaLabel.TextSelectionColor; a
+    /// translucent blue by default, `TEXT_SELECTION_COLOR`). Labels draw with it from their next paint.
+    pub fn set_selection_color(color: Color) {
+        SELECTION_COLOR.store(u32::from_be_bytes([color.a(), color.r(), color.g(), color.b()]), std::sync::atomic::Ordering::Relaxed);
+    }
+
     /// Characters of the selectable text (`selection_source`).
     pub(crate) fn selection_len(&self) -> usize {
         self.selection_source().0.chars().count()
@@ -826,6 +835,11 @@ impl SkiaLabel {
         if (self.selection.start, self.selection.length) != (start, length) {
             (self.selection.start, self.selection.length) = (start, length);
             cx.invalidate(Dirty::DRAW);
+        }
+        // The page's selection (copy, clear) knows every label that holds one.
+        let (id, selection) = (cx.id, &mut cx.tree.text_selection);
+        if length > 0 && !selection.contains(&id) {
+            selection.push(id);
         }
     }
 
@@ -946,7 +960,7 @@ impl SkiaLabel {
         let rects = self.selection_rects(inner, scale, &starts);
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
-        paint.set_color(TEXT_SELECTION_COLOR);
+        paint.set_color(Color::new(SELECTION_COLOR.load(std::sync::atomic::Ordering::Relaxed)));
         for rect in &rects {
             canvas.draw_rect(rect, &paint);
         }

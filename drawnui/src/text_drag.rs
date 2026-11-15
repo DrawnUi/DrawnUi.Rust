@@ -154,7 +154,7 @@ impl<S: 'static> Ui<S> {
         let (k, a, b) = drag.anchor;
         let (start, end) = if focus >= (k, a) { ((k, a), focus.max((k, b))) } else { (focus, (k, b)) };
         let labels = drag.labels.clone();
-        self.text_selection.clear();
+        self.tree.text_selection.clear();
         for (i, id) in labels.into_iter().enumerate() {
             let n = len(&self.tree, id);
             let from = if i == start.0 { start.1 } else if i > start.0 { 0 } else { n };
@@ -162,19 +162,14 @@ impl<S: 'static> Ui<S> {
             let (from, to) = if to > from { (from, to) } else { (0, 0) };
             set(&mut self.tree, id, from, to);
             if to > from {
-                self.text_selection.push(id);
+                self.tree.text_selection.push(id);
             }
         }
     }
 
-    /// Drops the selection of every label a drag selected, but `keep`.
+    /// Drops the selection of every label on the page, but `keep`.
     fn clear_text_selection(&mut self, keep: Option<ControlId>) {
-        for id in std::mem::take(&mut self.text_selection) {
-            if Some(id) == keep {
-                continue;
-            }
-            set(&mut self.tree, id, 0, 0);
-        }
+        clear_selection(&mut self.tree, keep);
     }
 
     /// Each frame while a drag is held past the edge of its scroll: the scroll moves on, faster
@@ -193,15 +188,31 @@ impl<S: 'static> Ui<S> {
         self.tree.needs_frame = true;
     }
 
-    /// Ctrl+C (Cmd+C) with a drag selection: the selected text of every label, joined by new
-    /// lines. False when no drag selected anything.
+    /// Ctrl+C (Cmd+C) with text selected on the page: the selected text of every label, joined by
+    /// new lines. False when nothing is selected.
     pub(super) fn copy_text_selection(&mut self) -> bool {
-        let parts: Vec<String> =
-            self.text_selection.iter().filter_map(|id| self.tree.find::<SkiaLabel>(*id).map(|l| l.selected_text())).filter(|t| !t.is_empty()).collect();
-        if parts.is_empty() {
+        let text = selected_text(&self.tree);
+        if text.is_empty() {
             return false;
         }
-        Cx { tree: &mut self.tree }.set_clipboard(parts.join("\n"));
+        Cx { tree: &mut self.tree }.set_clipboard(text);
         true
+    }
+}
+
+/// The text selected on the page: every label's part in page order, joined by new lines.
+pub(crate) fn selected_text(tree: &Tree) -> String {
+    let parts: Vec<String> = tree.text_selection.iter().filter_map(|id| tree.find::<SkiaLabel>(*id).map(|l| l.selected_text())).filter(|t| !t.is_empty()).collect();
+    parts.join("\n")
+}
+
+/// Drops the selection of every label on the page, but `keep`.
+pub(crate) fn clear_selection(tree: &mut Tree, keep: Option<ControlId>) {
+    for id in std::mem::take(&mut tree.text_selection) {
+        if Some(id) == keep {
+            tree.text_selection.push(id);
+            continue;
+        }
+        set(tree, id, 0, 0);
     }
 }

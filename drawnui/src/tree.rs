@@ -765,6 +765,9 @@ pub struct Tree {
     /// During a main-button mouse press: the scrolls that hold selectable text, which leave a
     /// mouse drag to the text selection instead of scrolling (drawnui-cross 6cc).
     pub(crate) text_scrolls: Vec<ControlId>,
+    /// The labels holding text selected on the page (a mouse drag across labels, a double click, a
+    /// long press), page order: `Cx::selected_text`, Ctrl+C, a click elsewhere.
+    pub(crate) text_selection: Vec<ControlId>,
     /// Controls waiting for GPU work after a frame (`LayoutCx::request_idle_gpu`), in order.
     pub(crate) idle_gpu: Vec<ControlId>,
     /// The image manager: loads, the decoded bitmaps by source, `preload`.
