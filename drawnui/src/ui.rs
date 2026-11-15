@@ -2620,8 +2620,8 @@ impl<S: 'static> Ui<S> {
             }
         }
         let (app, popups) = list.split_at_mut(main_len);
-        reading_order(app);
-        reading_order(popups);
+        reading_order(&self.tree, scale, app);
+        reading_order(&self.tree, scale, popups);
         // The arrow-key group of each node and the group's item that holds it.
         for i in 0..list.len() {
             let (mut at, mut group) = (list[i].parent, None);
@@ -2830,21 +2830,78 @@ const GROUP_KEYS: [&str; 8] = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"
 const GROUP_ROLES: [&str; 8] = [Aria::LIST, Aria::LIST_BOX, Aria::GRID, Aria::TOOLBAR, Aria::RADIO_GROUP, Aria::TAB_LIST, Aria::MENU, Aria::MENU_BAR];
 
 /// The control and every control above it are visible (C# IsVisible, IsHiddenByAncestor).
-/// Reading order (C# SkiaAccessibilityManager): top to bottom; nodes whose tops are within half the
-/// smaller height of the row's first one form a row, read left to right, so a row of vertically
-/// centered controls of different heights keeps its visual order.
-fn reading_order(list: &mut [AccessibilityNode]) {
-    list.sort_by(|a, b| a.rect.top.total_cmp(&b.rect.top).then(a.rect.left.total_cmp(&b.rect.left)));
+/// Reading order (C# SkiaAccessibilityManager), by scroll (drawnui-cross, React 129e8e9): the nodes
+/// of a scroll take the scroll's place among the nodes around it, and are ordered among themselves
+/// inside it, so the order is the same at any scroll position (the content scrolled up under a
+/// fixed header still reads after it, the content below the view before the footer). On each
+/// level: top to bottom; nodes whose tops are within half the smaller height of the row's first one
+/// form a row, read left to right, so a row of vertically centered controls of different heights
+/// keeps its visual order.
+fn reading_order(tree: &Tree, scale: f32, list: &mut [AccessibilityNode]) {
+    // The scrolls each node is in, outermost first.
+    let chains: Vec<Vec<ControlId>> = list
+        .iter()
+        .map(|n| {
+            let mut chain: Vec<ControlId> = std::iter::successors(tree.parent(n.control), |c| tree.parent(*c))
+                .filter(|c| tree.find::<crate::controls::scroll::SkiaScroll>(*c).is_some())
+                .collect();
+            chain.reverse();
+            chain
+        })
+        .collect();
+    let mut out = Vec::with_capacity(list.len());
+    order_level(tree, scale, list, &chains, 0, (0..list.len()).collect(), &mut out);
+    let rank: std::collections::HashMap<u32, usize> = out.iter().enumerate().map(|(r, i)| (list[*i].id, r)).collect();
+    list.sort_by_key(|n| rank.get(&n.id).copied().unwrap_or(usize::MAX));
+}
+
+/// One level of `reading_order`: the nodes `nodes` share the scrolls `chains[..][..depth]`. A node
+/// in no deeper scroll stands for itself; the nodes of one deeper scroll stand together as that
+/// scroll's box, then go in their own order at its place.
+fn order_level(tree: &Tree, scale: f32, list: &[AccessibilityNode], chains: &[Vec<ControlId>], depth: usize, nodes: Vec<usize>, out: &mut Vec<usize>) {
+    enum Item {
+        Node(usize),
+        Scroll(Vec<usize>),
+    }
+    let mut items: Vec<(Rect, Item)> = Vec::with_capacity(nodes.len());
+    let mut scrolls: Vec<(ControlId, usize)> = Vec::new();
+    for i in nodes {
+        let Some(&scroll) = chains[i].get(depth) else {
+            items.push((list[i].rect, Item::Node(i)));
+            continue;
+        };
+        match scrolls.iter().find(|(s, _)| *s == scroll) {
+            Some((_, at)) => {
+                if let Item::Scroll(members) = &mut items[*at].1 {
+                    members.push(i);
+                }
+            }
+            None => {
+                // The scroll's box on the canvas, points; else where its nodes are.
+                let s = scale.max(0.1);
+                let rect = drawn_rect(tree, scroll).map_or(list[i].rect, |r| Rect::new(r.left / s, r.top / s, r.right / s, r.bottom / s));
+                scrolls.push((scroll, items.len()));
+                items.push((rect, Item::Scroll(vec![i])));
+            }
+        }
+    }
+    items.sort_by(|a, b| a.0.top.total_cmp(&b.0.top).then(a.0.left.total_cmp(&b.0.left)));
     let mut row = 0;
-    for i in 1..=list.len() {
-        if let Some(next) = list.get(i).map(|n| n.rect) {
-            let first = list[row].rect;
+    for i in 1..=items.len() {
+        if let Some(next) = items.get(i).map(|n| n.0) {
+            let first = items[row].0;
             if next.top - first.top < first.height().min(next.height()) / 2.0 {
                 continue;
             }
         }
-        list[row..i].sort_by(|a, b| a.rect.left.total_cmp(&b.rect.left));
+        items[row..i].sort_by(|a, b| a.0.left.total_cmp(&b.0.left));
         row = i;
+    }
+    for (_, item) in items {
+        match item {
+            Item::Node(i) => out.push(i),
+            Item::Scroll(members) => order_level(tree, scale, list, chains, depth + 1, members, out),
+        }
     }
 }
 
