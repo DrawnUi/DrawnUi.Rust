@@ -77,6 +77,8 @@ pub struct SkiaScene3D {
     on_tapped: Option<TappedHandler>,
     /// Files that could not be read: the model name and why.
     errors: Vec<(String, String)>,
+    /// Models asked for by url and not requested yet: name, url.
+    urls: Vec<(String, String)>,
     look: super::Look,
     /// Outline width in points (0 = none) and color.
     outline: (f32, Color),
@@ -104,6 +106,7 @@ impl SkiaScene3D {
             on_ended: None,
             on_tapped: None,
             errors: Vec::new(),
+            urls: Vec::new(),
             look: super::Look::Lit,
             outline: (0.0, Color::BLACK),
             antialias: false,
@@ -128,6 +131,23 @@ impl SkiaScene3D {
     pub fn current_animation(&self, object: &str) -> Option<&str> {
         let o = self.objects.iter().find(|o| o.name == object)?;
         Some(self.models[o.model].scene.animations.get(o.player.main?.animation)?.name.as_str())
+    }
+
+    /// Starts loading the models asked for by url, each shared with every control of that url.
+    fn load_urls(&mut self, cx: &mut Cx) {
+        for (name, url) in std::mem::take(&mut self.urls) {
+            let id = self.id;
+            let model = name.clone();
+            let done: scene::UrlDone = Box::new(move |cx, read| {
+                if let Some(mut me) = cx.find_mut::<SkiaScene3D>(id) {
+                    me.control_mut().add_model(model, read);
+                    me.mark(Dirty::DRAW);
+                }
+            });
+            if let Some(read) = scene::load_url(cx, &url, done) {
+                self.add_model(name, read);
+            }
+        }
     }
 
     fn add_model(&mut self, name: String, read: Result<Rc<Scene>, String>) {
@@ -253,6 +273,7 @@ fn tick(id: ControlId, time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> Fr
 impl Control for SkiaScene3D {
     fn on_props_changed(&mut self, cx: &mut Cx) {
         render::start_program();
+        self.load_urls(cx);
         self.update_ticking(cx);
     }
 
@@ -346,6 +367,10 @@ pub trait Scene3DBuild: Sized {
     /// other layers or `SkiaModel3D` controls are read once.
     fn model(self, name: impl Into<String>, glb: &[u8]) -> Self;
 
+    /// A model from a url (the browser fetches it; desktop reads it as a file path), named as with
+    /// `model`. `add` places objects of it once it is loaded; until then `add` returns false.
+    fn model_url(self, name: impl Into<String>, url: impl Into<String>) -> Self;
+
     /// A model made in code (`Model3D`) objects can be made of, by name.
     fn model_from(self, name: impl Into<String>, model: &super::Model3D) -> Self;
 
@@ -373,6 +398,11 @@ pub trait Scene3DBuild: Sized {
 impl Scene3DBuild for Build<SkiaScene3D> {
     fn model(mut self, name: impl Into<String>, glb: &[u8]) -> Self {
         self.control_mut().add_model(name.into(), scene::shared(glb));
+        self
+    }
+
+    fn model_url(mut self, name: impl Into<String>, url: impl Into<String>) -> Self {
+        self.control_mut().urls.push((name.into(), url.into()));
         self
     }
 

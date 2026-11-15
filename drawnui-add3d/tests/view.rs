@@ -418,3 +418,60 @@ fn two_taps_go_home_also_in_a_page_with_markers_over_the_model() {
     host.settle();
     assert!((model(&host).view().0.rem_euclid(360.0) - 30.0).abs() < 0.01, "home: {:?}", model(&host).view());
 }
+
+/// Controls asking for the same url share one fetch and one copy of the scene, also one asking
+/// after it arrived; a scene layer takes models from urls the same way.
+#[test]
+fn controls_of_one_url_share_one_fetch_and_one_copy() {
+    #[derive(Default)]
+    struct Two {
+        a: Handle<SkiaModel3D>,
+        b: Handle<SkiaModel3D>,
+        c: Handle<SkiaModel3D>,
+        layer: Handle<SkiaScene3D>,
+    }
+    let ui = Ui::new(Two::default(), |app: &mut Two| {
+        SkiaLayout::column().children((
+            SkiaModel3D::from_url("models/dragon.glb").width_request(100).height_request(100).assign(&mut app.a),
+            SkiaModel3D::from_url("models/dragon.glb").width_request(100).height_request(100).assign(&mut app.b),
+            SkiaScene3D::new().model_url("dragon", "models/dragon.glb").width_request(100).height_request(100).assign(&mut app.layer),
+        ))
+    });
+    let mut host = Headless::new(ui, 400, 400, 1.0);
+    host.settle();
+    let asked = host.deliver_assets(|url| (url == "models/dragon.glb").then(|| DRAGON.to_vec()));
+    assert_eq!(asked, ["models/dragon.glb"], "one fetch");
+    host.frame_after(16.0);
+    host.frame_after(16.0);
+    let (a, b) = (host.ui.state.a, host.ui.state.b);
+    assert_eq!(host.ui.tree.find::<SkiaModel3D>(a).unwrap().load_state(), LoadState3D::Ready);
+    assert_eq!(host.ui.tree.find::<SkiaModel3D>(b).unwrap().load_state(), LoadState3D::Ready);
+    let layer = host.ui.state.layer;
+    assert!(host.ui.tree.get_mut(layer).unwrap().add("one", "dragon", 50.0, 50.0, 40.0), "the layer has the model");
+
+    // One more control later: the copy is there, no fetch.
+    let c = &mut host.ui.state.c;
+    let mut late = SkiaModel3D::from_url("models/dragon.glb").width_request(100).height_request(100);
+    late = late.assign(c);
+    let root = host.ui.tree.root().expect("a root");
+    host.ui.tree.add_child(root, late);
+    host.frame_after(16.0);
+    host.frame_after(16.0);
+    assert!(host.deliver_assets(|_| None).is_empty(), "no second fetch");
+    assert_eq!(host.ui.tree.find::<SkiaModel3D>(host.ui.state.c).unwrap().load_state(), LoadState3D::Ready);
+}
+
+/// What the app set on a model from a url before it arrived holds once it is there: the animation
+/// to start with, not playing, the speed.
+#[test]
+fn a_url_model_keeps_its_start_animation_and_playing() {
+    let mut host = single(SkiaModel3D::from_url("models/dragon.glb").animation("CharacterArmature|Death").playing(false).speed(0.5));
+    host.deliver_assets(|_| Some(DRAGON.to_vec()));
+    host.frame_after(16.0);
+    host.frame_after(16.0);
+    assert_eq!(model(&host).load_state(), LoadState3D::Ready);
+    assert_eq!(model(&host).current_animation(), Some("CharacterArmature|Death"));
+    // Not playing: it stands still and asks for no frames (it would play the first animation).
+    host.frame_after(16.0);
+    assert!(!host.ui.needs_frame(), "it plays although the app said not to");
+}

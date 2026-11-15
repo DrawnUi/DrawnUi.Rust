@@ -59,6 +59,66 @@ thread_local! {
 }
 
 /// The scene of these bytes, read once while any control holds it.
+/// What a control does with a scene from a url once it is read (or could not be).
+pub(super) type UrlDone = Box<dyn FnOnce(&mut drawnui::Cx<'_>, Result<Rc<Scene>, String>)>;
+
+enum UrlEntry {
+    Loaded(Weak<Scene>),
+    Loading(Vec<UrlDone>),
+}
+
+thread_local! {
+    /// Scenes from urls: one fetch and one copy per url while any control holds it.
+    static URLS: RefCell<HashMap<String, UrlEntry>> = RefCell::new(HashMap::new());
+}
+
+/// The scene of `url`: at once when a control holds it already (`Some`), else `done` runs when it
+/// arrives. Every control asking for a url while it loads waits for the same fetch, and they
+/// share the one copy read from it. A failure is not remembered: the next request fetches again.
+pub(super) fn load_url(cx: &mut drawnui::Cx<'_>, url: &str, done: UrlDone) -> Option<Result<Rc<Scene>, String>> {
+    let fetch = URLS.with_borrow_mut(|urls| {
+        if let Some(UrlEntry::Loaded(scene)) = urls.get(url)
+            && let Some(scene) = scene.upgrade()
+        {
+            return Err(scene);
+        }
+        match urls.get_mut(url) {
+            Some(UrlEntry::Loading(waiting)) => {
+                waiting.push(done);
+                Ok(false)
+            }
+            _ => {
+                urls.retain(|_, entry| !matches!(entry, UrlEntry::Loaded(scene) if scene.strong_count() == 0));
+                urls.insert(url.to_owned(), UrlEntry::Loading(vec![done]));
+                Ok(true)
+            }
+        }
+    });
+    match fetch {
+        Err(scene) => return Some(Ok(scene)),
+        Ok(false) => return None,
+        Ok(true) => {}
+    }
+    let key = url.to_owned();
+    cx.fetch_bytes(url, move |cx, bytes| {
+        let read = if bytes.is_empty() { Err("the url could not be loaded".to_owned()) } else { Scene::load(&bytes).map(Rc::new) };
+        let waiting = URLS.with_borrow_mut(|urls| {
+            let waiting = match urls.remove(&key) {
+                Some(UrlEntry::Loading(waiting)) => waiting,
+                _ => Vec::new(),
+            };
+            if let Ok(scene) = &read {
+                urls.insert(key, UrlEntry::Loaded(Rc::downgrade(scene)));
+            }
+            waiting
+        });
+        for done in waiting {
+            done(cx, read.clone());
+        }
+    });
+    None
+}
+
 pub(super) fn shared(bytes: &[u8]) -> Result<Rc<Scene>, String> {
     let key = (bytes.as_ptr() as usize, bytes.len());
     if let Some(scene) = SCENES.with_borrow(|s| s.get(&key).and_then(Weak::upgrade)) {

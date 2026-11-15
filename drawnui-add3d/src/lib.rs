@@ -207,7 +207,8 @@ impl SkiaModel3D {
     }
 
     /// A scene loaded from a url (the browser fetches it; desktop reads it as a file path): nothing
-    /// is drawn while it loads, `load_state` and `on_load_state` tell how it went.
+    /// is drawn while it loads, `load_state` and `on_load_state` tell how it went. Controls asking
+    /// for the same url share one load and one copy.
     pub fn from_url(url: impl Into<String>) -> Build<SkiaModel3D> {
         let mut build = SkiaModel3D::with_scene(Err(String::new()));
         let model = build.control_mut();
@@ -352,33 +353,56 @@ impl SkiaModel3D {
         !self.events.is_empty() || (self.scene.is_some() && (moving || unreported))
     }
 
-    /// The bytes of the url arrived (empty = it failed).
-    fn loaded(&mut self, bytes: &[u8]) {
-        let read = if bytes.is_empty() { Err("the url could not be loaded".to_owned()) } else { Scene::load(bytes).map(Rc::new) };
+    /// The scene of the url is read (or could not be).
+    fn loaded(&mut self, read: Result<Rc<Scene>, String>) {
         match read {
             Ok(scene) => {
+                // What the app set before the scene was there: play or not, speed, crossfade, and
+                // the animation to start with.
+                let (playing, speed, fade) = (self.player.playing, self.player.speed, self.player.fade);
                 self.player = Player::new(Some(&scene));
+                (self.player.playing, self.player.speed, self.player.fade) = (playing, speed, fade);
                 self.nodes = vec![NodeOverride::default(); scene.nodes.len()];
                 self.materials = vec![MaterialOverride::default(); scene.materials.len()];
                 (self.scene, self.error, self.load_state) = (Some(scene), None, LoadState3D::Ready);
+                self.start_named_animation();
             }
             Err(why) => (self.scene, self.error, self.load_state) = (None, Some(why), LoadState3D::Failed),
         }
         self.events.push(Event::LoadState(self.load_state));
     }
 
+    /// The animation the app named to start with (`animation`), once the scene is there: the start
+    /// pose, playing only when the app did not say otherwise.
+    fn start_named_animation(&mut self) {
+        if let Some(name) = self.start_animation.take()
+            && let Some(animation) = self.animation_named(&name)
+        {
+            let playing = self.player.playing;
+            self.player.play(animation);
+            self.player.fade_now();
+            self.player.playing = playing;
+        }
+    }
+
     /// Starts loading the url asked for, if any.
     fn load_source(&mut self, cx: &mut Cx) {
         let Some(url) = self.source.take() else { return };
-        self.load_state = LoadState3D::Loading;
-        self.events.push(Event::LoadState(LoadState3D::Loading));
         let id = self.id;
-        cx.fetch_bytes(&url, move |cx, bytes| {
+        let done: scene::UrlDone = Box::new(move |cx, read| {
             if let Some(mut me) = cx.find_mut::<SkiaModel3D>(id) {
-                me.control_mut().loaded(&bytes);
+                me.control_mut().loaded(read);
                 me.mark(Dirty::DRAW_APPLY);
             }
         });
+        match scene::load_url(cx, &url, done) {
+            // Another control holds the scene of this url: shared at once.
+            Some(read) => self.loaded(read),
+            None => {
+                self.load_state = LoadState3D::Loading;
+                self.events.push(Event::LoadState(LoadState3D::Loading));
+            }
+        }
     }
 
     /// Glides back to the home view.
@@ -557,14 +581,8 @@ impl SkiaModel3D {
 impl Control for SkiaModel3D {
     fn on_props_changed(&mut self, cx: &mut Cx) {
         render::start_program();
-        if let Some(name) = self.start_animation.take()
-            && let Some(animation) = self.animation_named(&name)
-        {
-            // The start pose: playing only when the app did not say otherwise.
-            let playing = self.player.playing;
-            self.player.play(animation);
-            self.player.fade_now();
-            self.player.playing = playing;
+        if self.scene.is_some() {
+            self.start_named_animation();
         }
         self.load_source(cx);
         self.update_ticking(cx);
