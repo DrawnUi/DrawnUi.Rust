@@ -129,3 +129,14 @@ fn the_selection_is_drawn() {
     assert_ne!(before, after, "the highlight is over the word");
     assert!(after.b() > after.r(), "drawn in the selection blue: {after:?}");
 }
+
+#[test]
+fn a_right_click_on_the_selection_keeps_it_for_the_context_menu() {
+    let mut host = host(true);
+    let (from, to) = (at(&host, 6), at(&host, 15));
+    host.pan(from, to, 100.0, 2);
+    assert_eq!(label(&host).selected_text(), "wonderful");
+    let middle = at(&host, 10);
+    host.right_click(middle.0, middle.1);
+    assert_eq!(label(&host).selected_text(), "wonderful", "the right button's press kept the selection");
+}

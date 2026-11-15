@@ -1242,6 +1242,14 @@ impl Control for SkiaEditor {
         let point = cx.point + self.scroll;
         let label = cx.tree.find::<SkiaLabel>(self.label);
         let dirty = match gesture.kind {
+            GestureKind::Down if !gesture.is_primary() => {
+                // A right or middle press leaves the caret and the selection as they are, for the
+                // context menu to act on (DrawnUi.Net 70abfbd2).
+                if !self.focused {
+                    cx.focus();
+                }
+                return Handled::Yes;
+            }
             GestureKind::Down => {
                 let Some(label) = label else { return Handled::Yes };
                 let pos = index_at(label, &self.p.text, point.x, point.y);

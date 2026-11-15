@@ -844,6 +844,11 @@ impl SkiaLabel {
                     // Touch: a long press selects, a drag keeps scrolling.
                     return false;
                 }
+                if !gesture.is_primary() {
+                    // A right or middle press leaves the selection as it is, for the context menu
+                    // to act on (DrawnUi.Net 70abfbd2): held while something is selected.
+                    return self.selection.length > 0;
+                }
                 let (time, at) = self.selection.last_click;
                 let second = gesture.time_ms - time < 450.0 && (point - at).length() < 8.0 * cx.base().scale;
                 self.selection.last_click = (if second { f64::NEG_INFINITY } else { gesture.time_ms }, point);
