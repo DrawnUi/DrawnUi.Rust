@@ -5,7 +5,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-drawnui = { path = "../../drawnui" }
+drawnui = { path = "../../drawnui", features = ["http"] }
 drawnui-add3d = { path = "../../drawnui-add3d" }
 glam = "0.30"
 

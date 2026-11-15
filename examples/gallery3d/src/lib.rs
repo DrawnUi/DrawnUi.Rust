@@ -28,6 +28,10 @@ use drawnui::skia::{
 use drawnui_add3d::prelude::*;
 use glam::{EulerRot, Quat};
 
+mod dice;
+mod theme;
+use theme::*;
+
 // Model files and the Earth image: public domain, see assets/MODELS-LICENSE.txt. In the app: the
 // Earth (the globe opens the page, whole as it appears) and the sofa with its fabrics (the product
 // viewer's "In the app" model). Everything else is loaded from the app's files (the browser fetches
@@ -51,31 +55,20 @@ const LOADS_AT_ONCE: usize = 2;
 /// The fonts of the textures drawn in code (the card, the box labels), the UI's own files.
 const FONT_FILE: &str = "assets/OpenSans-Regular.ttf";
 const TITLE_FONT_FILE: &str = "assets/OpenSans-Semibold.ttf";
-/// Titles, headings and button captions: OpenSans Semibold (the .NET gallery's Theme.Title).
-const TITLE: &str = "FontTextTitle";
 
-/// The product viewer's model from a url: the app's site serves it (the browser fetches it,
-/// desktop reads it beside the exe); the broken one shows the error state.
+/// The product viewer's model from a link: in the browser a file of the page's own site,
+/// elsewhere the same file from the demo's site on the web; the broken one shows the error state.
+#[cfg(target_os = "emscripten")]
 const SOFA_URL: &str = "assets/sofa.glb";
-const BROKEN_URL: &str = "assets/no-such-model.glb";
+#[cfg(not(target_os = "emscripten"))]
+const SOFA_URL: &str = "https://add3d.drawnui.net/assets/sofa.glb";
+#[cfg(target_os = "emscripten")]
+const BROKEN_URL: &str = "assets/no-such-sofa.glb";
+#[cfg(not(target_os = "emscripten"))]
+const BROKEN_URL: &str = "https://add3d.drawnui.net/assets/no-such-sofa.glb";
 
-const PAGE: Color = Color::from_rgb(14, 16, 24);
-const CARD: Color = Color::from_rgb(24, 27, 40);
-const LINE: Color = Color::from_rgb(40, 44, 62);
-/// The panel a piece stands on inside its card.
-const STAGE: Color = Color::from_rgb(42, 47, 70);
-const INK: Color = Color::from_rgb(242, 241, 248);
-const MUTED: Color = Color::from_rgb(154, 152, 176);
-const BUTTON: Color = Color::from_rgb(124, 108, 242);
-const ACCENT: Color = Color::from_rgb(255, 196, 61);
-const DANGER: Color = Color::from_rgb(255, 99, 132);
-const HEADER: Color = Color::from_rgb(19, 21, 32);
 /// Narrower canvases put the tabs under the app's name.
 const HEADER_ONE_LINE: f32 = 560.0;
-/// The header tabs: the shown one in the accent, the other quiet.
-const TAB_ON: Color = Color::from_rgb(124, 108, 242);
-const TAB_OFF: Color = Color::from_rgb(52, 56, 78);
-const GOLD: Color = Color::from_rgb(255, 196, 61);
 const GOLD_LIGHT: Color = Color::from_rgb(255, 222, 122);
 const CONFETTI: [Color; 5] = [
     Color::from_rgb(255, 99, 132),
@@ -346,9 +339,9 @@ fn on_globe(lat: f32, lon: f32) -> [f32; 3] {
 
 /// A small random number generator: the same confetti and crowd every run.
 #[derive(Default, Clone, Copy)]
-struct Dice(u32);
+struct Random(u32);
 
-impl Dice {
+impl Random {
     fn next(&mut self) -> f32 {
         self.0 = self.0.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
         (self.0 >> 8) as f32 / (1u32 << 24) as f32
@@ -440,6 +433,8 @@ struct App {
     pin_names: [Handle<SkiaShape>; 6],
     open_pin: Option<usize>,
     spin_paused: bool,
+    /// The city picked in the list (its button lit).
+    city: Option<usize>,
     /// Turning the globe to a city: from (yaw, pitch), to, seconds into it.
     globe_glide: Option<((f32, f32), (f32, f32), f32)>,
     // Sign-up form.
@@ -468,7 +463,9 @@ struct App {
     loads: Vec<(&'static str, bool)>,
     /// The covers' spinners turn.
     spinning: bool,
-    smooth_edges: bool,
+    /// The small menu of selected text, while it is open.
+    text_menu: Option<PopupId>,
+    dice: dice::DiceState,
     // Model files.
     chest: Handle<SkiaModel3D>,
     open: bool,
@@ -481,7 +478,7 @@ struct App {
     mobs: usize,
     /// The mobs drawn like an illustration (`DRAWN_MOBS`) instead of shaded.
     mobs_drawn: bool,
-    dice: Dice,
+    random: Random,
 }
 
 fn ease_in_out(t: f32) -> f32 {
@@ -491,35 +488,29 @@ fn ease_in_out(t: f32) -> f32 {
 
 // ---------------------------------------------------------------- building blocks
 
-fn tile(title: &str, caption: &str, model: impl IntoChildren, footer: impl IntoChildren) -> Build<SkiaShape> {
-    SkiaShape::new()
-        .width_request(300)
-        .corner_radius(16)
-        .background_color(CARD)
-        .stroke_color(LINE)
-        .stroke_width(1)
-        .padding(16)
-        .children((SkiaLayout::column().fill_x().spacing(8).children((
-            SkiaLabel::new(title).font_size(18).font_family(TITLE).text_color(INK),
-            SkiaLabel::new(caption).font_size(13).text_color(MUTED).height_request(36),
-            SkiaShape::new().corner_radius(12).background_color(STAGE).fill_x().height_request(RAIN.1).children(model),
-            SkiaLayout::row().spacing(8).horizontal_options(LayoutOptions::Center).children(footer),
-        )),))
+/// A small card raised from the page: its title and caption, the 3D piece on its sunk stage, the
+/// button that drives it.
+fn tile(title: &str, caption: &str, model: impl IntoChildren, button: Build<Button3D>) -> Build<SkiaShape> {
+    raised(SkiaShape::new().width_request(300).corner_radius(16).padding(16)).children((SkiaLayout::column().fill_x().spacing(10).children((
+        SkiaLayout::column().fill_x().spacing(4).use_cache(CacheType::Image).children((
+            copyable(title).font_size(18).font_family(TITLE).text_color(INK).accessibility_role(Aria::HEADING),
+            copyable(caption).font_size(13).text_color(MUTED).height_request(36),
+        )),
+        sunk(SkiaShape::new().corner_radius(14).background_color(STAGE).fill_x().height_request(RAIN.1)).children(model),
+        button.horizontal_options(LayoutOptions::Center),
+    )),))
 }
 
-/// A wide card for one screen: a title, a caption, and what it shows.
+/// A wide card raised from the page for one screen: a title, a caption, and what it shows.
 fn panel(title: &str, caption: &str, content: impl IntoChildren) -> Build<SkiaShape> {
-    SkiaShape::new()
-        .corner_radius(16)
-        .background_color(CARD)
-        .stroke_color(LINE)
-        .stroke_width(1)
-        .padding(20)
-        .horizontal_options(LayoutOptions::Center)
-        .maximum_width_request(PANEL + 42.0)
-        .children((SkiaLayout::column().spacing(10).fill_x().children((
-            SkiaLabel::new(title).font_size(20).font_family(TITLE).text_color(INK),
-            SkiaLabel::new(caption).font_size(14).text_color(MUTED),
+    raised(SkiaShape::new().corner_radius(16).padding(20).horizontal_options(LayoutOptions::Center).maximum_width_request(PANEL + 42.0)).children((SkiaLayout::column()
+        .spacing(10)
+        .fill_x()
+        .children((
+            SkiaLayout::column().fill_x().spacing(10).use_cache(CacheType::Image).children((
+                copyable(title).font_size(20).font_family(TITLE).text_color(INK).accessibility_role(Aria::HEADING),
+                copyable(caption).font_size(14).text_color(MUTED),
+            )),
             SkiaLayout::column().fill_x().margin((0.0, 6.0, 0.0, 0.0)).children(content),
         )),))
 }
@@ -561,24 +552,14 @@ fn left_column<T: Control>(b: Build<T>, width: f32, height: f32) -> Build<T> {
     })
 }
 
-/// A button with its caption in the title font (the .NET gallery's UiButton).
-fn ui_button(caption: impl Into<String>) -> Build<SkiaButton> {
-    SkiaButton::new(caption).font_family(TITLE)
-}
-
-/// A Boss fight button as the .NET gallery's UiButton: a fixed width, 40 tall, the caption at 14
-/// with no side padding (three to a row on a phone, "Headbutt" on one line).
-fn boss_button(caption: &'static str, width: f32) -> Build<SkiaButton> {
-    ui_button(caption).width_request(width).height_request(40).font_size(14).padding((0.0, 0.0))
-}
-
-fn button(caption: &str) -> Build<SkiaButton> {
-    ui_button(caption).width_request(150).background_color(BUTTON)
-}
-
-/// A small choice button: filled when chosen (`chosen` reads the app state).
-fn chip(caption: &str, chosen: impl Fn(&App) -> bool + 'static) -> Build<SkiaButton> {
-    ui_button(caption).observe(move |me, app: &App| me.set_background_color(if chosen(app) { BUTTON } else { STAGE }))
+/// A choice among others (a radio): the accent when chosen (`chosen` reads the app state), quiet
+/// otherwise; `width` `None` = as wide as its caption.
+fn choice(caption: &str, width: Option<f32>, chosen: impl Fn(&App) -> bool + 'static) -> Build<Button3D> {
+    Button3D::new(caption, QUIET, width).accessibility_role(Aria::RADIO).observe(move |me, app: &App| {
+        let on = chosen(app);
+        me.set_fill(if on { ACCENT } else { QUIET });
+        me.set_accessibility_is_pressed(Some(on));
+    })
 }
 
 /// A piece made in code in real 3D (the default Lit look: shaded by a light, in perspective), turned
@@ -587,27 +568,27 @@ fn shaded(model: &Model3D, yaw: f32, pitch: f32) -> Build<SkiaModel3D> {
     SkiaModel3D::from_model(model).orbit(false).view_angles(yaw, pitch).fill()
 }
 
-fn section(title: &str, caption: &str) -> Build<SkiaLayout> {
-    SkiaLayout::column().spacing(4).horizontal_options(LayoutOptions::Center).margin((0.0, 12.0, 0.0, 0.0)).children((
-        SkiaLabel::new(title).font_size(22).font_family(TITLE).text_color(INK).horizontal_options(LayoutOptions::Center),
-        SkiaLabel::new(caption).font_size(14).text_color(MUTED).horizontal_options(LayoutOptions::Center),
-    ))
-}
-
 /// A round marker anchored to a 3D point: a hotspot or a pin, with an optional number. Starts
 /// hidden until placed.
 fn marker(size: f32, color: Color, name: &str, number: Option<usize>) -> Build<SkiaShape> {
     SkiaShape::new()
-        .children(number.map(|n| SkiaLabel::new(n.to_string()).font_size(13).text_color(Color::WHITE).horizontal_options(LayoutOptions::Center).vertical_options(LayoutOptions::Center)).into_iter().collect::<Vec<_>>())
+        .children(
+            number
+                .map(|n| SkiaLabel::new(n.to_string()).font_size(12).font_family(TITLE).text_color(darker(color, 0.4)).horizontal_options(LayoutOptions::Center).vertical_options(LayoutOptions::Center))
+                .into_iter()
+                .collect::<Vec<_>>(),
+        )
         .shape_type(ShapeType::Circle)
         .width_request(size)
         .height_request(size)
-        .background_color(color)
-        .stroke_color(Color::WHITE)
+        .background_color(Color::WHITE)
+        .stroke_color(color)
         .stroke_width(3)
+        .shadows(vec![SkiaShadow::new(Color::BLACK).y(2).blur(4).opacity(0.35)])
         .is_visible(false)
         .accessibility_role(Aria::BUTTON)
-        .accessibility_label(name)
+        .accessibility_label(format!("{name}, hotspot"))
+        .accessibility_hint("Shows a note about this part")
         .on_hovered(|me, _app: &mut App, _cx, on| {
             me.set_scale_x(if on { 1.2 } else { 1.0 });
             me.set_scale_y(if on { 1.2 } else { 1.0 });
@@ -710,8 +691,8 @@ fn viewer(source: Source, handle: &mut Handle<SkiaModel3D>) -> Build<SkiaModel3D
         Source::Broken => SkiaModel3D::from_url(BROKEN_URL),
     };
     model
+        .accessibility_role(Aria::IMG).accessibility_label("Walnut sofa, 3D view")
         .view_angles(28.0, 14.0)
-        .zoom(0.95)
         .pinch_zoom(true)
         .min_zoom(0.55)
         .max_zoom(1.8)
@@ -749,11 +730,13 @@ fn set_source(app: &mut App, cx: &mut Cx, source: Source) {
     apply_swatch(app, cx);
 }
 
+/// A small caps heading in the viewer's side panel.
+fn panel_label(text: &str) -> Build<SkiaLabel> {
+    copyable(text).font_size(12).font_family(TITLE).text_color(MUTED).character_spacing(1.5).margin((0.0, 8.0, 0.0, 0.0))
+}
+
 fn product_viewer(app: &mut App) -> Build<SkiaShape> {
-    let stage = left_column(SkiaShape::new(), VIEW.0, VIEW.1)
-        .corner_radius(14)
-        .background_color(STAGE)
-        .is_clipped_to_bounds(true)
+    let stage = sunk(left_column(SkiaShape::new(), VIEW.0, VIEW.1).corner_radius(14).background_color(STAGE).is_clipped_to_bounds(true))
         .children((
             // Narrow, the hint below wraps to two lines: the model keeps clear of it.
             SkiaLayout::new()
@@ -773,7 +756,7 @@ fn product_viewer(app: &mut App) -> Build<SkiaShape> {
                         .shape_type(ShapeType::Arc)
                         .width_request(40)
                         .height_request(40)
-                        .stroke_color(BUTTON)
+                        .stroke_color(ACCENT)
                         .stroke_width(4)
                         .value2(270.0)
                         .horizontal_options(LayoutOptions::Center)
@@ -784,7 +767,7 @@ fn product_viewer(app: &mut App) -> Build<SkiaShape> {
             SkiaShape::new()
                 .corner_radius(12)
                 .background_color(CARD)
-                .stroke_color(DANGER)
+                .stroke_color(BAD)
                 .stroke_width(1)
                 .padding(18)
                 .horizontal_options(LayoutOptions::Center)
@@ -792,7 +775,7 @@ fn product_viewer(app: &mut App) -> Build<SkiaShape> {
                 .is_visible(false)
                 .observe(|me, app: &App| me.set_is_visible(app.load == LoadState3D::Failed))
                 .children((SkiaLayout::row().spacing(14).children((
-                    SkiaShape::new().shape_type(ShapeType::Circle).width_request(36).height_request(36).background_color(DANGER).children((SkiaLabel::new("!").font_family(TITLE)
+                    SkiaShape::new().shape_type(ShapeType::Circle).width_request(36).height_request(36).background_color(BAD).children((SkiaLabel::new("!").font_family(TITLE)
                         .font_size(22)
                         .text_color(Color::WHITE)
                         .horizontal_options(LayoutOptions::Center)
@@ -800,7 +783,7 @@ fn product_viewer(app: &mut App) -> Build<SkiaShape> {
                     SkiaLayout::column().spacing(8).children((
                         SkiaLabel::new("The model could not be loaded").font_size(16).font_family(TITLE).text_color(INK),
                         SkiaLabel::new("").font_size(12).text_color(MUTED).observe(|me, app: &App| me.set_text(format!("{BROKEN_URL}: {}", app.load_error))),
-                        ui_button("Use the app's copy").background_color(BUTTON).on_tapped(|_me, app: &mut App, cx| set_source(app, cx, Source::App)),
+                        Button3D::new("Use the app's copy", ACCENT, Some(180.0)).on_tapped(|_me, app: &mut App, cx| set_source(app, cx, Source::App)),
                     )),
                 )),)),
             // Hotspots and their notes.
@@ -808,7 +791,7 @@ fn product_viewer(app: &mut App) -> Build<SkiaShape> {
                 (0..3)
                     .flat_map(|i| {
                         [
-                            marker(26.0, BUTTON, SPOTS[i].title, Some(i + 1)).assign(&mut app.spots[i]).on_tapped(move |_me, app: &mut App, cx| {
+                            marker(26.0, ACCENT, SPOTS[i].title, Some(i + 1)).assign(&mut app.spots[i]).on_tapped(move |_me, app: &mut App, cx| {
                                 app.open_spot = if app.open_spot == Some(i) { None } else { Some(i) };
                                 place_spots(app, cx, None);
                             }),
@@ -817,7 +800,7 @@ fn product_viewer(app: &mut App) -> Build<SkiaShape> {
                     })
                     .collect::<Vec<_>>(),
             ),
-            SkiaLabel::new("Drag to turn  ·  pinch or Ctrl+scroll to zoom  ·  double-tap to reset")
+            copyable("Drag to turn  ·  pinch or Ctrl+scroll to zoom  ·  double-tap to reset")
                 .font_size(12)
                 .text_color(MUTED)
                 .horizontal_text_alignment(TextAlignment::Center)
@@ -826,10 +809,10 @@ fn product_viewer(app: &mut App) -> Build<SkiaShape> {
                 .margin((0.0, 0.0, 0.0, 10.0)),
         ));
     let side = SkiaLayout::column().spacing(12).fill_x().children((
-        SkiaLabel::new("Walnut sofa").font_size(24).font_family(TITLE).text_color(INK),
-        SkiaLabel::new("Three-seater, carved walnut frame").font_size(13).text_color(MUTED),
-        SkiaLabel::new(dollars(SWATCHES[0].4)).font_size(18).font_family(TITLE).text_color(ACCENT).observe(|me, app: &App| me.set_text(dollars(app.price_shown))),
-        SkiaLabel::new("FABRIC").font_size(12).font_family(TITLE).text_color(MUTED).margin((0.0, 8.0, 0.0, 0.0)),
+        copyable("Walnut sofa").font_size(24).font_family(TITLE).text_color(INK).accessibility_role(Aria::HEADING),
+        copyable("Three-seater, carved walnut frame").font_size(13).text_color(MUTED),
+        copyable(&dollars(SWATCHES[0].4)).font_size(18).font_family(TITLE).text_color(GOLD).observe(|me, app: &App| me.set_text(dollars(app.price_shown))),
+        panel_label("FABRIC"),
         SkiaLayout::wrap().spacing(14).children(
             (0..SWATCHES.len())
                 .map(|i| {
@@ -852,18 +835,18 @@ fn product_viewer(app: &mut App) -> Build<SkiaShape> {
                                 app.swatch = i;
                                 apply_swatch(app, cx);
                             }),
-                        SkiaLabel::new(SWATCHES[i].0).font_size(12).text_color(MUTED).horizontal_options(LayoutOptions::Center),
+                        copyable(SWATCHES[i].0).font_size(12).text_color(MUTED).horizontal_options(LayoutOptions::Center),
                     ))
                 })
                 .collect::<Vec<_>>(),
         ),
-        SkiaLabel::new("MODEL").font_size(12).font_family(TITLE).text_color(MUTED).margin((0.0, 8.0, 0.0, 0.0)),
-        SkiaLayout::wrap().spacing(8).children((
-            chip("In the app", |app| app.source == Source::App).accessibility_role(Aria::RADIO).on_tapped(|_me, app: &mut App, cx| set_source(app, cx, Source::App)),
-            chip("From a link", |app| app.source == Source::Url).accessibility_role(Aria::RADIO).on_tapped(|_me, app: &mut App, cx| set_source(app, cx, Source::Url)),
-            chip("Broken link", |app| app.source == Source::Broken).accessibility_role(Aria::RADIO).on_tapped(|_me, app: &mut App, cx| set_source(app, cx, Source::Broken)),
+        panel_label("MODEL"),
+        SkiaLayout::wrap().spacing(8).accessibility_role(Aria::RADIO_GROUP).accessibility_label("Load the model").children((
+            choice("In the app", None, |app| app.source == Source::App).on_tapped(|_me, app: &mut App, cx| set_source(app, cx, Source::App)),
+            choice("From a link", None, |app| app.source == Source::Url).on_tapped(|_me, app: &mut App, cx| set_source(app, cx, Source::Url)),
+            choice("Broken link", None, |app| app.source == Source::Broken).on_tapped(|_me, app: &mut App, cx| set_source(app, cx, Source::Broken)),
         )),
-        ui_button("Reset view").background_color(STAGE).on_tapped(|_me, app: &mut App, cx| {
+        Button3D::new("Reset view", QUIET, Some(140.0)).accessibility_hint("Turns the sofa back to the front").on_tapped(|_me, app: &mut App, cx| {
             if let Some(mut viewer) = cx.get_mut(app.viewer) {
                 viewer.reset_view();
             }
@@ -923,18 +906,19 @@ fn product_list(app: &mut App) -> Build<SkiaShape> {
                         .vertical_options(LayoutOptions::Center)
                         .children((thumb, cover(app, model, STAGE, 10.0, true))),
                     SkiaLayout::column().spacing(2).vertical_options(LayoutOptions::Center).children((
-                        SkiaLabel::new(format!("{name}, {finish}")).font_size(15).text_color(INK),
-                        SkiaLabel::new(if i >= 15 { format!("{detail} · large") } else { detail.to_owned() }).font_size(12).text_color(MUTED),
-                        SkiaLabel::new(dollars((price + extra + if i >= 15 { 120 } else { 0 }) as f32)).font_size(14).text_color(ACCENT),
+                        copyable(&format!("{name}, {finish}")).font_size(15).text_color(INK),
+                        copyable(&if i >= 15 { format!("{detail} · large") } else { detail.to_owned() }).font_size(12).text_color(MUTED),
+                        copyable(&dollars((price + extra + if i >= 15 { 120 } else { 0 }) as f32)).font_size(14).text_color(GOLD),
                     )),
-                    ui_button("Add")
-                        .width_request(120)
+                    Button3D::new("+ Add", QUIET, Some(120.0))
+                        .accessibility_label(format!("Add {name}, {finish} to the cart"))
                         .horizontal_options(LayoutOptions::End)
                         .vertical_options(LayoutOptions::Center)
                         .observe(move |me, app: &App| {
                             let added = app.added.get(i).copied().unwrap_or(false);
-                            me.set_text(if added { "In the cart" } else { "Add" });
-                            me.set_background_color(if added { STAGE } else { BUTTON });
+                            me.set_text(if added { "In the cart" } else { "+ Add" });
+                            me.set_accessibility_label(if added { format!("Remove {name}, {finish} from the cart") } else { format!("Add {name}, {finish} to the cart") });
+                            me.set_fill(if added { ACCENT } else { QUIET });
                         })
                         .on_tapped(move |_me, app: &mut App, _cx| {
                             if let Some(added) = app.added.get_mut(i) {
@@ -949,7 +933,7 @@ fn product_list(app: &mut App) -> Build<SkiaShape> {
         "Thirty pieces of furniture, each with a live 3D thumbnail: point at a row to turn it, or drag a thumbnail sideways. Rows off screen draw nothing.",
         (
             SkiaLayout::wrap().spacing(8).fill_x().margin((0.0, 0.0, 0.0, 8.0)).children((
-                SkiaLabel::new("Shop").font_size(18).font_family(TITLE).text_color(INK),
+                copyable("Shop").font_size(18).font_family(TITLE).text_color(INK).accessibility_role(Aria::HEADING),
                 SkiaLabel::new("")
                     .font_size(13)
                     .text_color(MUTED)
@@ -957,15 +941,15 @@ fn product_list(app: &mut App) -> Build<SkiaShape> {
                     .vertical_options(LayoutOptions::Center)
                     .observe(|me, app: &App| me.set_text(format!("3D thumbnails drawn now: {} of {ROWS}", app.thumbs_drawn))),
             )),
-            SkiaShape::new().corner_radius(12).background_color(PAGE).fill_x().height_request(440).is_clipped_to_bounds(true).children((SkiaScroll::new()
+            sunk(SkiaShape::new().corner_radius(12).background_color(PAGE).fill_x().height_request(440).is_clipped_to_bounds(true)).children((SkiaScroll::new()
                 .fill()
                 // A bar to drag through the thirty rows, as the .NET gallery's shop.
-                .scroll_bar_thumb_color(BUTTON)
-                .scroll_bar_track_color(Color::from_argb(34, 255, 255, 255))
+                .scroll_bar_thumb_color(MUTED)
+                .scroll_bar_track_color(Color::from_argb(18, 255, 255, 255))
                 // Shown at rest too, as the .NET shop (a bar that only shows while scrolling is easy
                 // to miss on a phone).
                 .keep_scroll_bars_visible(true)
-                .scroll_bar(SkiaScrollBar::new().is_draggable(true).thickness(8))
+                .scroll_bar(SkiaScrollBar::new().is_draggable(true).thickness(6))
                 .content(SkiaLayout::column().fill_x().spacing(2).children(rows)),)),
         ),
     )
@@ -986,19 +970,24 @@ fn card_flip(app: &mut App) -> Build<SkiaShape> {
         "Card flip",
         "A loyalty card in 3D: it leans toward the pointer and turns over to show its back.",
         (split((
-            left_column(SkiaShape::new(), VIEW.0, VIEW.1).corner_radius(14).background_color(STAGE).children((SkiaModel3D::from_model(&card())
+            sunk(left_column(SkiaShape::new(), VIEW.0, VIEW.1).corner_radius(14).background_color(STAGE)).children((SkiaModel3D::from_model(&card())
+                .accessibility_role(Aria::IMG).accessibility_label("Drawn Rewards Gold card, 3D view")
                 .view_angles(0.0, 0.0)
-                .zoom(0.74)
                 .tilt_to_pointer(14.0)
                 .antialias(true)
                 .fill()
                 .assign(&mut app.card)
                 .on_tapped_3d(|_me, app: &mut App, _cx, _hit| flip(app)), cover(app, FONTS, STAGE, 14.0, false))),
             SkiaLayout::column().spacing(12).fill_x().children((
-                SkiaLabel::new("Drawn Rewards Gold").font_size(24).font_family(TITLE).text_color(INK),
-                SkiaLabel::new("12,480 points · member since 2021").font_size(14).text_color(MUTED),
-                SkiaLabel::new("Both faces are images drawn in code with Skia and put on the card's two halves.").font_size(13).text_color(MUTED),
-                button("Show the back").width_request(170).observe(|me, app: &App| me.set_text(if app.back_shown { "Show the front" } else { "Show the back" })).on_tapped(|_me, app: &mut App, _cx| flip(app)),
+                SkiaLayout::column().fill_x().spacing(4).use_cache(CacheType::Image).children((
+                    copyable("Drawn Rewards Gold").font_size(24).font_family(TITLE).text_color(INK).accessibility_role(Aria::HEADING),
+                    copyable("12,480 points · member since 2021").font_size(14).text_color(MUTED),
+                    copyable("Both faces are images drawn in code with Skia and put on the card's two halves.").font_size(13).text_color(MUTED).margin((0.0, 10.0, 0.0, 0.0)),
+                )),
+                Button3D::new("Show the back", ACCENT, Some(160.0))
+                    .accessibility_hint("Turns the card over")
+                    .observe(|me, app: &App| me.set_text(if app.back_shown { "Show the front" } else { "Show the back" }))
+                    .on_tapped(|_me, app: &mut App, _cx| flip(app)),
             )),
         )),),
     )
@@ -1006,7 +995,8 @@ fn card_flip(app: &mut App) -> Build<SkiaShape> {
 
 // ---------------------------------------------------------------- 4. globe with pins
 
-/// Stops the spin and glides (0.6 s) the globe round until the city faces the viewer.
+/// Glides (0.6 s) the globe round until the city faces the viewer; a spinning globe goes on
+/// spinning after.
 fn turn_to_city(app: &mut App, cx: &mut Cx, city: usize) {
     let (_, _, lat, lon) = CITIES[city];
     let [x, _, z] = on_globe(lat, lon);
@@ -1016,10 +1006,6 @@ fn turn_to_city(app: &mut App, cx: &mut Cx, city: usize) {
     // The short way round.
     let to = (from.0 + ((to.0 - from.0 + 540.0).rem_euclid(360.0) - 180.0), to.1);
     app.globe_glide = Some((from, to, 0.0));
-    app.spin_paused = true;
-    if let Some(mut globe) = cx.get_mut(app.globe) {
-        globe.set_auto_rotate(0.0);
-    }
     place_pins(app, cx, None);
 }
 
@@ -1132,14 +1118,18 @@ fn place_pins(app: &App, cx: &mut Cx, model: Option<&SkiaModel3D>) {
 }
 
 fn globe_with_pins(app: &mut App) -> Build<SkiaShape> {
-    let stage = left_column(SkiaShape::new(), VIEW.0, VIEW.1).corner_radius(14).background_color(Color::from_rgb(8, 10, 22)).is_clipped_to_bounds(true).children((
+    let stage = sunk(left_column(SkiaShape::new(), VIEW.0, VIEW.1).corner_radius(14).background_color(Color::from_rgb(8, 10, 22)).is_clipped_to_bounds(true)).children((
         SkiaModel3D::from_model(&globe())
+            .accessibility_role(Aria::IMG).accessibility_label("Globe with office pins, 3D view")
             .view_angles(-20.0, 15.0)
-            .zoom(0.9)
+            // A little away from the tight fit: the globe sits in space with room around it.
+            .zoom(1.15)
             .auto_rotate(10.0)
+            // A swipe keeps the Earth turning, slowing as a scroll does.
+            .fling(true)
             .pinch_zoom(true)
             .min_zoom(0.6)
-            .max_zoom(1.6)
+            .max_zoom(2.2)
             .reset_on_double_tap(true)
             .antialias(true)
             .material_image("earth", Texture3D::decode(EARTH).expect("the Earth picture"))
@@ -1165,26 +1155,32 @@ fn globe_with_pins(app: &mut App) -> Build<SkiaShape> {
         (split((
             stage,
             SkiaLayout::column().spacing(10).fill_x().children((
-                SkiaLabel::new("Offices").font_size(24).font_family(TITLE).text_color(INK),
-                SkiaLabel::new("Pick a city to turn the globe to it, or tap a pin.").font_size(13).text_color(MUTED),
-                SkiaLayout::wrap().spacing(8).children(
+                SkiaLayout::column().fill_x().spacing(4).use_cache(CacheType::Image).children((
+                    copyable("Our offices").font_size(24).font_family(TITLE).text_color(INK).accessibility_role(Aria::HEADING),
+                    copyable("Pick a city to turn the globe to it, or tap a pin.").font_size(13).text_color(MUTED),
+                )),
+                SkiaLayout::wrap().spacing(8).accessibility_role(Aria::RADIO_GROUP).accessibility_label("Cities").children(
                     (0..CITIES.len())
                         .map(|i| {
-                            chip(CITIES[i].0, move |app| app.open_pin == Some(i)).accessibility_role(Aria::RADIO).on_tapped(move |_me, app: &mut App, cx| {
-                                app.open_pin = Some(i);
+                            choice(CITIES[i].0, None, move |app| app.city == Some(i)).on_tapped(move |_me, app: &mut App, cx| {
+                                (app.open_pin, app.city) = (Some(i), Some(i));
                                 turn_to_city(app, cx, i);
                             })
                         })
                         .collect::<Vec<_>>(),
                 ),
-                ui_button("Pause spin").background_color(STAGE).observe(|me, app: &App| me.set_text(if app.spin_paused { "Spin" } else { "Pause spin" })).on_tapped(|_me, app: &mut App, cx| {
-                    app.spin_paused = !app.spin_paused;
-                    app.globe_glide = None;
-                    if let Some(mut globe) = cx.get_mut(app.globe) {
-                        globe.set_auto_rotate(if app.spin_paused { 0.0 } else { 10.0 });
-                    }
-                }),
-                SkiaLabel::new("Image: NASA Blue Marble").font_size(12).text_color(MUTED),
+                // The globe turning by itself: on from the start, a turn to a city keeps it going.
+                SkiaLayout::row().spacing(10).margin((0.0, 6.0, 0.0, 0.0)).children((
+                    SkiaLabel::new("Spin").font_size(14).font_family(TITLE).text_color(INK).vertical_options(LayoutOptions::Center).accessibility_role(Aria::PRESENTATION),
+                    Switch3D::new(true, "Spin").vertical_options(LayoutOptions::Center).accessibility_hint("The globe turns by itself").on_tapped(|me, app: &mut App, cx| {
+                        app.spin_paused = !app.spin_paused;
+                        me.set_on(!app.spin_paused);
+                        if let Some(mut globe) = cx.get_mut(app.globe) {
+                            globe.set_auto_rotate(if app.spin_paused { 0.0 } else { 10.0 });
+                        }
+                    }),
+                )),
+                copyable("Image: NASA Blue Marble").font_size(12).text_color(MUTED),
             )),
         )),),
     )
@@ -1286,19 +1282,17 @@ fn form_field(placeholder: &str, which: Field) -> Build<SkiaEditor> {
 }
 
 fn sign_up(app: &mut App) -> Build<SkiaShape> {
-    let form = SkiaShape::new()
-        .corner_radius(14)
-        .background_color(PAGE)
-        .padding(24)
-        .width_request(420)
+    let form = sunk(SkiaShape::new().corner_radius(14).background_color(PAGE).padding(24).width_request(420))
+        // The form beside a mascot that moves every frame: blitted, drawn again when a field changes.
+        .use_cache(CacheType::Image)
         .observe(|me, app: &App| {
             let wide = two_columns(app);
             me.set_width_request(if wide { 420.0 } else { -1.0 });
             me.set_horizontal_options(if wide { LayoutOptions::Start } else { LayoutOptions::Fill });
         })
         .children((SkiaLayout::column().spacing(12).fill_x().children((
-        SkiaLabel::new("Create your account").font_size(22).font_family(TITLE).text_color(INK),
-        SkiaLabel::new("It takes a minute. Our mascot will not peek at your password.").font_size(13).text_color(MUTED),
+        copyable("Create your account").font_size(22).font_family(TITLE).text_color(INK).accessibility_role(Aria::HEADING),
+        copyable("It takes a minute. Our mascot will not peek at your password.").font_size(13).text_color(MUTED),
         form_field("Name", Field::Name).on_text_changed(|_me, app: &mut App, cx, text| {
             app.name = text.to_owned();
             pose_mascot(app, cx);
@@ -1308,7 +1302,7 @@ fn sign_up(app: &mut App) -> Build<SkiaShape> {
             pose_mascot(app, cx);
         }),
         form_field("Password", Field::Password).is_password(true).on_text_changed(|_me, app: &mut App, _cx, text| app.password_len = text.chars().count()),
-        button("Sign up").fill_x().on_tapped(|_me, app: &mut App, cx| {
+        Button3D::new("Sign up", ACCENT, Some(-1.0)).fill_x().on_tapped(|_me, app: &mut App, cx| {
             app.problem = sign_up_problem(app);
             app.signed_up = app.problem.is_none();
             app.focused = None;
@@ -1317,13 +1311,13 @@ fn sign_up(app: &mut App) -> Build<SkiaShape> {
                 mascot.play_once(if app.signed_up { "CharacterArmature|Wave" } else { "CharacterArmature|No" });
             }
         }),
-        SkiaLabel::new("").font_size(14).text_color(ACCENT).observe(|me, app: &App| {
+        SkiaLabel::new("").font_size(14).text_color(GOLD).height_request(20).accessibility_live(Aria::LIVE_POLITE).observe(|me, app: &App| {
             me.set_text(match (app.signed_up, app.problem) {
                 (true, _) => format!("Welcome aboard, {}!", app.name.trim()),
                 (false, Some(problem)) => problem.to_owned(),
                 _ => String::new(),
             });
-            me.set_text_color(if app.signed_up { ACCENT } else { DANGER });
+            me.set_text_color(if app.signed_up { GOLD } else { BAD });
         }),
     )),));
     panel(
@@ -1331,15 +1325,14 @@ fn sign_up(app: &mut App) -> Build<SkiaShape> {
         "A plain sign-up form with a 3D mascot beside it: it watches what you type and looks away from your password.",
         (split((
             form,
-            SkiaShape::new()
-                .corner_radius(14)
-                .background_color(STAGE)
-                .fill_x()
-                .height_request(VIEW.1)
+            sunk(SkiaShape::new().corner_radius(14).background_color(STAGE).fill_x().height_request(VIEW.1))
                 .observe(|me, app: &App| me.set_height_request(if two_columns(app) { VIEW.1 } else { STACKED_VIEW }))
                 .children((SkiaModel3D::from_url("")
+                .accessibility_role(Aria::IMG).accessibility_label("Sign-up mascot, 3D view")
                 .on_load_state(|_me, app: &mut App, cx, state| loaded(app, cx, AVATAR, state))
                 .animation("CharacterArmature|Idle")
+                // Framed for what it does here, not for the file's jumps and falls it never plays.
+                .frame_animations(&["CharacterArmature|Idle", "CharacterArmature|Wave", "CharacterArmature|No"])
                 // Seen from its left: it faces the form, which is to the left on screen.
                 .view_angles(MASCOT_YAW, 8.0)
                 .orbit(false)
@@ -1437,7 +1430,7 @@ fn game_loop(game: &mut Mut<'_, DrawnGame>, app: &mut App, cx: &mut Cx, delta: f
         && let Some(mut rain) = cx.get_mut(app.rain)
     {
         for i in 0..28 {
-            let d = &mut app.dice;
+            let d = &mut app.random;
             let p = Piece { x: d.next() * RAIN.0, y: d.next() * RAIN.1, fall: 40.0 + d.next() * 50.0, sway: d.next() * TAU, spin: 120.0 + d.next() * 300.0, facing: d.next() * 360.0 };
             let name = format!("c{i}");
             rain.add(&name, if i % 4 == 0 { "star" } else { "paper" }, p.x, p.y, if i % 4 == 0 { 18.0 } else { 11.0 });
@@ -1469,7 +1462,7 @@ fn game_loop(game: &mut Mut<'_, DrawnGame>, app: &mut App, cx: &mut Cx, delta: f
         field.clear();
         app.walkers.clear();
         for i in 0..app.mobs {
-            let d = &mut app.dice;
+            let d = &mut app.random;
             let w = Walker { x: d.next() * FIELD.0, y: GROUND.0 + 10.0 + d.next() * (GROUND.1 - GROUND.0 - 10.0), speed: (if d.next() < 0.5 { -1.0 } else { 1.0 }) * (30.0 + d.next() * 50.0) };
             let name = format!("m{i}");
             // The model is still loading: placed in a later frame.
@@ -1659,7 +1652,7 @@ fn cover(app: &mut App, key: &'static str, color: Color, radius: f32, small: boo
         .shape_type(ShapeType::Arc)
         .width_request(size)
         .height_request(size)
-        .stroke_color(BUTTON)
+        .stroke_color(ACCENT)
         .stroke_width(3)
         .value2(270.0)
         .horizontal_options(LayoutOptions::Center)
@@ -1840,10 +1833,14 @@ fn boss_caption(text: &str) -> Build<SkiaLabel> {
     SkiaLabel::new(text).font_size(13).text_color(BOSS_MUTED).horizontal_options(LayoutOptions::Center).accessibility_role(Aria::HEADING)
 }
 
-fn move_button((caption, animation, kind): (&'static str, &'static str, MoveKind)) -> Build<SkiaButton> {
-    boss_button(caption, 100.0)
-        .background_color(BOSS_BUTTON)
-        .observe(move |me, app: &App| me.set_background_color(if app.boss_lit == caption { MOVES_ACCENT } else { BOSS_BUTTON }))
+fn move_button((caption, animation, kind): (&'static str, &'static str, MoveKind)) -> Build<Button3D> {
+    Button3D::new(caption, BOSS_BUTTON, Some(100.0))
+        .observe(move |me, app: &App| {
+            let lit = app.boss_lit == caption;
+            me.set_fill(if lit { MOVES_ACCENT } else { BOSS_BUTTON });
+            // The lit move reads as pressed to screen readers.
+            me.set_accessibility_is_pressed(Some(lit));
+        })
         .on_tapped(move |_me, app: &mut App, cx| {
             if let Some(mut boss) = cx.get_mut(app.boss) {
                 match kind {
@@ -1865,16 +1862,13 @@ fn move_button((caption, animation, kind): (&'static str, &'static str, MoveKind
         })
 }
 
-fn skin_button((caption, color): (&'static str, Option<Color>)) -> Build<SkiaButton> {
+fn skin_button((caption, color): (&'static str, Option<Color>)) -> Build<Button3D> {
     let swatch = color.unwrap_or(EMBER);
-    boss_button(caption, 100.0)
-        .background_color(BOSS_BUTTON)
-        .stroke_color(swatch)
-        .stroke_width(2)
+    Button3D::outlined(caption, BOSS_BUTTON, Some(100.0), swatch, 2.0)
         .accessibility_role(Aria::RADIO)
         .observe(move |me, app: &App| {
             let on = app.boss_skin == caption;
-            me.set_background_color(if on { swatch } else { BOSS_BUTTON });
+            me.set_fill(if on { swatch } else { BOSS_BUTTON });
             me.set_accessibility_is_pressed(Some(on));
         })
         .on_tapped(move |_me, app: &mut App, cx| {
@@ -1898,17 +1892,17 @@ fn boss_page(app: &mut App) -> Build<SkiaLayout> {
         }),
         SkiaGrid::new().fill().padding(20).row_spacing(10).row_definitions("Auto,*,Auto,Auto").children((
             SkiaLayout::column().spacing(8).fill_x().use_cache(CacheType::Image).row(0).children((
-                SkiaLabel::new("BOSS FIGHT").font_size(30).font_family(TITLE).text_color(Color::WHITE).horizontal_options(LayoutOptions::Center).accessibility_role(Aria::HEADING),
-                SkiaLabel::new("A glTF model drawn in 3D inside DrawnUI, driven by the app. Drag it to turn it, tap it to hit it.")
+                copyable("BOSS FIGHT").font_size(30).font_family(TITLE).text_color(Color::WHITE).horizontal_options(LayoutOptions::Center).accessibility_role(Aria::HEADING),
+                copyable("A glTF model drawn in 3D inside DrawnUI, driven by the app. Drag it to turn it, tap it to hit it.")
                     .font_size(15)
                     .text_color(BOSS_MUTED)
                     .horizontal_text_alignment(TextAlignment::Center)
                     .horizontal_options(LayoutOptions::Center),
             )),
             SkiaModel3D::from_url(DRAGON)
+                .accessibility_role(Aria::IMG).accessibility_label("Boss dragon, 3D view")
                 .animation(BOSS_IDLE)
                 .view_angles(30.0, 8.0)
-                .zoom(0.75)
                 .fill()
                 .row(1)
                 .assign(&mut app.boss)
@@ -1929,7 +1923,7 @@ fn boss_page(app: &mut App) -> Build<SkiaLayout> {
                 })
                 .on_load_state(|_me, app: &mut App, cx, state| loaded(app, cx, DRAGON, state)),
             cover(app, DRAGON, Color::TRANSPARENT, 0.0, false).row(1),
-            SkiaLabel::new("")
+            copyable("")
                 .font_size(15)
                 .text_color(Color::WHITE)
                 .horizontal_options(LayoutOptions::Center)
@@ -1947,11 +1941,10 @@ fn boss_page(app: &mut App) -> Build<SkiaLayout> {
                 boss_caption("SKIN AND EYES (materials by name)"),
                 SkiaLayout::wrap().spacing(8).horizontal_options(LayoutOptions::Center).accessibility_role(Aria::TOOLBAR).accessibility_label("Skin and eyes").children((
                     SKINS.iter().copied().map(skin_button).collect::<Vec<_>>(),
-                    boss_button("Rage: off", 124.0)
-                        .background_color(BOSS_TOGGLE)
+                    Button3D::new("Rage: off", BOSS_TOGGLE, Some(124.0))
                         .observe(|me, app: &App| {
                             me.set_text(if app.boss_rage { "Rage: on" } else { "Rage: off" });
-                            me.set_background_color(if app.boss_rage { RAGE } else { BOSS_TOGGLE });
+                            me.set_fill(if app.boss_rage { RAGE } else { BOSS_TOGGLE });
                             me.set_accessibility_is_pressed(Some(app.boss_rage));
                         })
                         .on_tapped(|_me, app: &mut App, cx| {
@@ -1960,8 +1953,7 @@ fn boss_page(app: &mut App) -> Build<SkiaLayout> {
                                 boss.set_material_color("Eye_White", app.boss_rage.then_some(Color::from_rgb(255, 40, 30)));
                             }
                         }),
-                    boss_button("Turn: off", 124.0)
-                        .background_color(BOSS_TOGGLE)
+                    Button3D::new("Turn: off", BOSS_TOGGLE, Some(124.0))
                         .observe(|me, app: &App| {
                             me.set_text(if app.boss_turning { "Turn: on" } else { "Turn: off" });
                             me.set_accessibility_is_pressed(Some(app.boss_turning));
@@ -1979,13 +1971,11 @@ fn boss_page(app: &mut App) -> Build<SkiaLayout> {
 }
 
 /// A header tab: filled when its screen shows; the hidden screen asks for no frames.
-fn tab(caption: &str, index: usize) -> Build<SkiaButton> {
-    ui_button(caption)
-        .width_request(120)
-        .background_color(if index == 0 { TAB_ON } else { TAB_OFF })
+fn tab(caption: &str, index: usize) -> Build<Button3D> {
+    Button3D::new(caption, if index == 0 { ACCENT } else { QUIET }, Some(120.0))
         .accessibility_role(Aria::TAB)
         .observe(move |me, app: &App| {
-            me.set_background_color(if app.tab == index { TAB_ON } else { TAB_OFF });
+            me.set_fill(if app.tab == index { ACCENT } else { QUIET });
             me.set_accessibility_is_pressed(Some(app.tab == index));
         })
         .on_tapped(move |_me, app: &mut App, cx| {
@@ -2028,12 +2018,12 @@ fn build(app: &mut App) -> Build<SkiaLayout> {
                             start_y_ratio: 0.0,
                             end_x_ratio: 1.0,
                             end_y_ratio: 1.0,
-                            ..SkiaGradient::new(GradientType::Linear, vec![TAB_ON, Color::from_rgb(255, 99, 132)])
+                            ..SkiaGradient::new(GradientType::Linear, vec![ACCENT, Color::from_rgb(255, 99, 132)])
                         })
                         .children(SkiaLabel::new("3D").font_size(13).font_family(TITLE).text_color(Color::WHITE).center()),
                     SkiaLayout::column().spacing(0).vertical_options(LayoutOptions::Center).children((
-                        SkiaLabel::new("DrawnUI 3D Demo").font_size(17).font_family(TITLE).text_color(INK).accessibility_role(Aria::HEADING),
-                        SkiaLabel::new("Add3D addon to DrawnUI for Rust").font_size(12).text_color(MUTED),
+                        copyable("DrawnUI 3D Demo").font_size(17).font_family(TITLE).text_color(INK).accessibility_role(Aria::HEADING),
+                        copyable("Add3D addon to DrawnUI for Rust").font_size(12).text_color(MUTED),
                     )),
                 )),
                 SkiaLayout::row()
@@ -2064,7 +2054,7 @@ fn build(app: &mut App) -> Build<SkiaLayout> {
 
 /// The gallery screen.
 fn gallery(app: &mut App) -> Build<DrawnGame> {
-    (app.mobs, app.dice) = (40, Dice(7));
+    (app.mobs, app.random) = (40, Random(7));
     app.fabrics = SWATCHES.iter().filter_map(|s| Texture3D::decode(s.1)).collect();
     // Page order: the card (its fonts), the shop, the chest, the form's mascot.
     app.loads = [FONTS].into_iter().chain(PRODUCTS.iter().map(|p| p.0)).chain([CHEST, AVATAR]).map(|key| (key, false)).collect();
@@ -2073,41 +2063,41 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
         tile(
             "Celebration",
             "Confetti and stars falling: one 3D layer, many pieces.",
-            SkiaScene3D::new().model_from("paper", &paper()).model_from("star", &confetti_star()).tilt(20.0).fill().assign(&mut app.rain),
-            (button("Hooray").on_tapped(|_me, app: &mut App, _cx| {
+            SkiaScene3D::new()
+                .model_from("paper", &paper())
+                .model_from("star", &confetti_star())
+                .accessibility_role(Aria::IMG).accessibility_label("Confetti and stars, 3D view")
+                .tilt(20.0)
+                .fill()
+                .assign(&mut app.rain),
+            Button3D::new("Hooray", ACCENT, Some(150.0)).on_tapped(|_me, app: &mut App, _cx| {
                 // A fresh shower: every piece starts again above the tile.
                 for p in &mut app.pieces {
-                    p.y = -12.0 - app.dice.next() * RAIN.1;
+                    p.y = -12.0 - app.random.next() * RAIN.1;
                 }
-            }),),
+            }),
         ),
         tile(
             "Product box",
-            "A box with its label: tap it or switch the design.",
+            "Any image applied as texture. Tap to switch design.",
             (
                 shaded(&product_box(), 28.0, 18.0)
+                    .accessibility_role(Aria::IMG).accessibility_label("Product box, 3D view")
                     .auto_rotate(40.0)
+                    // Smooth edges (multisampling): the box's straight edges show steps without it.
+                    .antialias(true)
                     .assign(&mut app.product)
                     .on_tapped_3d(|_me, app: &mut App, cx, _hit| next_label(app, cx)),
                 cover(app, FONTS, STAGE, 12.0, false),
             ),
-            (
-                ui_button("Next design").width_request(120).background_color(BUTTON).on_tapped(|_me, app: &mut App, cx| next_label(app, cx)),
-                ui_button("Edges: hard").width_request(120).background_color(STAGE).observe(|me, app: &App| me.set_text(if app.smooth_edges { "Edges: smooth" } else { "Edges: hard" })).on_tapped(
-                    |_me, app: &mut App, cx| {
-                        app.smooth_edges = !app.smooth_edges;
-                        if let Some(mut product) = cx.get_mut(app.product) {
-                            product.set_antialias(app.smooth_edges);
-                        }
-                    },
-                ),
-            ),
+            Button3D::new("Next design", ACCENT, Some(124.0)).on_tapped(|_me, app: &mut App, cx| next_label(app, cx)),
         ),
         tile(
             "Reward",
             "A chest that opens and closes.",
             (
                 SkiaModel3D::from_url("")
+                    .accessibility_role(Aria::IMG).accessibility_label("Reward chest, 3D view")
                     .animation("Chest_Open")
                     .playing(false)
                     .view_angles(30.0, 20.0)
@@ -2117,12 +2107,12 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
                     .on_load_state(|_me, app: &mut App, cx, state| loaded(app, cx, CHEST, state)),
                 cover(app, CHEST, STAGE, 12.0, false),
             ),
-            (button("Open").observe(|me, app: &App| me.set_text(if app.open { "Close" } else { "Open" })).on_tapped(|_me, app: &mut App, cx| {
+            Button3D::new("Open", ACCENT, Some(150.0)).observe(|me, app: &App| me.set_text(if app.open { "Close" } else { "Open" })).on_tapped(|_me, app: &mut App, cx| {
                 app.open = !app.open;
                 if let Some(mut chest) = cx.get_mut(app.chest) {
                     chest.hold(if app.open { "Chest_Open" } else { "Chest_Close" });
                 }
-            }),),
+            }),
         ),
     ));
     let mobs = panel(
@@ -2141,6 +2131,7 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
                 .children((RescalingLayout::new(FIELD.0, FIELD.1).children((
                 SkiaLayout::new().fill().children(side_scroller(&mut app.scenery)),
                 SkiaScene3D::new()
+                    .accessibility_role(Aria::IMG).accessibility_label("3D mobs on a 2D field, 3D view")
                     .model_url("slime", MOB)
                     .tilt(30.0)
                     .fill()
@@ -2150,31 +2141,24 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
                     }),
                 cover(app, MOB, STAGE, 0.0, false),
             )),)),
-            // How many, then how they look: 3D (shaded) or Drawn, switched in place.
             SkiaLayout::wrap().spacing(8).margin((0.0, 10.0, 0.0, 0.0)).children((
-                [10usize, 40, 100].into_iter().map(|n| chip(&format!("{n} mobs"), move |app| app.mobs == n).width_request(110).on_tapped(move |_me, app: &mut App, _cx| app.mobs = n)).collect::<Vec<_>>(),
-                SkiaShape::new()
-                    .corner_radius(12)
-                    .background_color(STAGE)
-                    .padding(3)
-                    .margin((8.0, 0.0, 0.0, 0.0))
-                    .accessibility_role(Aria::RADIO_GROUP)
-                    .accessibility_label("Look")
-                    .children((SkiaLayout::row().spacing(3).children(
-                        [("3D", false), ("Drawn", true)]
-                            .into_iter()
-                            .map(|(caption, drawn)| {
-                                chip(caption, move |app| app.mobs_drawn == drawn).width_request(90).accessibility_role(Aria::RADIO).on_tapped(move |_me, app: &mut App, cx| {
-                                    app.mobs_drawn = drawn;
-                                    if let Some(mut field) = cx.get_mut(app.field) {
-                                        let (look, width, ink) = if drawn { DRAWN_MOBS } else { (Look::Lit, 0.0, ink_none()) };
-                                        field.set_look(look);
-                                        field.set_outline(width, ink);
-                                    }
-                                })
-                            })
-                            .collect::<Vec<_>>(),
-                    ),)),
+                // How many: one radio group, its own Tab stop walked with the arrows.
+                SkiaLayout::row().spacing(8).accessibility_role(Aria::RADIO_GROUP).accessibility_label("Mobs on the field").children(
+                    [10usize, 40, 100].into_iter().map(|n| choice(&format!("{n} mobs"), Some(110.0), move |app| app.mobs == n).on_tapped(move |_me, app: &mut App, _cx| app.mobs = n)).collect::<Vec<_>>(),
+                ),
+                // How they look, switched in place: lit 3D, or drawn as a cartoon. A Tab stop of its own.
+                SkiaLayout::row().spacing(10).margin((8.0, 0.0, 0.0, 0.0)).vertical_options(LayoutOptions::Center).children((
+                    SkiaLabel::new("Drawn").font_size(14).font_family(TITLE).text_color(INK).vertical_options(LayoutOptions::Center).accessibility_role(Aria::PRESENTATION),
+                    Switch3D::new(false, "Drawn look").vertical_options(LayoutOptions::Center).on_tapped(|me, app: &mut App, cx| {
+                        app.mobs_drawn = !app.mobs_drawn;
+                        me.set_on(app.mobs_drawn);
+                        if let Some(mut field) = cx.get_mut(app.field) {
+                            let (look, width, ink) = if app.mobs_drawn { DRAWN_MOBS } else { (Look::Lit, 0.0, ink_none()) };
+                            field.set_look(look);
+                            field.set_outline(width, ink);
+                        }
+                    }),
+                )),
             )),
         ),
     );
@@ -2188,13 +2172,15 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
         }).children((
         SkiaScroll::new().fill().on_scrolled(|_me, app: &mut App, cx, _offset| wake(app, cx)).content(
             SkiaLayout::column().fill_x().padding(24).spacing(20).children((
-                SkiaLabel::new("3D, made in the app").font_size(30).font_family(TITLE).text_color(INK).horizontal_options(LayoutOptions::Center),
-                SkiaLabel::new("Where 3D earns its place in an app: products, lists, cards, maps and forms first, then the fun.")
-                    .font_size(15)
-                    .text_color(MUTED)
-                    .horizontal_text_alignment(TextAlignment::Center)
-                    .horizontal_options(LayoutOptions::Center),
-                SkiaLayout::wrap().spacing(24).horizontal_options(LayoutOptions::Center).children((link("Read the 3D article", ARTICLE_URL), link("Source on GitHub", SOURCE_URL))),
+                SkiaLayout::column().fill_x().spacing(20).use_cache(CacheType::Image).children((
+                    copyable("3D, made in the app").font_size(30).font_family(TITLE).text_color(INK).horizontal_options(LayoutOptions::Center).accessibility_role(Aria::HEADING),
+                    copyable("Where 3D earns its place in an app: products, lists, cards, maps and forms first, then the fun.")
+                        .font_size(15)
+                        .text_color(MUTED)
+                        .horizontal_text_alignment(TextAlignment::Center)
+                        .horizontal_options(LayoutOptions::Center),
+                    SkiaLayout::row().spacing(20).horizontal_options(LayoutOptions::Center).children((link("Read the 3D article", ARTICLE_URL), link("Source on GitHub", SOURCE_URL))),
+                )),
                 globe_with_pins(app),
                 card_flip(app),
                 product_viewer(app),
@@ -2202,8 +2188,9 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
                 SkiaLayout::column().fill_x().spacing(20).children((section("Small 3D touches", "Little 3D moments that answer a tap."), touches)),
                 sign_up(app),
                 SkiaLayout::column().fill_x().spacing(20).children((
-                    section("Games", "Many 3D characters on one field, moved like sprites and drawn by one layer in one pass."),
+                    section("Games", "Many 3D characters on one field, moved like sprites, and dice made in code."),
                     mobs,
+                    dice::card(app),
                 )),
                 footer(),
             )),
@@ -2213,25 +2200,11 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
 
 const ARTICLE_URL: &str = "https://drawnui.net/articles/add3d.html";
 const SOURCE_URL: &str = "https://github.com/DrawnUi/DrawnUi.Rust";
-/// The links' color, and the ink they turn to under the pointer.
-const LINK: Color = Color::from_rgb(172, 160, 255);
-
-/// A text link: opens `url` in the browser (a new tab on the web), the ink color under the pointer.
-fn link(text: &str, url: &'static str) -> Build<SkiaLabel> {
-    SkiaLabel::new(text)
-        .font_size(14)
-        .font_family(TITLE)
-        .text_color(LINK)
-        .accessibility_role(Aria::LINK)
-        .accessibility_label(text)
-        .on_hovered(|me, _app: &mut App, _cx, on| me.set_text_color(if on { INK } else { LINK }))
-        .on_tapped(move |_me, _app: &mut App, cx| cx.open_url(url))
-}
 
 /// The end of the page: a line, the links to the article, the docs, the source and the same demo
 /// on the other engines, and what drew it.
 fn footer() -> Build<SkiaLayout> {
-    SkiaLayout::column().fill_x().spacing(16).margin((0.0, 12.0, 0.0, 8.0)).children((
+    SkiaLayout::column().fill_x().spacing(14).margin((0.0, 24.0, 0.0, 8.0)).use_cache(CacheType::Image).children((
         SkiaShape::new().fill_x().height_request(1).background_color(LINE),
         SkiaLayout::wrap().spacing(24).horizontal_options(LayoutOptions::Center).children((
             link("3D article", ARTICLE_URL),
@@ -2240,7 +2213,7 @@ fn footer() -> Build<SkiaLayout> {
             link("Same demo in .NET", "https://add3dnet.drawnui.net/"),
             link("Same demo in React", "https://add3dreact.drawnui.net/"),
         )),
-        SkiaLabel::new("Drawn with DrawnUI: every pixel of this page, the 3D included.")
+        copyable("Drawn with DrawnUI: every pixel of this page, 3D and context menus included.")
             .font_size(12)
             .text_color(MUTED)
             .horizontal_text_alignment(TextAlignment::Center)
@@ -2250,6 +2223,8 @@ fn footer() -> Build<SkiaLayout> {
 
 /// Starts the gallery: a window on the desktop, the page in the browser, the activity on Android.
 pub fn run() {
+    // Titles and descriptions can be selected and copied: their selection in the gallery's gold.
+    SkiaLabel::set_selection_color(ACCENT.with_a(102));
     drawnui::run("DrawnUI 3D Demo", || {
         Box::new(
             Ui::new(App::default(), build)
