@@ -113,6 +113,55 @@ impl Mesh3D {
         mesh
     }
 
+    /// A box with rounded edges and corners (a die, a soap bar, a phone, a cushion), centered;
+    /// `radius` in the box's units, at most half its smallest side. An image covers each face whole,
+    /// upright on the sides, as on `cuboid`; with `atlas` each face takes its own cell of one image
+    /// split 3 x 2, in the order +X, -X, +Y on the top row and -Y, +Z, -Z on the bottom row (a die's
+    /// six faces in one image).
+    pub fn rounded_cuboid(width: f32, height: f32, depth: f32, radius: f32, atlas: bool) -> Mesh3D {
+        const STEPS: usize = 6; // per 45 degrees of an edge's curve
+        let e = Vec3::new(width / 2.0, height / 2.0, depth / 2.0);
+        let r = radius.clamp(0.0, e.x.min(e.y).min(e.z));
+        let inner = e - Vec3::splat(r);
+        let mut mesh = Mesh3D::default();
+        // A face's coordinates along one axis: the curve at each edge in even angles, flat between.
+        let along = |half: f32| {
+            let mut c = vec![0.0f32; 2 * STEPS + 2];
+            for k in 0..=STEPS {
+                let off = (half - r) + r * ((STEPS - k) as f32 / STEPS as f32 * std::f32::consts::FRAC_PI_4).tan();
+                c[k] = -off;
+                c[2 * STEPS + 1 - k] = off;
+            }
+            c
+        };
+        // Face normal, right and up as seen from outside (as `cuboid` lays its images).
+        let faces = [(Vec3::X, -Vec3::Z, Vec3::Y), (-Vec3::X, Vec3::Z, Vec3::Y), (Vec3::Y, Vec3::X, -Vec3::Z), (-Vec3::Y, Vec3::X, Vec3::Z), (Vec3::Z, Vec3::X, Vec3::Y), (-Vec3::Z, -Vec3::X, Vec3::Y)];
+        for (f, (n, u, v)) in faces.into_iter().enumerate() {
+            let (en, eu, ev) = (n.dot(e).abs(), u.dot(e).abs(), v.dot(e).abs());
+            let (cu, cv) = (along(eu), along(ev));
+            let at = mesh.positions.len() as u32;
+            for &t in &cv {
+                for &s in &cu {
+                    let p = n * en + u * s + v * t;
+                    let core = p.clamp(-inner, inner);
+                    let dir = (p - core).try_normalize().unwrap_or(n);
+                    mesh.positions.push((core + dir * r).to_array());
+                    mesh.normals.push(dir.to_array());
+                    let uv = [(s / eu + 1.0) / 2.0, 1.0 - (t / ev + 1.0) / 2.0];
+                    mesh.uvs.push(if atlas { [((f % 3) as f32 + uv[0]) / 3.0, ((f / 3) as f32 + uv[1]) / 2.0] } else { uv });
+                }
+            }
+            let row = cu.len() as u32;
+            for j in 0..cv.len() as u32 - 1 {
+                for i in 0..row - 1 {
+                    let a = at + j * row + i;
+                    mesh.indices.extend([a, a + 1, a + 1 + row, a, a + 1 + row, a + row]);
+                }
+            }
+        }
+        mesh
+    }
+
     /// A 2D path pushed into depth (a star, a heart, a check mark, a logo, a digit), `depth` thick,
     /// facing the viewer, centered on the path's bounds; path units, y down as in Skia. Each closed
     /// contour is its own solid. An image lies on the front over the path's bounds (mirrored on the
@@ -478,5 +527,43 @@ mod tests {
         assert_eq!(scene.materials[1].name, "star");
         let (lo, hi) = scene.bounds;
         assert!((hi - lo).min_element() > 0.0);
+    }
+}
+
+#[cfg(test)]
+mod rounded_cuboid_tests {
+    use super::*;
+
+    #[test]
+    fn its_points_stay_inside_the_box_and_its_corners_are_round() {
+        let mesh = Mesh3D::rounded_cuboid(2.0, 1.0, 1.0, 0.2, false);
+        assert!(!mesh.indices.is_empty());
+        for p in &mesh.positions {
+            assert!(p[0].abs() <= 1.0001 && p[1].abs() <= 0.5001 && p[2].abs() <= 0.5001, "{p:?}");
+            // No point at a sharp corner: the corner is cut by the rounding.
+            assert!(!(p[0].abs() > 0.99 && p[1].abs() > 0.49 && p[2].abs() > 0.49), "{p:?}");
+        }
+        // Every normal is a unit vector pointing out.
+        for (p, n) in mesh.positions.iter().zip(&mesh.normals) {
+            let (p, n) = (Vec3::from(*p), Vec3::from(*n));
+            assert!((n.length() - 1.0).abs() < 1e-3 && p.dot(n) > 0.0);
+        }
+        // The top face is flat out to where its edges start to curve, and faces up.
+        let top: Vec<_> = mesh.positions.iter().zip(&mesh.normals).filter(|(p, _)| p[0].abs() <= 0.8001 && p[2].abs() <= 0.3001 && p[1] > 0.4999).collect();
+        assert!(!top.is_empty());
+        assert!(top.iter().all(|(_, n)| (n[1] - 1.0).abs() < 1e-4));
+    }
+
+    #[test]
+    fn an_atlas_gives_each_face_its_own_cell() {
+        let mesh = Mesh3D::rounded_cuboid(1.0, 1.0, 1.0, 0.1, true);
+        let per_face = mesh.uvs.len() / 6;
+        for f in 0..6 {
+            let (col, row) = ((f % 3) as f32, (f / 3) as f32);
+            for uv in &mesh.uvs[f * per_face..(f + 1) * per_face] {
+                assert!(uv[0] >= col / 3.0 - 1e-4 && uv[0] <= (col + 1.0) / 3.0 + 1e-4);
+                assert!(uv[1] >= row / 2.0 - 1e-4 && uv[1] <= (row + 1.0) / 2.0 + 1e-4);
+            }
+        }
     }
 }

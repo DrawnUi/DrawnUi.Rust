@@ -201,7 +201,58 @@ pub(super) struct Scene {
     pub(super) animations: Vec<Animation>,
     /// The scene's box at rest.
     pub(super) bounds: (Vec3, Vec3),
+    /// The box and the outline turned around the vertical (`Profile`) at rest (0) and through each
+    /// animation (1 + its index), sampled, worked out when a viewer first frames them.
+    extents: Vec<std::cell::OnceCell<Extent>>,
 }
+
+/// The box around a model at rest or through one animation, and its outline turned around the vertical.
+pub(super) struct Extent {
+    pub(super) min: Vec3,
+    pub(super) max: Vec3,
+    pub(super) profile: Profile,
+}
+
+/// A model's outline turned around its vertical axis: for each height band, the farthest it reaches
+/// from the axis. What a camera that may turn the model any way around the vertical keeps in view
+/// (tighter than the box: the top of a head and the tip of a punch are not one corner).
+pub(super) struct Profile {
+    pub(super) axis: glam::Vec2,
+    y0: f32,
+    step: f32,
+    /// Per band: reach, lowest and highest point (reach < 0: empty).
+    bands: [(f32, f32, f32); PROFILE_BANDS],
+}
+
+const PROFILE_BANDS: usize = 48;
+
+impl Profile {
+    fn new(axis: glam::Vec2, y0: f32, y1: f32) -> Profile {
+        Profile { axis, y0, step: (y1 - y0).max(1e-3) / PROFILE_BANDS as f32, bands: [(-1.0, 0.0, 0.0); PROFILE_BANDS] }
+    }
+
+    fn add(&mut self, p: Vec3) {
+        let band = (((p.y - self.y0) / self.step) as i32).clamp(0, PROFILE_BANDS as i32 - 1) as usize;
+        let reach = glam::Vec2::new(p.x - self.axis.x, p.z - self.axis.y).length();
+        let b = &mut self.bands[band];
+        *b = if b.0 < 0.0 { (reach, p.y, p.y) } else { (b.0.max(reach), b.1.min(p.y), b.2.max(p.y)) };
+    }
+
+    /// Its points (reach, height): each band's reach at the band's lowest and highest point.
+    pub(super) fn points(&self, into: &mut Vec<glam::Vec2>) {
+        for &(reach, low, high) in self.bands.iter().filter(|b| b.0 >= 0.0) {
+            into.push(glam::Vec2::new(reach, low));
+            into.push(glam::Vec2::new(reach, high));
+        }
+    }
+}
+
+/// Poses sampled along each animation for its box: the view fits what the model does, not only its rest.
+const BOUNDS_SAMPLES: usize = 8;
+/// The vertical field of view of a viewer.
+const FOV_DEGREES: f32 = 35.0;
+/// A little air around a fitted model: it never touches the edges of its view.
+const AIR: f32 = 1.1;
 
 impl Scene {
     pub(super) fn load(bytes: &[u8]) -> Result<Scene, String> {
@@ -304,7 +355,7 @@ impl Scene {
             }
         }
 
-        let animations = gltf
+        let animations: Vec<Animation> = gltf
             .animations()
             .enumerate()
             .map(|(i, a)| {
@@ -333,14 +384,16 @@ impl Scene {
             })
             .collect();
 
-        let mut scene = Scene { nodes, meshes, materials, images, skins, animations, bounds: (Vec3::ZERO, Vec3::ZERO) };
+        let extents = (0..=animations.len()).map(|_| Default::default()).collect();
+        let mut scene = Scene { nodes, meshes, materials, images, skins, animations, bounds: (Vec3::ZERO, Vec3::ZERO), extents };
         scene.bounds = scene.rest_bounds();
         Ok(scene)
     }
 
     /// A scene from parts made in code (`Model3D`): no skins, no animations, no images.
     pub(super) fn assemble(nodes: Vec<Node>, meshes: Vec<Vec<Primitive>>, materials: Vec<Material>) -> Scene {
-        let mut scene = Scene { nodes, meshes, materials, images: Vec::new(), skins: Vec::new(), animations: Vec::new(), bounds: (Vec3::ZERO, Vec3::ZERO) };
+        let extents = vec![Default::default()];
+        let mut scene = Scene { nodes, meshes, materials, images: Vec::new(), skins: Vec::new(), animations: Vec::new(), bounds: (Vec3::ZERO, Vec3::ZERO), extents };
         scene.bounds = scene.rest_bounds();
         scene
     }
@@ -458,33 +511,113 @@ impl Scene {
     }
 
     pub(super) fn rest_bounds(&self) -> (Vec3, Vec3) {
-        let pose = self.pose(None, 0.0);
-        let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-        for (i, node) in self.nodes.iter().enumerate() {
-            let Some(mesh) = node.mesh.and_then(|m| self.meshes.get(m)) else { continue };
-            for p in mesh {
-                for v in self.posed_positions(i, p, &pose) {
-                    (lo, hi) = (lo.min(v), hi.max(v));
-                }
-            }
-        }
+        let (lo, hi) = self.sweep(None, &mut |_| {});
         if lo.x > hi.x { (Vec3::splat(-1.0), Vec3::splat(1.0)) } else { (lo, hi) }
     }
 
-    /// View and projection that fit the scene's box, turned by yaw / pitch.
-    pub(super) fn camera(&self, yaw: f32, pitch: f32, zoom: f32, aspect: f32) -> Mat4 {
-        let (lo, hi) = self.bounds;
-        let center = (lo + hi) * 0.5;
-        let radius = ((hi - lo).length() * 0.5).max(1e-3);
-        let fov = 35f32.to_radians();
-        let fit = radius / (fov * 0.5).sin() * if aspect < 1.0 { 1.0 / aspect } else { 1.0 };
-        let distance = fit * zoom;
-        let rotation = Quat::from_rotation_y(yaw.to_radians()) * Quat::from_rotation_x(-pitch.to_radians());
-        let eye = center + rotation * Vec3::new(0.0, 0.0, distance);
+    /// Every vertex of the model at rest (`None`) or through one animation (sampled) to `each`;
+    /// returns their box (empty: min above max).
+    fn sweep(&self, animation: Option<usize>, each: &mut dyn FnMut(Vec3)) -> (Vec3, Vec3) {
+        let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+        let mut add = |pose: Vec<Mat4>| {
+            for (i, node) in self.nodes.iter().enumerate() {
+                let Some(mesh) = node.mesh.and_then(|m| self.meshes.get(m)) else { continue };
+                for p in mesh {
+                    for v in self.posed_positions(i, p, &pose) {
+                        (lo, hi) = (lo.min(v), hi.max(v));
+                        each(v);
+                    }
+                }
+            }
+        };
+        match animation {
+            None => add(self.pose(None, 0.0)),
+            Some(a) => {
+                let duration = self.animations[a].duration;
+                for s in 0..=BOUNDS_SAMPLES {
+                    add(self.pose(Some(a), duration * s as f32 / BOUNDS_SAMPLES as f32 * 0.999));
+                }
+            }
+        }
+        (lo, hi)
+    }
+
+    /// The box and outline at rest (`None`) or through one animation, worked out once.
+    pub(super) fn extent(&self, animation: Option<usize>) -> &Extent {
+        let slot = animation.map_or(0, |a| a + 1);
+        self.extents[slot].get_or_init(|| {
+            let (lo, hi) = self.bounds;
+            let height = (hi.y - lo.y).max(1e-3);
+            let mut profile = Profile::new(glam::Vec2::new((lo.x + hi.x) / 2.0, (lo.z + hi.z) / 2.0), lo.y - height, hi.y + height);
+            let (min, max) = self.sweep(animation, &mut |v| profile.add(v));
+            let (min, max) = if min.x > max.x { self.bounds } else { (min, max) };
+            Extent { min, max, profile }
+        })
+    }
+
+    /// View and projection for a view nobody turns: the box `min..max` (`margin` scene units
+    /// around it) fitted exactly as it is seen from this yaw and pitch.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn camera_as_seen(min: Vec3, max: Vec3, yaw: f32, pitch: f32, zoom: f32, aspect: f32, margin: f32) -> Mat4 {
+        let center = (min + max) * 0.5;
+        let half = (max - min) * 0.5 + Vec3::splat(margin.max(0.0));
+        let tan_v = (FOV_DEGREES.to_radians() * 0.5).tan();
+        let tan_h = tan_v * aspect;
+        let rotation = turn(yaw, pitch);
+        let (right, upward, back) = (rotation * Vec3::X, rotation * Vec3::Y, rotation * Vec3::Z);
+        let mut fit = 1e-3f32;
+        for i in 0..8 {
+            let corner = Vec3::new(if i & 1 == 0 { -half.x } else { half.x }, if i & 2 == 0 { -half.y } else { half.y }, if i & 4 == 0 { -half.z } else { half.z });
+            let near = corner.dot(back);
+            fit = fit.max((near + corner.dot(right).abs() / tan_h).max(near + corner.dot(upward).abs() / tan_v));
+        }
+        Scene::camera_at(center, half.length(), fit * AIR * zoom, yaw, pitch, aspect)
+    }
+
+    /// How far the camera stands (before zoom) so an outline turned around the vertical (`Profile`
+    /// points: reach from the axis, height) stays in view at any yaw and at every pitch from
+    /// `pitch_from` to `pitch_to`: across, each band's widest turn; up and down, the band tilted.
+    pub(super) fn outline_fit(outline: &[glam::Vec2], center_y: f32, pitch_from: f32, pitch_to: f32, aspect: f32, margin: f32) -> f32 {
+        let tan_v = (FOV_DEGREES.to_radians() * 0.5).tan();
+        let tan_h = tan_v * aspect;
+        let mut fit = 1e-3f32;
+        let steps = (((pitch_to - pitch_from) / 10.0).ceil() as i32).max(1);
+        for k in 0..=steps {
+            let tilt = (pitch_from + (pitch_to - pitch_from) * k as f32 / steps as f32).to_radians();
+            let (sin, cos) = tilt.sin_cos();
+            let across = (cos * cos + 1.0 / (tan_h * tan_h)).sqrt();
+            for point in outline {
+                // A margin around the box widens the reach by up to the margin's diagonal.
+                let reach = point.x + margin * 1.415;
+                let mut y = point.y - center_y;
+                y += y.signum() * margin;
+                // Up and down: the point swung to the front and to the back of the axis.
+                for side in [-1.0, 1.0] {
+                    let c = side * reach;
+                    let (near, up) = (c * cos + y * sin, y * cos - c * sin);
+                    fit = fit.max(near + up.abs() / tan_v);
+                }
+                // Across: swung to the side, at its nearest.
+                fit = fit.max(reach * across + y * sin);
+            }
+        }
+        fit * AIR
+    }
+
+    /// View and projection looking at `center` from `distance`, turned by yaw / pitch.
+    pub(super) fn camera_at(center: Vec3, radius: f32, distance: f32, yaw: f32, pitch: f32, aspect: f32) -> Mat4 {
+        let radius = radius.max(1e-3);
+        let eye = center + turn(yaw, pitch) * Vec3::new(0.0, 0.0, distance);
         let view = Mat4::look_at_rh(eye, center, Vec3::Y);
-        let proj = Mat4::perspective_rh_gl(fov, aspect, (distance - radius * 2.0).max(distance * 0.01), distance + radius * 2.0);
+        let proj = Mat4::perspective_rh_gl(FOV_DEGREES.to_radians(), aspect, (distance - radius * 2.0).max(distance * 0.01), distance + radius * 2.0);
         proj * view
     }
+
+}
+
+/// glam: from_rotation_y(yaw) * from_rotation_x(-pitch), applied to (0, 0, distance).
+fn turn(yaw: f32, pitch: f32) -> Quat {
+    Quat::from_rotation_y(yaw.to_radians()) * Quat::from_rotation_x(-pitch.to_radians())
 }
 
 /// The ray through a point of the view (`fx`, `fy` from 0 to 1, from the top left): its start on

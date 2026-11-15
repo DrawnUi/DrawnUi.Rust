@@ -48,7 +48,10 @@ use std::rc::Rc;
 use glam::{Mat4, Quat, Vec3};
 use drawnui::skia::{Color, ISize, Paint, Rect, SamplingOptions};
 
-use drawnui::{Build, Control, ControlId, Cx, Dirty, FrameTick, Gesture, GestureCx, GestureKind, Gpu, Handled, IdleGpu, IdleGpuCx, LayoutCx, Mut, PaintCx, downcast_state};
+use drawnui::{
+    Build, Control, ControlId, Cx, Dirty, FrameTick, Gesture, GestureCx, GestureKind, Gpu, Handled, IdleGpu, IdleGpuCx, LayoutCx, Mut, PaintCx, VelocityAccumulator,
+    downcast_state,
+};
 use player::Player;
 use scene::{MaterialOverride, Scene};
 
@@ -114,6 +117,8 @@ type View = (f32, f32, f32);
 const DOUBLE_TAP_MS: f64 = 300.0;
 /// `reset_view` glides back home in this long, seconds.
 const GLIDE_S: f32 = 0.3;
+/// The scroll's deceleration after a fling: the speed keeps this share of itself each millisecond.
+const FLING_DECELERATION: f32 = 0.998;
 
 /// An outline color for the shader: sRGB, as given.
 fn outline_color(c: Color) -> [f32; 4] {
@@ -153,10 +158,26 @@ pub struct SkiaModel3D {
     pitch: f32,
     /// Degrees per second the scene turns by itself (0 = still).
     auto_rotate: f32,
+    /// The way the automatic turn goes: 1 as the app set it, -1 after a fling the other way (it
+    /// follows the last swipe, so a fling slows into the turn instead of stopping and turning back).
+    auto_direction: f32,
+    /// A drag that is let go keeps the model turning (`fling`).
+    fling: bool,
+    /// The turn a fling left, degrees per second (yaw, pitch), slowing as a scroll does.
+    fling_speed: (f32, f32),
+    /// The drag's speeds, for the fling when it is let go; whether it turned the model.
+    velocity: VelocityAccumulator,
+    dragged: bool,
     /// Drags turn the scene.
     orbit: bool,
     /// Distance to the scene, as a factor of the distance that fits it (1 = fits).
     zoom: f32,
+    /// Room kept around the model's box, in its own units, for parts that move past it.
+    frame_margin: f32,
+    /// The animations the view keeps in frame besides the rest (`None`: all of them).
+    frame_animations: Option<Vec<String>>,
+    /// What the view fits, worked out once per scene and framing (`camera`).
+    framing: RefCell<Option<Framing>>,
     look: Look,
     /// Outline width in points (0 = none) and color.
     outline: (f32, Color),
@@ -241,8 +262,16 @@ impl SkiaModel3D {
             yaw: 20.0,
             pitch: 10.0,
             auto_rotate: 0.0,
+            auto_direction: 1.0,
+            fling: false,
+            fling_speed: (0.0, 0.0),
+            velocity: VelocityAccumulator::default(),
+            dragged: false,
             orbit: true,
             zoom: 1.0,
+            frame_margin: 0.0,
+            frame_animations: None,
+            framing: RefCell::new(None),
             look: Look::Lit,
             outline: (0.0, Color::BLACK),
             antialias: false,
@@ -347,8 +376,18 @@ impl SkiaModel3D {
         self.scene.as_ref()?.materials.iter().position(|m| m.name == name)
     }
 
+    /// Turns the model on by itself from these speeds (degrees per second) until it slows to a stop.
+    fn start_fling(&mut self, yaw: f32, pitch: f32) {
+        if self.auto_rotate != 0.0 && yaw.abs() > self.auto_rotate.abs() {
+            self.auto_direction = yaw.signum() * self.auto_rotate.signum();
+        }
+        let yaw = yaw - self.auto_direction * self.auto_rotate;
+        self.fling_speed = (yaw, if self.lock_pitch { 0.0 } else { pitch });
+    }
+
     fn wants_frames(&self) -> bool {
-        let moving = !self.off_screen && (self.auto_rotate != 0.0 || self.player.busy() || self.glide.is_some());
+        let flinging = self.fling_speed != (0.0, 0.0);
+        let moving = !self.off_screen && (self.auto_rotate != 0.0 || self.player.busy() || self.glide.is_some() || flinging);
         let unreported = self.on_view_changed.is_some() && self.view() != self.reported_view;
         !self.events.is_empty() || (self.scene.is_some() && (moving || unreported))
     }
@@ -440,7 +479,21 @@ impl SkiaModel3D {
     /// One frame of time: the animations advance, an animation played once that ended is reported.
     fn advance(&mut self, delta: f32) {
         let Some(scene) = self.scene.clone() else { return };
-        self.yaw = (self.yaw + self.auto_rotate * delta) % 360.0;
+        self.yaw = (self.yaw + self.auto_rotate * self.auto_direction * delta) % 360.0;
+        if self.fling_speed != (0.0, 0.0) {
+            let (yaw, pitch) = self.fling_speed;
+            self.yaw = (self.yaw + yaw * delta) % 360.0;
+            if pitch != 0.0 {
+                self.pitch = (self.pitch + pitch * delta).clamp(-60.0, 80.0);
+            }
+            // The scroll's deceleration: the speed keeps this share of itself each millisecond.
+            let keep = FLING_DECELERATION.powf(delta * 1000.0);
+            self.fling_speed = (yaw * keep, pitch * keep);
+            // Under a degree and a half per second it no longer reads as moving.
+            if yaw.abs() * keep < 1.5 && pitch.abs() * keep < 1.5 {
+                self.fling_speed = (0.0, 0.0);
+            }
+        }
         if let Some((from, t)) = self.glide {
             let t = (t + delta / GLIDE_S).min(1.0);
             let v = 1.0 - (1.0 - t).powi(3);
@@ -478,8 +531,32 @@ impl SkiaModel3D {
         scene.hidden_by(|n| self.nodes.get(n).is_some_and(|o| o.hidden))
     }
 
-    fn camera(&self, scene: &Scene, size: (f32, f32)) -> Mat4 {
-        scene.camera(self.yaw, self.pitch, self.zoom, size.0 / size.1.max(1.0))
+    /// The view fits the model at rest and through `frame_animations`, `frame_margin` around it,
+    /// with a little air. A view nobody turns (no drag, no lean, no auto turn) fits its box exactly
+    /// as seen; a turned one fits the model's outline turned around the vertical (a ball keeps its
+    /// size at every tilt), a lean toward the pointer over its whole range so hovering never moves
+    /// the camera.
+    fn camera(&self, scene: &Rc<Scene>, size: (f32, f32)) -> Mat4 {
+        let aspect = size.0 / size.1.max(1.0);
+        let margin = self.frame_margin;
+        let mut framing = self.framing.borrow_mut();
+        if framing.as_ref().is_none_or(|f| !Rc::ptr_eq(&f.scene, scene)) {
+            *framing = Some(Framing::new(scene, self.frame_animations.as_deref()));
+        }
+        let f = framing.as_mut().expect("just made");
+        if !self.orbit && self.tilt_to_pointer == 0.0 && self.auto_rotate == 0.0 {
+            return Scene::camera_as_seen(f.min, f.max, self.yaw, self.pitch, self.zoom, aspect, margin);
+        }
+        let axis = scene.extent(None).profile.axis;
+        let center = Vec3::new(axis.x, (f.min.y + f.max.y) / 2.0, axis.y);
+        let tilt = self.tilt_to_pointer;
+        let (from, to) = if tilt > 0.0 { (self.home.1 - tilt, self.home.1 + tilt) } else { (self.pitch, self.pitch) };
+        let key = (aspect, from, to, margin);
+        if f.fit.is_none_or(|(k, _)| k != key) {
+            f.fit = Some((key, Scene::outline_fit(&f.outline, center.y, from, to, aspect, margin)));
+        }
+        let fit = f.fit.map_or(1.0, |(_, fit)| fit);
+        Scene::camera_at(center, (f.max - f.min).length() * 0.5 + margin, fit * self.zoom, self.yaw, self.pitch, aspect)
     }
 
     /// What the ray through this point of the control (pixels from its corner) meets first.
@@ -489,6 +566,33 @@ impl SkiaModel3D {
         let (from, dir) = scene::ray(self.camera(scene, size), x / size.0, y / size.1);
         let (node, primitive, t) = scene.ray_hit(&pose, &self.hidden(scene), &self.materials, from, dir)?;
         Some(ModelHit { node: scene.nodes[node].name.clone(), material: scene.material_of(node, primitive), point: (from + dir * t).to_array() })
+    }
+}
+
+/// What a viewer fits for one scene: the box at rest and through the framed animations, their
+/// outline turned around the vertical, and the last fit (aspect, pitch range, margin: distance).
+struct Framing {
+    scene: Rc<Scene>,
+    min: Vec3,
+    max: Vec3,
+    outline: Vec<glam::Vec2>,
+    fit: Option<((f32, f32, f32, f32), f32)>,
+}
+
+impl Framing {
+    fn new(scene: &Rc<Scene>, animations: Option<&[String]>) -> Framing {
+        let rest = scene.extent(None);
+        let (mut min, mut max, mut outline) = (rest.min, rest.max, Vec::new());
+        rest.profile.points(&mut outline);
+        for (a, animation) in scene.animations.iter().enumerate() {
+            if animations.is_some_and(|names| !names.contains(&animation.name)) {
+                continue;
+            }
+            let extent = scene.extent(Some(a));
+            (min, max) = (min.min(extent.min), max.max(extent.max));
+            extent.profile.points(&mut outline);
+        }
+        Framing { scene: scene.clone(), min, max, outline, fit: None }
     }
 }
 
@@ -630,6 +734,16 @@ impl Control for SkiaModel3D {
         let handled = match gesture.kind {
             GestureKind::Down => {
                 (self.drag, self.pinch) = (None, None);
+                // A finger put down catches a flung model.
+                (self.fling_speed, self.dragged) = ((0.0, 0.0), false);
+                self.velocity.clear();
+                Handled::Yes
+            }
+            GestureKind::Up if self.fling && std::mem::take(&mut self.dragged) && self.pinch.is_none() => {
+                // The drag's speed when let go, points per second, turned the way the drag turns it.
+                let scale = cx.base().scale.max(0.1);
+                let v = self.velocity.final_velocity(gesture.time_ms, 4000.0 * scale);
+                self.start_fling(-v.x / scale * 0.5, v.y / scale * 0.3);
                 Handled::Yes
             }
             GestureKind::Panning if self.pinch_zoom && gesture.manipulation.is_some() => {
@@ -676,6 +790,10 @@ impl Control for SkiaModel3D {
                 let scale = cx.base().scale.max(0.1);
                 // The surface follows the finger: a drag to the right turns the front to the right.
                 self.yaw -= gesture.delta.x / scale * 0.5;
+                if self.fling {
+                    self.dragged = true;
+                    self.velocity.capture(gesture.velocity, gesture.time_ms);
+                }
                 if !self.lock_pitch {
                     self.pitch = (self.pitch + gesture.delta.y / scale * 0.3).clamp(-60.0, 80.0);
                 }
@@ -782,6 +900,21 @@ pub trait Model3DBuild: Sized {
     /// Drags turn the model around its vertical axis only, never tilting it (3D in a list). Off by
     /// default. A drag that starts up or down is left to a scroll around the model, when there is one.
     fn lock_pitch(self, on: bool) -> Self;
+
+    /// A drag that is let go keeps the model turning, slowing down as a scroll does after a swipe;
+    /// a finger put down stops it. Off by default. With `auto_rotate` the turn goes on afterwards
+    /// the way of the last swipe.
+    fn fling(self, on: bool) -> Self;
+
+    /// Room kept around the model's resting box, in the model's own units, for parts that move
+    /// past it (dice that tumble and hop, swinging arms): the view backs off so they stay in sight.
+    /// 0 by default.
+    fn frame_margin(self, margin: f32) -> Self;
+
+    /// The animations the view keeps in frame besides the model at rest. By default every
+    /// animation of the file, so playing any of them never cuts the model; name only the ones the
+    /// app plays when the file has bigger ones it never uses (a jump, a fall): the model shows larger.
+    fn frame_animations(self, names: &[&str]) -> Self;
 
     /// The model turns toward the mouse over it, or the finger on it, up to `degrees` at the
     /// control's edge, and glides back home when the pointer leaves or the finger lifts (a card
@@ -903,6 +1036,23 @@ impl Model3DBuild for Build<SkiaModel3D> {
         self
     }
 
+    fn fling(mut self, on: bool) -> Self {
+        self.control_mut().fling = on;
+        self
+    }
+
+    fn frame_margin(mut self, margin: f32) -> Self {
+        self.control_mut().frame_margin = margin.max(0.0);
+        self
+    }
+
+    fn frame_animations(mut self, names: &[&str]) -> Self {
+        let model = self.control_mut();
+        model.frame_animations = Some(names.iter().map(|n| (*n).to_owned()).collect());
+        *model.framing.get_mut() = None;
+        self
+    }
+
     fn tilt_to_pointer(mut self, degrees: f32) -> Self {
         let model = self.control_mut();
         model.tilt_to_pointer = degrees.max(0.0);
@@ -1016,6 +1166,12 @@ pub trait Model3DSet {
     fn set_max_zoom(&mut self, zoom: f32);
     fn set_reset_on_double_tap(&mut self, on: bool);
     fn set_lock_pitch(&mut self, on: bool);
+    /// See `Model3DBuild::fling`; off stops a fling under way.
+    fn set_fling(&mut self, on: bool);
+    /// See `Model3DBuild::frame_margin`.
+    fn set_frame_margin(&mut self, margin: f32);
+    /// See `Model3DBuild::frame_animations`; `None` keeps every animation in frame.
+    fn set_frame_animations(&mut self, names: Option<&[&str]>);
 
     /// Loads the model from a url instead (see `SkiaModel3D::from_url`).
     fn set_source(&mut self, url: &str);
@@ -1164,6 +1320,24 @@ impl Model3DSet for Mut<'_, SkiaModel3D> {
 
     fn set_lock_pitch(&mut self, on: bool) {
         self.control_mut().lock_pitch = on;
+    }
+
+    fn set_fling(&mut self, on: bool) {
+        let model = self.control_mut();
+        model.fling = on;
+        if !on {
+            model.fling_speed = (0.0, 0.0);
+        }
+    }
+
+    fn set_frame_margin(&mut self, margin: f32) {
+        self.control_mut().frame_margin = margin.max(0.0);
+    }
+
+    fn set_frame_animations(&mut self, names: Option<&[&str]>) {
+        let model = self.control_mut();
+        model.frame_animations = names.map(|n| n.iter().map(|n| (*n).to_owned()).collect());
+        *model.framing.get_mut() = None;
     }
 
     fn set_source(&mut self, url: &str) {

@@ -475,3 +475,48 @@ fn a_url_model_keeps_its_start_animation_and_playing() {
     host.frame_after(16.0);
     assert!(!host.ui.needs_frame(), "it plays although the app said not to");
 }
+
+/// A fast drag to the right across the model, let go.
+fn swipe(host: &mut Headless<App>) {
+    host.pan((40.0, 100.0), (160.0, 100.0), 80.0, 6);
+}
+
+fn yaw(host: &Headless<App>) -> f32 {
+    model(host).view().0
+}
+
+#[test]
+fn a_flung_model_keeps_turning_slows_and_stops_and_a_press_catches_it() {
+    let mut host = single(SkiaModel3D::from_model(&ball()).view_angles(0.0, 0.0).fling(true));
+    swipe(&mut host);
+    let released = yaw(&host);
+    host.frame_after(100.0);
+    let first = yaw(&host) - released;
+    assert!(first.abs() > 1.0, "it turns on after the release: {first}");
+    host.frame_after(100.0);
+    let second = yaw(&host) - released - first;
+    assert!(second.abs() < first.abs() && second * first > 0.0, "the same way, slower: {first} then {second}");
+    for _ in 0..120 {
+        host.frame_after(50.0);
+    }
+    let stopped = yaw(&host);
+    host.frame_after(500.0);
+    assert!((yaw(&host) - stopped).abs() < 0.01, "it stopped");
+    // A press catches a new fling at once.
+    swipe(&mut host);
+    host.frame_after(16.0);
+    host.ui.pointer(PointerKind::Down, 100.0, 100.0, host.time_ms());
+    host.frame_after(16.0);
+    let caught = yaw(&host);
+    host.frame_after(200.0);
+    assert!((yaw(&host) - caught).abs() < 0.01, "held still under the press");
+}
+
+#[test]
+fn without_fling_a_released_model_stands_still() {
+    let mut host = single(SkiaModel3D::from_model(&ball()).view_angles(0.0, 0.0));
+    swipe(&mut host);
+    let released = yaw(&host);
+    host.frame_after(200.0);
+    assert!((yaw(&host) - released).abs() < 0.01);
+}
