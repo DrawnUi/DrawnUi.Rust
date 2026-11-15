@@ -499,6 +499,25 @@ impl Gpu {
         self.ctx.as_mut().is_some_and(|ctx| ctx.abandoned())
     }
 
+    /// Frees the GPU memory the context keeps for reuse (a closed window's context, parked).
+    #[cfg(target_os = "android")]
+    pub(crate) fn free_unused(&mut self) {
+        if let Some(ctx) = &mut self.ctx {
+            ctx.free_gpu_resources();
+        }
+    }
+
+    /// A context kept from a closed window (Android Vulkan, `vulkan::Presenter`) for the next
+    /// one: the next epoch, the handles `last_vulkan_handles` reports.
+    #[cfg(target_os = "android")]
+    pub(crate) fn reused(mut self) -> Self {
+        self.epoch = self.epoch.wrapping_add(1);
+        if let (Some(handles), Ok(mut last)) = (self.vulkan, LAST_VULKAN.lock()) {
+            *last = Some(handles);
+        }
+        self
+    }
+
     /// Frees the context's GPU objects and stops using it (the window closes).
     #[cfg(not(target_os = "emscripten"))]
     pub(crate) fn abandon(&mut self) {

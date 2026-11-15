@@ -213,9 +213,14 @@ impl CpuFrames {
 
 impl Drop for Desktop {
     fn drop(&mut self) {
-        // Vulkan: what Skia frees may still be in use on the GPU.
+        // Vulkan: what Skia frees may still be in use on the GPU. The context stays with its
+        // device for the next window (`vulkan::Presenter`); the app's GPU objects, dropped after
+        // this, are freed through it as usual.
         #[cfg(target_os = "android")]
-        self.presenter.wait_idle();
+        {
+            self.presenter.wait_idle();
+            self.presenter.keep_gpu(&mut self.gpu);
+        }
         // Avoids a crash on exit with some AMD drivers (rust-skia #1235).
         self.gpu.abandon();
     }
@@ -2871,6 +2876,14 @@ mod android_gpu {
                 p.wait_idle();
             }
         }
+
+        /// The window closes: Vulkan keeps `gpu`'s context for the next window (it leaves a CPU
+        /// one in its place); GL lets the host abandon it.
+        pub(super) fn keep_gpu(&mut self, gpu: &mut Gpu) {
+            if let Self::Vulkan(p) = self {
+                p.keep_gpu(std::mem::replace(gpu, Gpu::raster()));
+            }
+        }
     }
 }
 
@@ -2892,6 +2905,35 @@ mod vulkan {
 
     /// The instance extensions the presenter enables.
     const INSTANCE_EXTENSIONS: [&str; 2] = ["VK_KHR_surface", "VK_KHR_android_surface"];
+
+    /// The device of a closed window and Skia's context on it, for the next window of the process
+    /// (as DrawnUi.Net): never destroyed while the process lives. Objects made on the device can
+    /// outlive their window: what an add-on keeps per thread (the 3D add-on's pipelines and
+    /// images, dropped when `android_main`'s thread ends), images another library imported, Skia
+    /// objects freed late. Freed through a destroyed device, they crashed the Mali driver
+    /// (an activity made again, the process kept).
+    struct Parked {
+        entry: ash::Entry,
+        instance: ash::Instance,
+        version: u32,
+        physical: vk::PhysicalDevice,
+        device: ash::Device,
+        family: u32,
+        queue: vk::Queue,
+        surface_fn: khr::surface::Instance,
+        android_fn: khr::android_surface::Instance,
+        swapchain_fn: khr::swapchain::Device,
+        device_extensions: Vec<String>,
+        ycbcr: bool,
+        anisotropy: bool,
+        gpu: Option<Gpu>,
+    }
+
+    // SAFETY: activities run one after another, each on its own `android_main` thread; the parked
+    // device and context are used by one thread at a time (the next window takes them).
+    unsafe impl Send for Parked {}
+
+    static PARKED: std::sync::Mutex<Option<Parked>> = std::sync::Mutex::new(None);
     const HARDWARE_BUFFER: &str = "VK_ANDROID_external_memory_android_hardware_buffer";
     const QUEUE_FAMILY_FOREIGN: &str = "VK_EXT_queue_family_foreign";
     /// Device extensions enabled where the device has them (the swapchain always). The ones after
@@ -2944,11 +2986,18 @@ mod vulkan {
         frame: Option<(u32, bool)>,
         /// The swapchain must be made again (new size, a new window, out of date).
         stale: bool,
+        /// Skia's context of a closed window on this device, until `gpu` hands it on; then the
+        /// one the host gives back when this window closes (`keep_gpu`).
+        kept: std::cell::Cell<Option<Gpu>>,
     }
 
     impl Presenter {
         pub(super) fn new(window: &Window) -> Result<Self, String> {
-            // SAFETY: plain Vulkan setup; every object made here is destroyed on failure or in Drop.
+            let parked = PARKED.lock().ok().and_then(|mut slot| slot.take());
+            if let Some(parked) = parked {
+                return Self::reuse(parked, window);
+            }
+            // SAFETY: plain Vulkan setup; every object made here is destroyed on failure.
             unsafe {
                 let entry = ash::Entry::load().map_err(|e| format!("no libvulkan: {e}"))?;
                 let loader = entry.try_enumerate_instance_version().ok().flatten().unwrap_or(vk::API_VERSION_1_0);
@@ -3051,8 +3100,47 @@ mod vulkan {
                     next: 0,
                     frame: None,
                     stale: true,
+                    kept: std::cell::Cell::new(None),
                 })
             }
+        }
+
+        /// The device of a closed window, on the new window.
+        fn reuse(parked: Parked, window: &Window) -> Result<Self, String> {
+            let surface = window_surface(&parked.android_fn, window)?;
+            Ok(Self {
+                entry: parked.entry,
+                instance: parked.instance,
+                version: parked.version,
+                physical: parked.physical,
+                device: parked.device,
+                family: parked.family,
+                queue: parked.queue,
+                surface_fn: parked.surface_fn,
+                android_fn: parked.android_fn,
+                swapchain_fn: parked.swapchain_fn,
+                device_extensions: parked.device_extensions,
+                ycbcr: parked.ycbcr,
+                anisotropy: parked.anisotropy,
+                surface,
+                swapchain: vk::SwapchainKHR::null(),
+                rgba: true,
+                usage: vk::ImageUsageFlags::COLOR_ATTACHMENT,
+                extent: vk::Extent2D::default(),
+                images: Vec::new(),
+                surfaces: Vec::new(),
+                acquire: Vec::new(),
+                rendered: Vec::new(),
+                next: 0,
+                frame: None,
+                stale: true,
+                kept: std::cell::Cell::new(parked.gpu),
+            })
+        }
+
+        /// The window closes: its Skia context stays with the device (`Parked`).
+        pub(super) fn keep_gpu(&mut self, gpu: Gpu) {
+            self.kept.set(Some(gpu));
         }
 
         /// The device's name and API version, for the log.
@@ -3065,8 +3153,14 @@ mod vulkan {
             format!("{}.{} on {name}, hardware buffers {buffers}, YCbCr {}", vk::api_version_major(v), vk::api_version_minor(v), self.ycbcr)
         }
 
-        /// A Skia context on the device; after `lost`'s, the next epoch.
+        /// A Skia context on the device; after `lost`'s, the next epoch. The first one of a window
+        /// on a parked device is the context of the window before.
         pub(super) fn gpu(&self, lost: Option<&mut Gpu>) -> Gpu {
+            if lost.is_none()
+                && let Some(kept) = self.kept.take()
+            {
+                return kept.reused();
+            }
             let entry = self.entry.clone();
             let device_proc_addr = self.instance.fp_v1_0().get_device_proc_addr;
             let instance_proc = move |instance: u64, name: *const c_char| -> *const c_void {
@@ -3310,13 +3404,35 @@ mod vulkan {
         fn drop(&mut self) {
             self.wait_idle();
             self.destroy_swapchain();
-            // SAFETY: the device is idle and the Skia context that used it is gone.
+            // SAFETY: the device is idle; the surface belonged to this window.
             unsafe {
                 if !self.surface.is_null() {
                     self.surface_fn.destroy_surface(self.surface, None);
                 }
-                self.device.destroy_device(None);
-                self.instance.destroy_instance(None);
+            }
+            // The device and Skia's context stay for the next window (`Parked`).
+            let mut gpu = self.kept.take();
+            if let Some(ctx) = gpu.as_mut() {
+                ctx.free_unused();
+            }
+            let parked = Parked {
+                entry: self.entry.clone(),
+                instance: self.instance.clone(),
+                version: self.version,
+                physical: self.physical,
+                device: self.device.clone(),
+                family: self.family,
+                queue: self.queue,
+                surface_fn: self.surface_fn.clone(),
+                android_fn: self.android_fn.clone(),
+                swapchain_fn: self.swapchain_fn.clone(),
+                device_extensions: std::mem::take(&mut self.device_extensions),
+                ycbcr: self.ycbcr,
+                anisotropy: self.anisotropy,
+                gpu,
+            };
+            if let Ok(mut slot) = PARKED.lock() {
+                *slot = Some(parked);
             }
         }
     }
