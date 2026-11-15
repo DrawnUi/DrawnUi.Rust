@@ -14,7 +14,9 @@
 //! A header with two tabs: the gallery and the boss fight (a glTF dragon with its animations,
 //! driven by the app: moves, a tap that hits it, skin and eyes recolored by material name).
 
+use std::cell::RefCell;
 use std::f32::consts::TAU;
+use std::rc::Rc;
 
 use drawnui::Detached;
 use drawnui::prelude::*;
@@ -25,24 +27,23 @@ use drawnui::skia::{
 use drawnui_add3d::prelude::*;
 use glam::{EulerRot, Quat};
 
-// Model files and the Earth image: public domain, see assets/MODELS-LICENSE.txt.
-const CHEST: &[u8] = include_bytes!("../assets/gift.glb");
-const AVATAR: &[u8] = include_bytes!("../assets/avatar.glb");
-const MOB: &[u8] = include_bytes!("../assets/mob.glb");
-const DRAGON: &[u8] = include_bytes!("../assets/dragon.glb");
-const LOUNGE_CHAIR: &[u8] = include_bytes!("../assets/lounge_chair.glb");
-const ARMCHAIR: &[u8] = include_bytes!("../assets/armchair.glb");
-const OTTOMAN: &[u8] = include_bytes!("../assets/ottoman.glb");
-const COFFEE_TABLE: &[u8] = include_bytes!("../assets/coffee_table.glb");
-const DRAWER_CABINET: &[u8] = include_bytes!("../assets/drawer_cabinet.glb");
-const EARTH: &[u8] = include_bytes!("../assets/earth.jpg");
+// Model files and the Earth image: public domain, see assets/MODELS-LICENSE.txt. The first screen
+// (the sofa and its fabrics) is in the app, drawn as the page appears; everything below it is
+// loaded from the app's files (the browser fetches them, desktop and Android read them), so the
+// app itself stays small and starts sooner.
 const SOFA_HQ: &[u8] = include_bytes!("../assets/sofa.glb");
 const LEATHER: &[u8] = include_bytes!("../assets/leather.jpg");
 const WOOL: &[u8] = include_bytes!("../assets/wool.jpg");
 const VELVET: &[u8] = include_bytes!("../assets/velvet.jpg");
 const LINEN: &[u8] = include_bytes!("../assets/linen.jpg");
-const FONT: &[u8] = include_bytes!("../assets/OpenSans-Regular.ttf");
-const TITLE_FONT: &[u8] = include_bytes!("../assets/OpenSans-Semibold.ttf");
+const CHEST: &str = "assets/gift.glb";
+const AVATAR: &str = "assets/avatar.glb";
+const MOB: &str = "assets/mob.glb";
+const DRAGON: &str = "assets/dragon.glb";
+const EARTH: &str = "assets/earth.jpg";
+/// The fonts of the textures drawn in code (the card, the box labels), the UI's own files.
+const FONT_FILE: &str = "assets/OpenSans-Regular.ttf";
+const TITLE_FONT_FILE: &str = "assets/OpenSans-Semibold.ttf";
 /// Titles, headings and button captions: OpenSans Semibold (the .NET gallery's Theme.Title).
 const TITLE: &str = "FontTextTitle";
 
@@ -196,9 +197,10 @@ fn linear(from: (f32, f32), to: (f32, f32), a: Color, b: Color) -> Paint {
     paint
 }
 
-/// Text at `x` (left, or centered when `center`), its baseline at `y`.
-fn text(canvas: &Canvas, text: &str, x: f32, y: f32, size: f32, color: Color, center: bool) {
-    styled_text(canvas, FONT, text, x, y, size, color, center, false);
+/// Text in `face` at `x` (left, or centered when `center`), its baseline at `y`.
+#[allow(clippy::too_many_arguments)]
+fn text(canvas: &Canvas, face: &[u8], text: &str, x: f32, y: f32, size: f32, color: Color, center: bool) {
+    styled_text(canvas, face, text, x, y, size, color, center, false);
 }
 
 /// `text`, optionally slanted like italic. Subpixel-positioned and antialiased.
@@ -216,7 +218,7 @@ fn styled_text(canvas: &Canvas, face: &[u8], text: &str, x: f32, y: f32, size: f
 }
 
 /// A product box's label: a fruit on a gradient, a frame and the flavor's name.
-fn label(name: &str, top: Color, bottom: Color, fruit: Color) -> Texture3D {
+fn label(title_font: &[u8], name: &str, top: Color, bottom: Color, fruit: Color) -> Texture3D {
     painted(512, 512, |c, w, h| {
         c.draw_rect(Rect::from_wh(w, h), &linear((0.0, 0.0), (0.0, h), top, bottom));
         let mut frame = fill(Color::from_argb(200, 255, 255, 255));
@@ -225,21 +227,21 @@ fn label(name: &str, top: Color, bottom: Color, fruit: Color) -> Texture3D {
         c.draw_circle((w / 2.0, 214.0), 112.0, &fill(fruit));
         c.draw_circle((w / 2.0 - 38.0, 176.0), 30.0, &fill(Color::from_argb(90, 255, 255, 255)));
         c.draw_oval(Rect::from_xywh(w / 2.0 + 6.0, 70.0, 70.0, 34.0), &fill(Color::from_rgb(76, 201, 140)));
-        styled_text(c, TITLE_FONT, name, w / 2.0, 410.0, 76.0, Color::WHITE, true, false);
-        styled_text(c, TITLE_FONT, "made in code", w / 2.0, 456.0, 26.0, Color::from_argb(220, 255, 255, 255), true, false);
+        styled_text(c, title_font, name, w / 2.0, 410.0, 76.0, Color::WHITE, true, false);
+        styled_text(c, title_font, "made in code", w / 2.0, 456.0, 26.0, Color::from_argb(220, 255, 255, 255), true, false);
     })
 }
 
-fn labels() -> Vec<Texture3D> {
+fn labels(title_font: &[u8]) -> Vec<Texture3D> {
     vec![
-        label("BERRY", Color::from_rgb(255, 99, 132), Color::from_rgb(124, 58, 237), Color::from_rgb(190, 24, 93)),
-        label("MINT", Color::from_rgb(52, 211, 153), Color::from_rgb(13, 110, 253), Color::from_rgb(16, 185, 129)),
-        label("SUN", Color::from_rgb(255, 214, 10), Color::from_rgb(253, 126, 20), Color::from_rgb(255, 159, 28)),
+        label(title_font, "BERRY", Color::from_rgb(255, 99, 132), Color::from_rgb(124, 58, 237), Color::from_rgb(190, 24, 93)),
+        label(title_font, "MINT", Color::from_rgb(52, 211, 153), Color::from_rgb(13, 110, 253), Color::from_rgb(16, 185, 129)),
+        label(title_font, "SUN", Color::from_rgb(255, 214, 10), Color::from_rgb(253, 126, 20), Color::from_rgb(255, 159, 28)),
     ]
 }
 
 /// The card's two faces, 1024 x 646, as the .NET card: "Drawn Rewards Gold".
-fn card_faces() -> (Texture3D, Texture3D) {
+fn card_faces(font: &[u8]) -> (Texture3D, Texture3D) {
     let hex = |rgb: u32| Color::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8);
     let front = painted(1024, 646, |c, w, h| {
         let colors = [Color4f::from(hex(0x261E5C)), Color4f::from(hex(0x7C6CF2)), Color4f::from(hex(0xFF6384))];
@@ -258,10 +260,10 @@ fn card_faces() -> (Texture3D, Texture3D) {
         ring.set_style(skia::PaintStyle::Stroke).set_stroke_width(5.0);
         c.draw_circle((84.0, 92.0), 24.0, &ring);
         c.draw_circle((114.0, 92.0), 24.0, &ring);
-        text(c, "DRAWN REWARDS", 158.0, 106.0, 38.0, Color::WHITE, false);
+        text(c, font, "DRAWN REWARDS", 158.0, 106.0, 38.0, Color::WHITE, false);
         let gold = hex(0xFFD678);
-        let (gw, _) = Font::from_typeface(FontMgr::new().new_from_data(Data::new_copy(FONT), None).expect("the gallery font"), 44.0).measure_str("GOLD", None);
-        text(c, "GOLD", w - 64.0 - gw, 108.0, 44.0, gold, false);
+        let (gw, _) = Font::from_typeface(FontMgr::new().new_from_data(Data::new_copy(font), None).expect("the gallery font"), 44.0).measure_str("GOLD", None);
+        text(c, font, "GOLD", w - 64.0 - gw, 108.0, 44.0, gold, false);
         // The chip.
         c.draw_round_rect(Rect::from_xywh(64.0, 196.0, 136.0, 104.0), 18.0, 18.0, &linear((64.0, 196.0), (200.0, 300.0), GOLD_LIGHT, GOLD));
         let mut lines = fill(Color::from_argb(130, 120, 80, 0));
@@ -269,12 +271,12 @@ fn card_faces() -> (Texture3D, Texture3D) {
         c.draw_round_rect(Rect::from_xywh(98.0, 220.0, 68.0, 56.0), 10.0, 10.0, &lines);
         c.draw_line((64.0, 248.0), (98.0, 248.0), &lines);
         c.draw_line((166.0, 248.0), (200.0, 248.0), &lines);
-        text(c, "4821  0730  5512  9046", 64.0, 420.0, 60.0, Color::WHITE, false);
+        text(c, font, "4821  0730  5512  9046", 64.0, 420.0, 60.0, Color::WHITE, false);
         let dim = Color::from_argb(190, 255, 255, 255);
-        text(c, "MEMBER", 64.0, 520.0, 24.0, dim, false);
-        text(c, "ALEX MORGAN", 64.0, 568.0, 40.0, Color::WHITE, false);
-        text(c, "VALID THRU", 700.0, 520.0, 24.0, dim, false);
-        text(c, "08/29", 700.0, 568.0, 40.0, Color::WHITE, false);
+        text(c, font, "MEMBER", 64.0, 520.0, 24.0, dim, false);
+        text(c, font, "ALEX MORGAN", 64.0, 568.0, 40.0, Color::WHITE, false);
+        text(c, font, "VALID THRU", 700.0, 520.0, 24.0, dim, false);
+        text(c, font, "08/29", 700.0, 568.0, 40.0, Color::WHITE, false);
     });
     let back = painted(1024, 646, |c, w, h| {
         c.draw_rect(Rect::from_wh(w, h), &fill(hex(0x1E1A3E)));
@@ -282,12 +284,12 @@ fn card_faces() -> (Texture3D, Texture3D) {
         c.draw_rect(Rect::from_xywh(0.0, 60.0, w, 112.0), &fill(Color::from_rgb(10, 10, 14)));
         // The signature strip and the CVV.
         c.draw_round_rect(Rect::from_xywh(64.0, 226.0, 620.0, 84.0), 8.0, 8.0, &fill(Color::from_rgb(232, 228, 240)));
-        styled_text(c, FONT, "Alex Morgan", 92.0, 282.0, 40.0, Color::from_rgb(52, 48, 84), false, true);
+        styled_text(c, font, "Alex Morgan", 92.0, 282.0, 40.0, Color::from_rgb(52, 48, 84), false, true);
         c.draw_round_rect(Rect::from_xywh(708.0, 226.0, 140.0, 84.0), 8.0, 8.0, &fill(Color::WHITE));
-        text(c, "123", 778.0, 282.0, 40.0, Color::from_rgb(30, 28, 52), true);
-        text(c, "12,480 points", 64.0, 420.0, 52.0, Color::WHITE, false);
-        text(c, "Show this card at checkout to collect points.", 64.0, 478.0, 30.0, Color::from_argb(200, 255, 255, 255), false);
-        text(c, "drawnui.net", 64.0, h - 64.0, 34.0, hex(0xFFD678), false);
+        text(c, font, "123", 778.0, 282.0, 40.0, Color::from_rgb(30, 28, 52), true);
+        text(c, font, "12,480 points", 64.0, 420.0, 52.0, Color::WHITE, false);
+        text(c, font, "Show this card at checkout to collect points.", 64.0, 478.0, 30.0, Color::from_argb(200, 255, 255, 255), false);
+        text(c, font, "drawnui.net", 64.0, h - 64.0, 34.0, hex(0xFFD678), false);
     });
     (front, back)
 }
@@ -335,13 +337,13 @@ fn dollars(amount: f32) -> String {
 
 /// A row of the list: model, name, kind, price.
 /// The shop's furniture (Poly Haven, CC0): model, name, detail, price in its first finish.
-const PRODUCTS: [(&[u8], &str, &str, u32); 6] = [
-    (SOFA_HQ, "Walnut sofa", "Three-seater, carved walnut frame", 1190),
-    (LOUNGE_CHAIR, "Lounge chair", "Leather on a bent plywood shell", 890),
-    (ARMCHAIR, "Armchair", "Carved frame, linen seat", 640),
-    (OTTOMAN, "Ottoman", "Soft leather on wooden feet", 290),
-    (COFFEE_TABLE, "Coffee table", "Stone top on an oak frame", 420),
-    (DRAWER_CABINET, "Drawer cabinet", "Six drawers with brass pulls", 760),
+const PRODUCTS: [(&str, &str, &str, u32); 6] = [
+    (SOFA_URL, "Walnut sofa", "Three-seater, carved walnut frame", 1190),
+    ("assets/lounge_chair.glb", "Lounge chair", "Leather on a bent plywood shell", 890),
+    ("assets/armchair.glb", "Armchair", "Carved frame, linen seat", 640),
+    ("assets/ottoman.glb", "Ottoman", "Soft leather on wooden feet", 290),
+    ("assets/coffee_table.glb", "Coffee table", "Stone top on an oak frame", 420),
+    ("assets/drawer_cabinet.glb", "Drawer cabinet", "Six drawers with brass pulls", 760),
 ];
 const ROWS: usize = 30;
 /// Finishes: name, the tint over the model's own colors (`None` = as it is), what it adds to the price.
@@ -447,7 +449,6 @@ struct App {
     back_shown: bool,
     /// The flip, 0 to 1 while it turns.
     flip: f32,
-    card_faces: Option<(Texture3D, Texture3D)>,
     // Globe.
     globe: Handle<SkiaModel3D>,
     pins: [Handle<SkiaLayout>; 6],
@@ -455,7 +456,6 @@ struct App {
     pulses: [Handle<SkiaShape>; 6],
     pin_names: [Handle<SkiaShape>; 6],
     open_pin: Option<usize>,
-    earth: Option<Texture3D>,
     spin_paused: bool,
     /// Turning the globe to a city: from (yaw, pitch), to, seconds into it.
     globe_glide: Option<((f32, f32), (f32, f32), f32)>,
@@ -480,8 +480,11 @@ struct App {
     pieces: Vec<Piece>,
     // Images on 3D.
     product: Handle<SkiaModel3D>,
-    labels: Vec<Texture3D>,
+    /// The box labels, drawn once the gallery's fonts are here (`fetch_pictures`).
+    labels: Rc<RefCell<Vec<Texture3D>>>,
     label: usize,
+    /// The pictures below the first screen were asked for.
+    files_asked: bool,
     smooth_edges: bool,
     // Model files.
     chest: Handle<SkiaModel3D>,
@@ -904,7 +907,7 @@ fn product_list(app: &mut App) -> Build<SkiaShape> {
         .map(|i| {
             let (model, name, detail, price) = PRODUCTS[i % PRODUCTS.len()];
             let (finish, tint, extra) = FINISHES[i / PRODUCTS.len()];
-            let mut thumb = SkiaModel3D::new(model).view_angles(32.0, 14.0).lock_pitch(true).fill().assign(&mut app.thumbs[i]);
+            let mut thumb = SkiaModel3D::from_url(model).view_angles(32.0, 14.0).lock_pitch(true).fill().assign(&mut app.thumbs[i]);
             if let Some(tint) = tint {
                 // Every piece is one material: the finish tints all of it.
                 thumb = thumb.on_view_changed(move |me, app: &mut App, _cx| {
@@ -989,7 +992,6 @@ fn flip(app: &mut App) {
 }
 
 fn card_flip(app: &mut App) -> Build<SkiaShape> {
-    let (front, back) = app.card_faces.clone().expect("made at build");
     app.flip = 1.0;
     panel(
         "Card flip",
@@ -1000,8 +1002,6 @@ fn card_flip(app: &mut App) -> Build<SkiaShape> {
                 .zoom(0.74)
                 .tilt_to_pointer(14.0)
                 .antialias(true)
-                .material_image("front", front)
-                .material_image("back", back)
                 .fill()
                 .assign(&mut app.card)
                 .on_tapped_3d(|_me, app: &mut App, _cx, _hit| flip(app)),)),
@@ -1086,7 +1086,6 @@ fn place_pins(app: &App, cx: &mut Cx, model: Option<&SkiaModel3D>) {
 }
 
 fn globe_with_pins(app: &mut App) -> Build<SkiaShape> {
-    let earth = app.earth.clone().expect("decoded at build");
     let stage = left_column(SkiaShape::new(), VIEW.0, VIEW.1).corner_radius(14).background_color(Color::from_rgb(8, 10, 22)).is_clipped_to_bounds(true).children((
         SkiaModel3D::from_model(&globe())
             .view_angles(-20.0, 15.0)
@@ -1097,7 +1096,6 @@ fn globe_with_pins(app: &mut App) -> Build<SkiaShape> {
             .max_zoom(1.6)
             .reset_on_double_tap(true)
             .antialias(true)
-            .material_image("earth", earth)
             .fill()
             .assign(&mut app.globe)
             .on_view_changed(|me, app: &mut App, cx| place_pins(app, cx, Some(me.control_mut()))),
@@ -1292,7 +1290,7 @@ fn sign_up(app: &mut App) -> Build<SkiaShape> {
                 .fill_x()
                 .height_request(VIEW.1)
                 .observe(|me, app: &App| me.set_height_request(if two_columns(app) { VIEW.1 } else { STACKED_VIEW }))
-                .children((SkiaModel3D::new(AVATAR)
+                .children((SkiaModel3D::from_url(AVATAR)
                 .animation("CharacterArmature|Idle")
                 // Seen from its left: it faces the form, which is to the left on screen.
                 .view_angles(MASCOT_YAW, 8.0)
@@ -1306,6 +1304,10 @@ fn sign_up(app: &mut App) -> Build<SkiaShape> {
 // ---------------------------------------------------------------- the frame loop
 
 fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
+    if !app.files_asked {
+        app.files_asked = true;
+        fetch_pictures(app, cx);
+    }
     app.time += delta;
     let t = app.time;
     if app.load == LoadState3D::Loading
@@ -1395,7 +1397,11 @@ fn game_loop(app: &mut App, cx: &mut Cx, delta: f32) {
             let d = &mut app.dice;
             let w = Walker { x: d.next() * FIELD.0, y: GROUND.0 + 10.0 + d.next() * (GROUND.1 - GROUND.0 - 10.0), speed: (if d.next() < 0.5 { -1.0 } else { 1.0 }) * (30.0 + d.next() * 50.0) };
             let name = format!("m{i}");
-            field.add(&name, "slime", w.x, w.y, 46.0);
+            // The model is still loading: placed in a later frame.
+            if !field.add(&name, "slime", w.x, w.y, 46.0) {
+                app.walkers.clear();
+                break;
+            }
             field.play(&name, "CharacterArmature|Walk");
             field.set_speed(&name, 0.8 + d.next() * 0.5);
             field.set_facing(&name, if w.speed > 0.0 { 90.0 } else { -90.0 });
@@ -1539,10 +1545,49 @@ fn medal_colors(app: &App, cx: &mut Cx) {
     }
 }
 
+/// The pictures of the models below the first screen: the Earth and the textures drawn in code
+/// with the gallery's fonts (the card, the box labels). Each goes on its model when it arrives.
+fn fetch_pictures(app: &App, cx: &mut Cx) {
+    let globe = app.globe;
+    cx.fetch_bytes(EARTH, move |cx, bytes| {
+        if let Some(mut globe) = cx.get_mut(globe) {
+            globe.set_material_image("earth", Texture3D::decode(&bytes));
+        }
+    });
+    // Both fonts, then the card's faces and the labels.
+    let fonts: Rc<RefCell<[Option<Vec<u8>>; 2]>> = Rc::default();
+    let (card, product, labels, label) = (app.card, app.product, app.labels.clone(), app.label);
+    for (i, file) in [FONT_FILE, TITLE_FONT_FILE].into_iter().enumerate() {
+        let (fonts, labels) = (fonts.clone(), labels.clone());
+        cx.fetch_bytes(file, move |cx, bytes| {
+            let mut fonts = fonts.borrow_mut();
+            fonts[i] = Some(bytes);
+            let [Some(font), Some(title_font)] = &*fonts else { return };
+            if font.is_empty() || title_font.is_empty() {
+                return;
+            }
+            let (front, back) = card_faces(font);
+            *labels.borrow_mut() = self::labels(title_font);
+            if let Some(mut card) = cx.get_mut(card) {
+                card.set_material_image("front", Some(front));
+                card.set_material_image("back", Some(back));
+            }
+            let first = labels.borrow()[label].clone();
+            if let Some(mut product) = cx.get_mut(product) {
+                product.set_material_image("box", Some(first));
+            }
+        });
+    }
+}
+
 fn next_label(app: &mut App, cx: &mut Cx) {
-    app.label = (app.label + 1) % app.labels.len();
+    let labels = app.labels.borrow();
+    if labels.is_empty() {
+        return;
+    }
+    app.label = (app.label + 1) % labels.len();
     if let Some(mut product) = cx.get_mut(app.product) {
-        product.set_material_image("box", Some(app.labels[app.label].clone()));
+        product.set_material_image("box", Some(labels[app.label].clone()));
     }
 }
 
@@ -1661,7 +1706,7 @@ fn boss_page(app: &mut App) -> Build<SkiaLayout> {
                     .horizontal_text_alignment(TextAlignment::Center)
                     .horizontal_options(LayoutOptions::Center),
             )),
-            SkiaModel3D::new(DRAGON)
+            SkiaModel3D::from_url(DRAGON)
                 .animation(BOSS_IDLE)
                 .view_angles(30.0, 8.0)
                 .zoom(0.75)
@@ -1814,7 +1859,6 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
     (app.mobs, app.dice, app.spin) = (40, Dice(7), 1.0);
     // The heart starts liked and the medal unlocked, as the .NET gallery.
     (app.liked, app.unlocked) = (true, true);
-    (app.labels, app.card_faces, app.earth) = (labels(), Some(card_faces()), Texture3D::decode(EARTH));
     app.fabrics = SWATCHES.iter().filter_map(|s| Texture3D::decode(s.1)).collect();
     app.price_shown = SWATCHES[0].4;
     let micro = SkiaLayout::wrap().spacing(16).horizontal_options(LayoutOptions::Center).children((
@@ -1868,7 +1912,6 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
         "A box with its label: tap it or switch the design.",
         shaded(&product_box(), 28.0, 18.0)
             .auto_rotate(40.0)
-            .material_image("box", app.labels[0].clone())
             .assign(&mut app.product)
             .on_tapped_3d(|_me, app: &mut App, cx, _hit| next_label(app, cx)),
         (
@@ -1887,7 +1930,7 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
         tile(
             "Avatar",
             "A character that idles, and waves when tapped.",
-            SkiaModel3D::new(AVATAR).animation("CharacterArmature|Idle").view_angles(25.0, 10.0).fill().assign(&mut app.avatar).on_tapped_3d(|me, _app: &mut App, _cx, _hit| {
+            SkiaModel3D::from_url(AVATAR).animation("CharacterArmature|Idle").view_angles(25.0, 10.0).fill().assign(&mut app.avatar).on_tapped_3d(|me, _app: &mut App, _cx, _hit| {
                 me.play_once("CharacterArmature|Wave");
             }),
             (button("Wave").on_tapped(|_me, app: &mut App, cx| {
@@ -1899,7 +1942,7 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
         tile(
             "Reward",
             "A chest that opens and closes.",
-            SkiaModel3D::new(CHEST).animation("Chest_Open").playing(false).view_angles(30.0, 20.0).orbit(false).fill().assign(&mut app.chest),
+            SkiaModel3D::from_url(CHEST).animation("Chest_Open").playing(false).view_angles(30.0, 20.0).orbit(false).fill().assign(&mut app.chest),
             (button("Open").observe(|me, app: &App| me.set_text(if app.open { "Close" } else { "Open" })).on_tapped(|_me, app: &mut App, cx| {
                 app.open = !app.open;
                 if let Some(mut chest) = cx.get_mut(app.chest) {
@@ -1924,7 +1967,7 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
                 .children((RescalingLayout::new(FIELD.0, FIELD.1).children((
                 SkiaLayout::new().fill().children(side_scroller(&mut app.scenery)),
                 SkiaScene3D::new()
-                    .model("slime", MOB)
+                    .model_url("slime", MOB)
                     .tilt(30.0)
                     .fill()
                     .assign(&mut app.field)

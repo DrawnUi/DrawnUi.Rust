@@ -56,6 +56,9 @@
     </script>
 
     <link rel="icon" href="favicon.ico" />
+    <!-- The fonts the first frame waits for: fetched while the app downloads and starts. -->
+    <link rel="preload" as="fetch" crossorigin href="assets/OpenSans-Regular.ttf" />
+    <link rel="preload" as="fetch" crossorigin href="assets/OpenSans-Semibold.ttf" />
     <style>
       html, body { margin: 0; height: 100%; background: #121218; overflow: hidden; }
       canvas { width: 100vw; height: 100vh; height: 100dvh; display: block; touch-action: none; }
