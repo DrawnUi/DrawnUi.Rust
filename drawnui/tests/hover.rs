@@ -187,3 +187,20 @@ fn a_popup_that_blocks_gestures_below_takes_hover_from_the_list() {
     host.settle();
     assert_eq!(host.ui.hovered(), [cards[1]]);
 }
+
+/// A row of a list inside a page's scroll: the pointer leaving the row for the page's margin ends
+/// its hover (the gallery's shop rows on the Mac kept turning).
+#[test]
+fn a_row_of_a_nested_list_leaves_hover_on_the_page_margin() {
+    let row = SkiaLayout::row().fill_x().height_request(60).background_color(Color::GRAY).on_hovered(|_me, app: &mut App, _cx, on| app.card_events.push(on));
+    let row_id = row.id();
+    let list = SkiaScroll::new().fill_x().height_request(150).content(SkiaLayout::column().fill_x().children((row,)));
+    let page = SkiaScroll::new().fill().content(SkiaLayout::column().fill_x().padding(40).spacing(20).children((list, SkiaLayout::new().fill_x().height_request(600))));
+    let mut host = host(SkiaLayout::new().fill().children((page,)));
+    host.hover(100.0, 60.0); // the row
+    assert!(hovered(&host, row_id));
+    host.hover(390.0, 60.0); // the page's right margin, beside the list
+    assert!(!hovered(&host, row_id), "the row still hovered");
+    host.hover(100.0, 300.0); // the page below the list
+    assert_eq!(host.ui.state.card_events, [true, false]);
+}
