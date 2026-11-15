@@ -208,7 +208,7 @@ impl SkiaModel3D {
 
     /// A scene loaded from a url (the browser fetches it; desktop reads it as a file path): nothing
     /// is drawn while it loads, `load_state` and `on_load_state` tell how it went. Controls asking
-    /// for the same url share one load and one copy.
+    /// for the same url share one load and one copy. An empty url loads nothing until `set_source`.
     pub fn from_url(url: impl Into<String>) -> Build<SkiaModel3D> {
         let mut build = SkiaModel3D::with_scene(Err(String::new()));
         let model = build.control_mut();
@@ -375,9 +375,10 @@ impl SkiaModel3D {
     /// The animation the app named to start with (`animation`), once the scene is there: the start
     /// pose, playing only when the app did not say otherwise.
     fn start_named_animation(&mut self) {
-        if let Some(name) = self.start_animation.take()
-            && let Some(animation) = self.animation_named(&name)
+        if let Some(name) = &self.start_animation
+            && let Some(animation) = self.animation_named(name)
         {
+            self.start_animation = None;
             let playing = self.player.playing;
             self.player.play(animation);
             self.player.fade_now();
@@ -387,7 +388,8 @@ impl SkiaModel3D {
 
     /// Starts loading the url asked for, if any.
     fn load_source(&mut self, cx: &mut Cx) {
-        let Some(url) = self.source.take() else { return };
+        // An empty url waits for `set_source` (an app that starts its loads in an order of its own).
+        let Some(url) = self.source.take().filter(|url| !url.is_empty()) else { return };
         let id = self.id;
         let done: scene::UrlDone = Box::new(move |cx, read| {
             if let Some(mut me) = cx.find_mut::<SkiaModel3D>(id) {
