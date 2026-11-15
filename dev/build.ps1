@@ -78,6 +78,9 @@ try {
         if ($html.Contains('src="drawnui_host.js"') -and -not $html.Contains($hostTag)) { throw "$($page.Name): write the host script as $hostTag" }
         $html = $html.Replace($hostTag, $hostTags)
         if (Test-Path "$out\favicon.ico") { $html = $html.Replace('href="favicon.ico"', "href=`"favicon.ico?v=$(& $stamp "$out\favicon.ico")`"") }
+        # Links to app files (a preload of the fonts) take the stamp the app's own fetch uses, so
+        # the browser serves that fetch from what it preloaded.
+        foreach ($file in $versions.Keys) { $html = $html.Replace("href=`"$file`"", "href=`"$($file)?v=$($versions[$file])`"") }
         # The loading screen while the app downloads and starts (dev\web-loader.ps1).
         if ($html.Contains("src=`"$Example.js?v=")) { $html = Add-WebLoader $html (Get-Item "$out\$Example.wasm").Length }
         Set-Content $page.FullName $html -NoNewline
