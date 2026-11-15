@@ -28,10 +28,10 @@ use drawnui::skia::{
 use drawnui_add3d::prelude::*;
 use glam::{EulerRot, Quat};
 
-// Model files and the Earth image: public domain, see assets/MODELS-LICENSE.txt. The first screen
-// (the sofa and its fabrics) is in the app, drawn as the page appears; everything below it is
-// loaded from the app's files (the browser fetches them, desktop and Android read them), so the
-// app itself stays small and starts sooner.
+// Model files and the Earth image: public domain, see assets/MODELS-LICENSE.txt. In the app: the
+// Earth (the globe opens the page, whole as it appears) and the sofa with its fabrics (the product
+// viewer's "In the app" model). Everything else is loaded from the app's files (the browser fetches
+// them, desktop and Android read them), so the app itself stays small and starts sooner.
 const SOFA_HQ: &[u8] = include_bytes!("../assets/sofa.glb");
 const LEATHER: &[u8] = include_bytes!("../assets/leather.jpg");
 const WOOL: &[u8] = include_bytes!("../assets/wool.jpg");
@@ -41,10 +41,10 @@ const CHEST: &str = "assets/gift.glb";
 const AVATAR: &str = "assets/avatar.glb";
 const MOB: &str = "assets/mob.glb";
 const DRAGON: &str = "assets/dragon.glb";
-const EARTH: &str = "assets/earth.jpg";
-/// What a cover waits for besides model files: the fonts of the drawn textures, the Earth.
+/// The globe opens the page: its picture is in the app, so the first screen is whole when it shows.
+const EARTH: &[u8] = include_bytes!("../assets/earth.jpg");
+/// What a cover waits for besides model files: the fonts of the drawn textures.
 const FONTS: &str = "fonts";
-const EARTH_KEY: &str = "earth";
 /// The files below the first screen start in page order, this many at a time, so the next section
 /// down is usually ready first.
 const LOADS_AT_ONCE: usize = 2;
@@ -75,11 +75,8 @@ const HEADER_ONE_LINE: f32 = 560.0;
 /// The header tabs: the shown one in the accent, the other quiet.
 const TAB_ON: Color = Color::from_rgb(124, 108, 242);
 const TAB_OFF: Color = Color::from_rgb(52, 56, 78);
-/// The medal's resting turn: it spins from here and lands here.
-const MEDAL_YAW: f32 = 20.0;
 const GOLD: Color = Color::from_rgb(255, 196, 61);
 const GOLD_LIGHT: Color = Color::from_rgb(255, 222, 122);
-const GREY: Color = Color::from_rgb(196, 192, 206);
 const CONFETTI: [Color; 5] = [
     Color::from_rgb(255, 99, 132),
     Color::from_rgb(255, 196, 61),
@@ -105,40 +102,6 @@ fn star(points: usize, outer: f32, inner: f32) -> Path {
     }
     b.close();
     b.detach()
-}
-
-fn heart() -> Path {
-    let mut b = PathBuilder::new();
-    b.move_to((50.0, 88.0));
-    b.cubic_to((20.0, 65.0), (0.0, 45.0), (0.0, 28.0));
-    b.cubic_to((0.0, 12.0), (12.0, 0.0), (27.0, 0.0));
-    b.cubic_to((38.0, 0.0), (46.0, 7.0), (50.0, 15.0));
-    b.cubic_to((54.0, 7.0), (62.0, 0.0), (73.0, 0.0));
-    b.cubic_to((88.0, 0.0), (100.0, 12.0), (100.0, 28.0));
-    b.cubic_to((100.0, 45.0), (80.0, 65.0), (50.0, 88.0));
-    b.close();
-    b.detach()
-}
-
-/// A medal on two ribbons.
-fn medal() -> Model3D {
-    Model3D::new()
-        .part("ribbon_left", Mesh3D::cuboid(0.55, 1.5, 0.06), Color::from_rgb(255, 99, 132))
-        .at(-0.38, 1.05, -0.12)
-        .turned(0.0, 0.0, 22.0)
-        .part("ribbon_right", Mesh3D::cuboid(0.55, 1.5, 0.06), Color::from_rgb(92, 140, 255))
-        .at(0.38, 1.05, -0.12)
-        .turned(0.0, 0.0, -22.0)
-        .part("disc", Mesh3D::cylinder(1.0, 0.22), GOLD)
-        .turned(90.0, 0.0, 0.0)
-        .part("inner", Mesh3D::cylinder(0.76, 0.34), GOLD_LIGHT)
-        .turned(90.0, 0.0, 0.0)
-        .part("star", Mesh3D::extrude(&star(5, 0.52, 0.22), 0.08), Color::WHITE)
-        .at(0.0, 0.0, 0.2)
-}
-
-fn heart_model() -> Model3D {
-    Model3D::new().part("heart", Mesh3D::extrude(&heart(), 22.0), Color::from_rgb(255, 77, 109))
 }
 
 /// A strip of paper and a star for the confetti; the part to recolor is "piece".
@@ -363,7 +326,14 @@ const FINISHES: [(&str, Option<Color>, u32); 5] = [
 ];
 
 /// Cities on the globe: name, latitude, longitude.
-const CITIES: [(&str, f32, f32); 6] = [("Tokyo", 35.7, 139.7), ("Sydney", -33.9, 151.2), ("Cape Town", -33.9, 18.4), ("London", 51.5, -0.1), ("New York", 40.7, -74.0), ("Rio de Janeiro", -22.9, -43.2)];
+const CITIES: [(&str, &str, f32, f32); 6] = [
+    ("Tokyo", "Japan", 35.7, 139.7),
+    ("Sydney", "Australia", -33.9, 151.2),
+    ("Cape Town", "South Africa", -33.9, 18.4),
+    ("London", "United Kingdom", 51.5, -0.1),
+    ("New York", "United States", 40.7, -74.0),
+    ("Rio de Janeiro", "Brazil", -22.9, -43.2),
+];
 
 /// A point on the globe (radius 1) for a latitude and longitude: the sphere wraps its image once
 /// around (the image's left edge, longitude -180, at angle 360) from the north pole down.
@@ -414,7 +384,6 @@ enum Field {
 struct App {
     /// The clocks of what moves only while it is in view (`game_loop`), and of the spinners.
     pulse_time: f32,
-    heart_time: f32,
     rain_time: f32,
     spin_time: f32,
     /// The screen shown: 0 the gallery, 1 the boss fight.
@@ -467,7 +436,7 @@ struct App {
     globe: Handle<SkiaModel3D>,
     pins: [Handle<SkiaLayout>; 6],
     /// Each pin's pulse, grown and faded by the frame loop.
-    pulses: [Handle<SkiaShape>; 6],
+    pulses: [Handle<SkiaLayout>; 6],
     pin_names: [Handle<SkiaShape>; 6],
     open_pin: Option<usize>,
     spin_paused: bool,
@@ -482,14 +451,6 @@ struct App {
     signed_up: bool,
     problem: Option<&'static str>,
     // Micro-interactions.
-    medal: Handle<SkiaModel3D>,
-    unlocked: bool,
-    /// The medal's spin after unlocking, 0 to 1.
-    spin: f32,
-    heart: Handle<SkiaModel3D>,
-    liked: bool,
-    /// The heart's pop after a like, 1 to 0.
-    pop: f32,
     rain: Handle<SkiaScene3D>,
     pieces: Vec<Piece>,
     // Images on 3D.
@@ -511,7 +472,6 @@ struct App {
     // Model files.
     chest: Handle<SkiaModel3D>,
     open: bool,
-    avatar: Handle<SkiaModel3D>,
     // Games.
     field: Handle<SkiaScene3D>,
     /// The side-scroller's moving layers, far to near, and how far it has panned.
@@ -522,10 +482,6 @@ struct App {
     /// The mobs drawn like an illustration (`DRAWN_MOBS`) instead of shaded.
     mobs_drawn: bool,
     dice: Dice,
-}
-
-fn ease_out(t: f32) -> f32 {
-    1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
 }
 
 fn ease_in_out(t: f32) -> f32 {
@@ -1052,7 +1008,7 @@ fn card_flip(app: &mut App) -> Build<SkiaShape> {
 
 /// Stops the spin and glides (0.6 s) the globe round until the city faces the viewer.
 fn turn_to_city(app: &mut App, cx: &mut Cx, city: usize) {
-    let (_, lat, lon) = CITIES[city];
+    let (_, _, lat, lon) = CITIES[city];
     let [x, _, z] = on_globe(lat, lon);
     // The camera's yaw puts it at (sin yaw, cos yaw) round the globe: right in front of the city.
     let to = (x.atan2(z).to_degrees(), lat.clamp(-50.0, 60.0));
@@ -1067,55 +1023,112 @@ fn turn_to_city(app: &mut App, cx: &mut Cx, city: usize) {
     place_pins(app, cx, None);
 }
 
-/// A pin's point from its top left (the tip), and how far above the point its label sits.
-const PIN_ANCHOR: (f32, f32) = (16.0, 43.0);
-const PIN_LABEL_RISE: f32 = 78.0;
-const PIN_RED: Color = Color::from_rgb(234, 67, 53);
-/// The city label's width: labels are centered before their first layout.
-const CHIP_WIDTH: f32 = 130.0;
+/// A flare's size, its center (the city's point) from its top left, the callout's size and how far
+/// above the point its top sits.
+const FLARE: f32 = 44.0;
+const PIN_ANCHOR: (f32, f32) = (22.0, 22.0);
+const CALLOUT: (f32, f32) = (168.0, 46.0);
+const CALLOUT_RISE: f32 = 62.0;
+const SPARK_GOLD: Color = Color::from_rgb(255, 200, 70);
+const STAR_GOLD: Color = Color::from_rgb(246, 184, 32);
 
-/// A map pin for a city: a glossy teardrop with a soft shadow and a white dot inside, and a ring
-/// pulsing where it stands (its handle goes to `pulse`). The teardrop is cached as an image: the
-/// globe under it redraws every frame, the pin is only moved.
-fn pin(name: &str, pulse: &mut Handle<SkiaShape>) -> Build<SkiaLayout> {
-    SkiaLayout::new().is_visible(false).accessibility_role(Aria::BUTTON).accessibility_label(name).width_request(32).height_request(48).children((
-        SkiaShape::new().shape_type(ShapeType::Ellipse).width_request(30).height_request(10).left(1).top(38).stroke_color(PIN_RED).stroke_width(2).assign(pulse),
-        SkiaLayout::new().width_request(32).height_request(43).use_cache(CacheType::Image).children((
-        SkiaShape::new()
-            .shape_type(ShapeType::Path)
-            .path_data("M16 0 C7.2 0 0 7 0 15.6 C0 27 16 43 16 43 C16 43 32 27 32 15.6 C32 7 24.8 0 16 0 Z")
-            .width_request(32)
-            .height_request(43)
-            .background_color(PIN_RED)
-            .fill_gradient(SkiaGradient::new(GradientType::Linear, [Color::from_rgb(255, 112, 96), Color::from_rgb(200, 40, 32)]).start_x_ratio(0.3).start_y_ratio(0.0).end_x_ratio(0.7).end_y_ratio(1.0))
-            .shadows(SkiaShadow::new(Color::BLACK).x(0).y(3).blur(5).opacity(0.45)),
-        SkiaShape::new().shape_type(ShapeType::Circle).width_request(12).height_request(12).left(10).top(10).background_color(Color::WHITE),
-        SkiaShape::new().shape_type(ShapeType::Ellipse).width_request(10).height_request(5).left(8).top(4).background_color(Color::from_argb(90, 255, 255, 255)),
-        )),
-    ))
+/// A ray of a flare, `length` x `thickness` points turned by `degrees`: bright in the middle,
+/// fading to nothing at both ends, added to the light under it (screen blend).
+fn ray(length: f32, thickness: f32, degrees: f32) -> Build<SkiaShape> {
+    SkiaShape::new()
+        .width_request(length)
+        .height_request(thickness)
+        .horizontal_options(LayoutOptions::Center)
+        .vertical_options(LayoutOptions::Center)
+        .rotation(degrees)
+        .background_color(Color::WHITE)
+        .fill_gradient(
+            SkiaGradient::new(GradientType::Linear, [Color::from_argb(0, 255, 255, 255), Color::from_argb(240, 255, 248, 220), Color::from_argb(0, 255, 255, 255)])
+                .color_positions(vec![0.0, 0.5, 1.0])
+                .start_x_ratio(0.0)
+                .start_y_ratio(0.5)
+                .end_x_ratio(1.0)
+                .end_y_ratio(0.5)
+                .blend_mode(BlendMode::Screen),
+        )
 }
 
-/// A clean label chip for a city, cached as an image (its shadow and text are not drawn again
-/// while the globe under it turns).
-fn chip_label(name: &str) -> Build<SkiaShape> {
+/// A city's pin: a flare of light on its point, a tight gold glow, four thin rays and a white-hot
+/// core, every part in screen blend so it only brightens the Earth under it (a normal blend makes a
+/// dark smudge on the ocean). The flare itself flashes (`flare` goes to the game loop, which scales
+/// and turns it); it is never faded with opacity, which would break the blend. Shown while its city
+/// faces the viewer; it is the tap target that opens the callout.
+fn pin(name: &str, flare: &mut Handle<SkiaLayout>) -> Build<SkiaLayout> {
+    let glow = SkiaGradient::new(GradientType::Circular, [Color::from_argb(255, 255, 250, 230), Color::from_argb(200, 255, 226, 150), Color::from_argb(0, 255, 200, 70), Color::from_argb(0, 255, 200, 70)])
+        .color_positions(vec![0.0, 0.1, 0.28, 1.0])
+        .start_x_ratio(0.5)
+        .start_y_ratio(0.5)
+        .blend_mode(BlendMode::Screen);
+    let white = SkiaGradient::new(GradientType::Linear, [Color::WHITE, Color::WHITE]).blend_mode(BlendMode::Screen);
+    SkiaLayout::new()
+        .width_request(FLARE)
+        .height_request(FLARE)
+        .is_visible(false)
+        .accessibility_role(Aria::BUTTON)
+        .accessibility_label(name)
+        .on_hovered(|me, _app: &mut App, _cx, on| {
+            me.set_scale_x(if on { 1.15 } else { 1.0 });
+            me.set_scale_y(if on { 1.15 } else { 1.0 });
+        })
+        .children((SkiaLayout::new().width_request(FLARE).height_request(FLARE).assign(flare).children((
+            SkiaShape::new().shape_type(ShapeType::Circle).width_request(FLARE).height_request(FLARE).background_color(SPARK_GOLD).fill_gradient(glow),
+            ray(FLARE, 2.0, 0.0),
+            ray(FLARE, 2.0, 90.0),
+            ray(FLARE * 0.55, 1.5, 45.0),
+            ray(FLARE * 0.55, 1.5, 135.0),
+            SkiaShape::new()
+                .shape_type(ShapeType::Circle)
+                .width_request(5)
+                .height_request(5)
+                .horizontal_options(LayoutOptions::Center)
+                .vertical_options(LayoutOptions::Center)
+                .background_color(Color::WHITE)
+                .fill_gradient(white),
+        )),))
+}
+
+/// A city's callout over its flare: a dark glass card with a hairline edge and a soft shadow, a
+/// gold star, the city in semibold over its country. Cached as an image: the globe under it draws
+/// every frame, the callout never changes.
+fn callout(name: &str, country: &str) -> Build<SkiaShape> {
     SkiaShape::new()
         .use_cache(CacheType::Image)
-        .width_request(CHIP_WIDTH)
-        .height_request(30)
-        .corner_radius(15)
-        .background_color(Color::from_rgb(250, 250, 252))
-        .shadows(SkiaShadow::new(Color::BLACK).x(0).y(2).blur(6).opacity(0.35))
+        .width_request(CALLOUT.0)
+        .height_request(CALLOUT.1)
+        .corner_radius(12)
+        .background_color(Color::from_argb(240, 30, 32, 46))
+        .stroke_color(Color::from_argb(30, 255, 255, 255))
+        .stroke_width(1)
+        .shadows(SkiaShadow::new(Color::BLACK).x(0).y(4).blur(10).opacity(0.5))
+        .input_transparent(true)
         .is_visible(false)
-        .children((SkiaLabel::new(name).font_size(14).text_color(Color::from_rgb(30, 32, 44)).horizontal_options(LayoutOptions::Center).vertical_options(LayoutOptions::Center),))
+        .children((SkiaLayout::row().spacing(9).padding((12.0, 0.0)).vertical_options(LayoutOptions::Center).children((
+            SkiaShape::new()
+                .shape_type(ShapeType::Path)
+                .path_data("M7.00 0.40 L8.70 5.05 L13.66 5.24 L9.76 8.30 L11.11 13.06 L7.00 10.30 L2.89 13.06 L4.24 8.30 L0.34 5.24 L5.30 5.05 Z")
+                .width_request(14)
+                .height_request(14)
+                .vertical_options(LayoutOptions::Center)
+                .background_color(STAR_GOLD),
+            SkiaLayout::column().spacing(1).vertical_options(LayoutOptions::Center).children((
+                SkiaLabel::new(name).font_size(14).font_family(TITLE).text_color(INK).max_lines(1),
+                SkiaLabel::new(country).font_size(11).text_color(MUTED).max_lines(1),
+            )),
+        )),))
 }
 
 fn place_pins(app: &App, cx: &mut Cx, model: Option<&SkiaModel3D>) {
-    let points: Vec<[f32; 3]> = CITIES.iter().map(|c| on_globe(c.1, c.2)).collect();
+    let points: Vec<[f32; 3]> = CITIES.iter().map(|c| on_globe(c.2, c.3)).collect();
     let on_screen = match model {
         Some(m) => positions(Some(m), &points),
         None => positions(cx.find(app.globe), &points),
     };
-    place(cx, on_screen, &app.pins, &app.pin_names, app.open_pin, PIN_ANCHOR, CHIP_WIDTH, PIN_LABEL_RISE);
+    place(cx, on_screen, &app.pins, &app.pin_names, app.open_pin, PIN_ANCHOR, CALLOUT.0, CALLOUT_RISE);
 }
 
 fn globe_with_pins(app: &mut App) -> Build<SkiaShape> {
@@ -1129,6 +1142,7 @@ fn globe_with_pins(app: &mut App) -> Build<SkiaShape> {
             .max_zoom(1.6)
             .reset_on_double_tap(true)
             .antialias(true)
+            .material_image("earth", Texture3D::decode(EARTH).expect("the Earth picture"))
             .fill()
             .assign(&mut app.globe)
             .on_view_changed(|me, app: &mut App, cx| place_pins(app, cx, Some(me.control_mut()))),
@@ -1142,9 +1156,8 @@ fn globe_with_pins(app: &mut App) -> Build<SkiaShape> {
                     })
                 })
                 .collect::<Vec<_>>(),
-            (0..CITIES.len()).map(|i| chip_label(CITIES[i].0).assign(&mut app.pin_names[i])).collect::<Vec<_>>(),
+            (0..CITIES.len()).map(|i| callout(CITIES[i].0, CITIES[i].1).assign(&mut app.pin_names[i])).collect::<Vec<_>>(),
         )),
-        cover(app, EARTH_KEY, Color::from_rgb(8, 10, 22), 14.0, false),
     ));
     panel(
         "Globe with pins",
@@ -1377,14 +1390,15 @@ fn game_loop(game: &mut Mut<'_, DrawnGame>, app: &mut App, cx: &mut Cx, delta: f
         moving = true;
         app.pulse_time += delta;
         let t = app.pulse_time;
-        for (i, pulse) in app.pulses.iter().enumerate() {
-            // Each pin's pulse grows and fades over 1.6 s, the pins out of step.
-            let phase = (t / 1.6 + i as f32 * 0.17).fract();
-            if let Some(mut ring) = cx.get_mut(*pulse) {
-                let grow = 0.4 + phase;
-                ring.set_scale_x(grow);
-                ring.set_scale_y(grow);
-                ring.set_opacity(1.0 - phase);
+        for (i, flare) in app.pulses.iter().enumerate() {
+            // Each city's flare flashes once every 2.6 s, the cities out of step: it swells and turns a
+            // little at the flash, small between flashes.
+            let phase = (t / 2.6 + i as f32 * 0.37).fract();
+            let flash = (phase * std::f32::consts::PI).sin().max(0.0).powi(8);
+            if let Some(mut flare) = cx.get_mut(*flare) {
+                flare.set_scale_x(0.45 + 0.75 * flash);
+                flare.set_scale_y(0.45 + 0.75 * flash);
+                flare.set_rotation(20.0 * flash);
             }
         }
     }
@@ -1415,23 +1429,6 @@ fn game_loop(game: &mut Mut<'_, DrawnGame>, app: &mut App, cx: &mut Cx, delta: f
         }
         if app.flip >= 1.0 {
             app.back_shown = !app.back_shown;
-        }
-    }
-    if app.spin < 1.0 {
-        app.spin = (app.spin + delta / 0.9).min(1.0);
-        if let Some(mut medal) = cx.get_mut(app.medal) {
-            medal.set_view_angles(MEDAL_YAW + 360.0 * ease_out(app.spin), 12.0);
-        }
-    }
-
-    // The heart beats while it is in view.
-    app.pop = (app.pop - delta * 3.0).max(0.0);
-    if seen(cx, app.heart.into()) {
-        moving = true;
-        app.heart_time += delta;
-        if let Some(mut heart) = cx.get_mut(app.heart) {
-            let beat = 1.0 + 0.05 * (app.heart_time * 5.0).sin().max(0.0) + 0.35 * app.pop;
-            heart.set_node_scale("heart", [beat, beat, 1.0]);
         }
     }
 
@@ -1530,13 +1527,11 @@ fn wake(app: &App, cx: &mut Cx) {
 }
 
 impl App {
-    /// An animation the app started runs: a flip, the medal's spin, a glide to a city, the price
-    /// counting, the heart's pop, the sofa loading, mobs to place.
+    /// An animation the app started runs: a flip, a glide to a city, the price counting, the sofa
+    /// loading, mobs to place.
     fn busy(&self) -> bool {
         self.flip < 1.0
-            || self.spin < 1.0
             || self.globe_glide.is_some()
-            || self.pop > 0.0
             || self.price_shown != SWATCHES[self.swatch].4
             || self.load == LoadState3D::Loading
             || self.walkers.len() != self.mobs
@@ -1646,14 +1641,6 @@ fn side_scroller(layers: &mut [Handle<SkiaLayout>; 4]) -> Vec<Detached> {
     children
 }
 
-fn medal_colors(app: &App, cx: &mut Cx) {
-    if let Some(mut medal) = cx.get_mut(app.medal) {
-        for (part, color) in [("disc", GREY), ("inner", Color::from_rgb(222, 219, 230)), ("star", Color::from_rgb(244, 242, 248))] {
-            medal.set_material_color(part, (!app.unlocked).then_some(color));
-        }
-    }
-}
-
 /// A view still loading its file or picture.
 struct Cover {
     key: &'static str,
@@ -1737,7 +1724,6 @@ fn pump_loads(app: &mut App, cx: &mut Cx) {
         free -= 1;
         match key {
             FONTS => fetch_fonts(app, cx),
-            EARTH_KEY => fetch_earth(app, cx),
             url => {
                 for model in models_of(app, url) {
                     if let Some(mut model) = cx.get_mut(model) {
@@ -1753,28 +1739,12 @@ fn pump_loads(app: &mut App, cx: &mut Cx) {
 fn models_of(app: &App, url: &str) -> Vec<Handle<SkiaModel3D>> {
     let mut models: Vec<Handle<SkiaModel3D>> = (0..ROWS).filter(|i| PRODUCTS[i % PRODUCTS.len()].0 == url).map(|i| app.thumbs[i]).collect();
     if url == AVATAR {
-        models.extend([app.mascot, app.avatar]);
+        models.push(app.mascot);
     }
     if url == CHEST {
         models.push(app.chest);
     }
     models
-}
-
-/// The Earth, on the globe.
-fn fetch_earth(app: &App, cx: &mut Cx) {
-    let (globe, game, arrived, news) = (app.globe, app.game, app.arrived.clone(), app.news.clone());
-    cx.fetch_bytes(EARTH, move |cx, bytes| {
-        if let Some(mut globe) = cx.get_mut(globe) {
-            globe.set_material_image("earth", Texture3D::decode(&bytes));
-        }
-        arrived.borrow_mut().insert(EARTH_KEY);
-        news.set(true);
-        // The loop fades the cover and starts the next file.
-        if let Some(mut game) = cx.get_mut(game) {
-            game.start_loop(0.0);
-        }
-    });
 }
 
 /// The gallery's fonts, then the textures drawn with them: the card's faces and the box labels.
@@ -2094,30 +2064,12 @@ fn build(app: &mut App) -> Build<SkiaLayout> {
 
 /// The gallery screen.
 fn gallery(app: &mut App) -> Build<DrawnGame> {
-    (app.mobs, app.dice, app.spin) = (40, Dice(7), 1.0);
-    // The heart starts liked and the medal unlocked, as the .NET gallery.
-    (app.liked, app.unlocked) = (true, true);
+    (app.mobs, app.dice) = (40, Dice(7));
     app.fabrics = SWATCHES.iter().filter_map(|s| Texture3D::decode(s.1)).collect();
-    // Page order: the shop, the card, the globe, the form's mascot (and the avatar), the chest.
-    app.loads = PRODUCTS.iter().map(|p| p.0).chain([FONTS, EARTH_KEY, AVATAR, CHEST]).map(|key| (key, false)).collect();
+    // Page order: the card (its fonts), the shop, the chest, the form's mascot.
+    app.loads = [FONTS].into_iter().chain(PRODUCTS.iter().map(|p| p.0)).chain([CHEST, AVATAR]).map(|key| (key, false)).collect();
     app.price_shown = SWATCHES[0].4;
-    let micro = SkiaLayout::wrap().spacing(16).horizontal_options(LayoutOptions::Center).children((
-        tile(
-            "Like",
-            "A heart that beats, and jumps when liked.",
-            shaded(&heart_model(), -24.0, 12.0).assign(&mut app.heart).on_tapped_3d(|me, app: &mut App, _cx, _hit| {
-                app.liked = !app.liked;
-                app.pop = if app.liked { 1.0 } else { 0.0 };
-                me.set_material_color("heart", (!app.liked).then_some(GREY));
-            }),
-            (button("Like").observe(|me, app: &App| me.set_text(if app.liked { "Unlike" } else { "Like" })).on_tapped(|_me, app: &mut App, cx| {
-                app.liked = !app.liked;
-                app.pop = if app.liked { 1.0 } else { 0.0 };
-                if let Some(mut heart) = cx.get_mut(app.heart) {
-                    heart.set_material_color("heart", (!app.liked).then_some(GREY));
-                }
-            }),),
-        ),
+    let touches = SkiaLayout::wrap().spacing(16).horizontal_options(LayoutOptions::Center).children((
         tile(
             "Celebration",
             "Confetti and stars falling: one 3D layer, many pieces.",
@@ -2130,66 +2082,26 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
             }),),
         ),
         tile(
-            "Achievement",
-            "A medal that lights up and spins when unlocked.",
-            shaded(&medal(), MEDAL_YAW, 12.0).assign(&mut app.medal).on_tapped_3d(|_me, app: &mut App, cx, _hit| {
-                app.spin = 0.0;
-                medal_colors(app, cx);
-            }),
-            (button("Unlock").observe(|me, app: &App| me.set_text(if app.unlocked { "Lock" } else { "Unlock" })).on_tapped(|_me, app: &mut App, cx| {
-                app.unlocked = !app.unlocked;
-                medal_colors(app, cx);
-                if app.unlocked {
-                    app.spin = 0.0;
-                    cx.scale_to(app.medal, 0.6, 0.6, 0, easing::linear);
-                    cx.scale_to(app.medal, 1.0, 1.0, 500, easing::spring_out);
-                }
-            }),),
-        ),
-    ));
-    let images = SkiaLayout::wrap().spacing(16).horizontal_options(LayoutOptions::Center).children((tile(
-        "Product box",
-        "A box with its label: tap it or switch the design.",
-        (
-            shaded(&product_box(), 28.0, 18.0)
-                .auto_rotate(40.0)
-                .assign(&mut app.product)
-                .on_tapped_3d(|_me, app: &mut App, cx, _hit| next_label(app, cx)),
-            cover(app, FONTS, STAGE, 12.0, false),
-        ),
-        (
-            ui_button("Next design").width_request(120).background_color(BUTTON).on_tapped(|_me, app: &mut App, cx| next_label(app, cx)),
-            ui_button("Edges: hard").width_request(120).background_color(STAGE).observe(|me, app: &App| me.set_text(if app.smooth_edges { "Edges: smooth" } else { "Edges: hard" })).on_tapped(
-                |_me, app: &mut App, cx| {
-                    app.smooth_edges = !app.smooth_edges;
-                    if let Some(mut product) = cx.get_mut(app.product) {
-                        product.set_antialias(app.smooth_edges);
-                    }
-                },
-            ),
-        ),
-    ),));
-    let files = SkiaLayout::wrap().spacing(16).horizontal_options(LayoutOptions::Center).children((
-        tile(
-            "Avatar",
-            "A character that idles, and waves when tapped.",
+            "Product box",
+            "A box with its label: tap it or switch the design.",
             (
-                SkiaModel3D::from_url("")
-                    .animation("CharacterArmature|Idle")
-                    .view_angles(25.0, 10.0)
-                    .fill()
-                    .assign(&mut app.avatar)
-                    .on_load_state(|_me, app: &mut App, cx, state| loaded(app, cx, AVATAR, state))
-                    .on_tapped_3d(|me, _app: &mut App, _cx, _hit| {
-                        me.play_once("CharacterArmature|Wave");
-                    }),
-                cover(app, AVATAR, STAGE, 12.0, false),
+                shaded(&product_box(), 28.0, 18.0)
+                    .auto_rotate(40.0)
+                    .assign(&mut app.product)
+                    .on_tapped_3d(|_me, app: &mut App, cx, _hit| next_label(app, cx)),
+                cover(app, FONTS, STAGE, 12.0, false),
             ),
-            (button("Wave").on_tapped(|_me, app: &mut App, cx| {
-                if let Some(mut avatar) = cx.get_mut(app.avatar) {
-                    avatar.play_once("CharacterArmature|Wave");
-                }
-            }),),
+            (
+                ui_button("Next design").width_request(120).background_color(BUTTON).on_tapped(|_me, app: &mut App, cx| next_label(app, cx)),
+                ui_button("Edges: hard").width_request(120).background_color(STAGE).observe(|me, app: &App| me.set_text(if app.smooth_edges { "Edges: smooth" } else { "Edges: hard" })).on_tapped(
+                    |_me, app: &mut App, cx| {
+                        app.smooth_edges = !app.smooth_edges;
+                        if let Some(mut product) = cx.get_mut(app.product) {
+                            product.set_antialias(app.smooth_edges);
+                        }
+                    },
+                ),
+            ),
         ),
         tile(
             "Reward",
@@ -2282,23 +2194,57 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
                     .text_color(MUTED)
                     .horizontal_text_alignment(TextAlignment::Center)
                     .horizontal_options(LayoutOptions::Center),
+                SkiaLayout::wrap().spacing(24).horizontal_options(LayoutOptions::Center).children((link("Read the 3D article", ARTICLE_URL), link("Source on GitHub", SOURCE_URL))),
+                globe_with_pins(app),
+                card_flip(app),
                 product_viewer(app),
                 product_list(app),
-                card_flip(app),
-                globe_with_pins(app),
+                SkiaLayout::column().fill_x().spacing(20).children((section("Small 3D touches", "Little 3D moments that answer a tap."), touches)),
                 sign_up(app),
                 SkiaLayout::column().fill_x().spacing(20).children((
-                    section("Micro-interactions", "Small 3D touches that answer a tap."),
-                    micro,
-                    section("Images on 3D", "Any image on a 3D surface, switched live: drawn in code here, or a photo or a file."),
-                    images,
-                    section("From model files", "Free 3D models with their own animations, driven by the app."),
-                    files,
                     section("Games", "Many 3D characters on one field, moved like sprites and drawn by one layer in one pass."),
                     mobs,
                 )),
+                footer(),
             )),
         ),
+    ))
+}
+
+const ARTICLE_URL: &str = "https://drawnui.net/articles/add3d.html";
+const SOURCE_URL: &str = "https://github.com/DrawnUi/DrawnUi.Rust";
+/// The links' color, and the ink they turn to under the pointer.
+const LINK: Color = Color::from_rgb(172, 160, 255);
+
+/// A text link: opens `url` in the browser (a new tab on the web), the ink color under the pointer.
+fn link(text: &str, url: &'static str) -> Build<SkiaLabel> {
+    SkiaLabel::new(text)
+        .font_size(14)
+        .font_family(TITLE)
+        .text_color(LINK)
+        .accessibility_role(Aria::LINK)
+        .accessibility_label(text)
+        .on_hovered(|me, _app: &mut App, _cx, on| me.set_text_color(if on { INK } else { LINK }))
+        .on_tapped(move |_me, _app: &mut App, cx| cx.open_url(url))
+}
+
+/// The end of the page: a line, the links to the article, the docs, the source and the same demo
+/// on the other engines, and what drew it.
+fn footer() -> Build<SkiaLayout> {
+    SkiaLayout::column().fill_x().spacing(16).margin((0.0, 12.0, 0.0, 8.0)).children((
+        SkiaShape::new().fill_x().height_request(1).background_color(LINE),
+        SkiaLayout::wrap().spacing(24).horizontal_options(LayoutOptions::Center).children((
+            link("3D article", ARTICLE_URL),
+            link("DrawnUI docs", "https://drawnui.net/"),
+            link("Source on GitHub", SOURCE_URL),
+            link("Same demo in .NET", "https://add3dnet.drawnui.net/"),
+            link("Same demo in React", "https://add3dreact.drawnui.net/"),
+        )),
+        SkiaLabel::new("Drawn with DrawnUI: every pixel of this page, the 3D included.")
+            .font_size(12)
+            .text_color(MUTED)
+            .horizontal_text_alignment(TextAlignment::Center)
+            .horizontal_options(LayoutOptions::Center),
     ))
 }
 
