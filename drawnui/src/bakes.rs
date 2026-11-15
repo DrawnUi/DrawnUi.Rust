@@ -54,6 +54,8 @@ pub(crate) struct Flying {
     pub control: ControlId,
     /// The control's `content_epoch` the picture was recorded at.
     pub epoch: u32,
+    /// The recycled list item the control showed then (`paint::item_of`).
+    pub item: Option<usize>,
     pub bounds: Rect,
     pub margin: Thickness,
     pub scale: f32,
@@ -81,11 +83,12 @@ impl Bakes {
     }
 
     /// Sends the picture of `id`'s content to a worker.
-    pub fn send(&mut self, id: ControlId, picture: Picture, epoch: u32, bounds: Rect, margin: Thickness, scale: f32) {
+    #[allow(clippy::too_many_arguments)]
+    pub fn send(&mut self, id: ControlId, picture: Picture, epoch: u32, item: Option<usize>, bounds: Rect, margin: Thickness, scale: f32) {
         self.next = self.next.wrapping_add(1);
         let (size, origin) = (size_of(bounds), Point::new(bounds.left, bounds.top));
         self.requests.push(BakeRequest { id: self.next, picture, size, origin });
-        let flying = Flying { id: self.next, control: id, epoch, bounds, margin, scale };
+        let flying = Flying { id: self.next, control: id, epoch, item, bounds, margin, scale };
         self.flying.insert(id.index as usize, flying);
     }
 

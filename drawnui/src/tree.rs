@@ -217,6 +217,8 @@ pub struct Node {
 pub(crate) struct RenderSlot {
     pub cache: Option<CachedObject>,
     pub cache_epoch: u32,
+    /// The item of a recycled list the ImageDoubleBuffered bitmap shows (`item_of`).
+    pub cache_item: Option<usize>,
     /// Transform applied at the last paint, canvas space. Gestures map through its inverse.
     pub matrix: Option<Matrix>,
     /// Times the cache was recorded. Diagnostics: tests prove with it that a change did not re-record.
@@ -372,6 +374,11 @@ base_props! {
     /// where the glyphs keep `text_color`; else the glyphs.
     fill_gradient / set_fill_gradient: Option<Box<SkiaGradient>> = None, DRAW;
     use_cache / set_use_cache: CacheType = CacheType::None, DRAW;
+    /// On a recycled list's cell (DrawnUI SkiaDynamicDrawnCell.DestroyCacheOnContextChange): bound to
+    /// another item, its ImageDoubleBuffered bitmaps (its own and inside it) show the placeholder
+    /// until the new item's are made. False keeps showing the last pixels meanwhile, for lists
+    /// where a rebind shows the same or a neighbouring item (a chat).
+    destroy_cache_on_context_change / set_destroy_cache_on_context_change: bool = true, NONE;
     is_clipped_to_bounds / set_is_clipped_to_bounds: bool = false, REPAINT;
     /// True: `is_clipped_to_bounds` cuts at the rect, and overlay effects (the ripple) are clipped
     /// to the control's shape. False: that clip is grown by what the subtree paints outside (a

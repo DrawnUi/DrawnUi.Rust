@@ -491,6 +491,13 @@ fn double_buffered(cx: &mut PaintCx, id: ControlId, base: &Base, r: Rect, margin
         let old = cx.render[slot].cache.take().expect("just seen");
         cx.drops.push(old);
     }
+    // A recycled cell bound to another item: the last bitmap shows the previous item, never drawn
+    // again (the placeholder shows until the new one is back). The same item keeps it.
+    let item = item_of(cx.nodes, id);
+    if cx.render[slot].cache.is_some() && cx.render[slot].cache_item != item {
+        let old = cx.render[slot].cache.take().expect("just seen");
+        cx.drops.push(old);
+    }
     // A bake is out: the bitmap it replaces shows, or the placeholder until the first one is back
     // (C# 23b52ad0: on every frame, never over a bitmap; it used to show one frame, then a hole).
     if cx.bakes.flying(id) {
@@ -507,7 +514,7 @@ fn double_buffered(cx: &mut PaintCx, id: ControlId, base: &Base, r: Rect, margin
             cx.bakes.set_failed(id, epoch);
             return Missing::Live;
         };
-        cx.bakes.send(id, picture, epoch, r, margin, cx.scale);
+        cx.bakes.send(id, picture, epoch, item, r, margin, cx.scale);
         return Missing::Placeholder;
     };
     let content = cx.render[slot].cache_epoch != epoch;
@@ -516,7 +523,7 @@ fn double_buffered(cx: &mut PaintCx, id: ControlId, base: &Base, r: Rect, margin
         || cache.scale != cx.scale;
     if content && !failed {
         match record_offthread(cx, id, base, r) {
-            Some(picture) => cx.bakes.send(id, picture, epoch, r, margin, cx.scale),
+            Some(picture) => cx.bakes.send(id, picture, epoch, item, r, margin, cx.scale),
             // Nothing to bake: the last bitmap stays, tried again only for other content.
             None => cx.bakes.set_failed(id, epoch),
         }
@@ -528,12 +535,28 @@ fn double_buffered(cx: &mut PaintCx, id: ControlId, base: &Base, r: Rect, margin
                 if let Some(old) = cx.render[slot].cache.replace(cache) {
                     cx.drops.push(old);
                 }
+                cx.render[slot].cache_item = item;
                 cx.render[slot].records += 1;
             }
             None => cx.bakes.set_failed(id, epoch),
         }
     }
     Missing::Nothing
+}
+
+/// The recycled list item `id` shows: the `context_index` of the cell it is in (itself or the
+/// nearest parent that has one); `None` outside recycled lists and in a cell that keeps its pixels
+/// across a rebind (`destroy_cache_on_context_change` off).
+pub(crate) fn item_of(nodes: &[Option<crate::tree::Node>], id: ControlId) -> Option<usize> {
+    let node = |id: ControlId| nodes.get(id.index as usize)?.as_ref().filter(|n| n.id == id);
+    let mut at = Some(id);
+    while let Some(n) = at.and_then(node) {
+        if n.base.context_index.is_some() {
+            return n.base.context_index.filter(|_| n.base.p.destroy_cache_on_context_change);
+        }
+        at = n.parent;
+    }
+    None
 }
 
 /// What `id` paints, recorded for a worker: no GPU texture goes in (`PaintCx::offthread`).
@@ -585,6 +608,8 @@ pub(crate) fn bake_arrived(tree: &mut Tree, request: u32, image: Option<Image>) 
     if tree.node(flying.control).is_none() {
         return;
     }
+    // Made for the item the recycled cell showed before: thrown away, the next bake follows.
+    let image = image.filter(|_| item_of(&tree.nodes, flying.control) == flying.item);
     match image {
         Some(image) => {
             let cache = CachedObject::double_buffered(image, flying.bounds, flying.margin, flying.scale);
@@ -593,8 +618,10 @@ pub(crate) fn bake_arrived(tree: &mut Tree, request: u32, image: Option<Image>) 
                 tree.drops.push(old);
             }
             render.cache_epoch = flying.epoch;
+            render.cache_item = flying.item;
             render.records += 1;
         }
+        None if item_of(&tree.nodes, flying.control) != flying.item => {}
         None => tree.bakes.set_failed(flying.control, flying.epoch),
     }
     tree.invalidate(flying.control, crate::types::Dirty::REPAINT);
