@@ -389,6 +389,8 @@ window.DrawnUi = {
       if (pending) cancelAnimationFrame(pending);
       pending = 0;
       draw(performance.now());
+      // A keyboard that resized the page (Android) leaves less room for the focused field.
+      aboveKeyboard();
     });
     // Browsers without the device-pixel box (Safari) take the rounded size.
     try {
@@ -666,6 +668,11 @@ window.DrawnUi = {
     };
     // The focused field's box on the canvas (CSS px), for a tap on it to bring the keyboard back.
     let textArea = null;
+    // A finger is down on the canvas: a field focused now takes the input's focus in the touchend
+    // (drawnui-cross 6ci). A focus during the press, from a frame drawn while the finger is held,
+    // leaves iOS with a focused input and no keyboard.
+    let touching = false;
+    let focusOnTouchEnd = false;
     const openTextInput = (rect) => {
       textOpen = !!rect;
       textArea = rect;
@@ -678,8 +685,23 @@ window.DrawnUi = {
       textInput.style.left = `${Math.round(b.left + rect[0])}px`;
       textInput.style.top = `${Math.round(b.top + rect[1])}px`;
       resetTextInput();
-      textInput.focus({ preventScroll: true });
+      if (touching) focusOnTouchEnd = true;
+      else textInput.focus({ preventScroll: true });
+      // A keyboard already open (another field had it) does not resize the viewport again.
+      setTimeout(aboveKeyboard, 50);
     };
+    // A phone's soft keyboard shrinks the visual viewport over the canvas: the scroll around the
+    // focused field moves it into the part left visible (drawnui-cross 6cj).
+    const aboveKeyboard = () => {
+      const vv = window.visualViewport;
+      if (!textOpen || !vv || lost || !module._dui_keyboard_cover) return;
+      const b = canvas.getBoundingClientRect();
+      // Canvas pixels per CSS pixel: the width, which a keyboard never changes.
+      const k = b.width > 0 ? canvas.width / b.width : 1;
+      module._dui_keyboard_cover(app, (vv.offsetTop - b.top) * k, (vv.offsetTop + vv.height - b.top) * k);
+      requestFrame();
+    };
+    window.visualViewport?.addEventListener("resize", aboveKeyboard);
     // A mouse or pen click on the canvas moves the page focus away from the text input; while an
     // editor is focused it goes back at once (IME, paste). Never for a finger: a touch elsewhere (a
     // scroll) must not bring a closed soft keyboard back (drawnui-cross 6ci).
@@ -695,25 +717,34 @@ window.DrawnUi = {
     // text input here; a tap on the focused field gives the input its focus again (the user may
     // have closed the keyboard). That touchend is cancelled: the browser's mousedown / click that
     // follow it would move the focus to the page and take the keyboard away.
+    canvas.addEventListener("touchstart", () => (touching = true), { passive: true });
+    canvas.addEventListener("touchcancel", (e) => {
+      if (e.touches.length > 0) return;
+      touching = false;
+      focusOnTouchEnd = false;
+    });
     canvas.addEventListener(
       "touchend",
       (e) => {
-        if (lost || e.touches.length > 0) return;
-        const wasOpen = textOpen && textInput && document.activeElement === textInput;
-        if (pending) cancelAnimationFrame(pending);
-        pending = 0;
-        draw(performance.now());
+        if (e.touches.length > 0) return;
+        // The tap's input runs now; a field it focuses still asks for the focus here (below).
+        if (!lost) {
+          if (pending) cancelAnimationFrame(pending);
+          pending = 0;
+          draw(performance.now());
+        }
+        touching = false;
+        const focus = focusOnTouchEnd;
+        focusOnTouchEnd = false;
         if (!textOpen || !textInput) return;
         const t = e.changedTouches[0];
         const b = canvas.getBoundingClientRect();
         const onField = t && textArea && t.clientX >= b.left + textArea[0] && t.clientX <= b.left + textArea[0] + textArea[2] && t.clientY >= b.top + textArea[1] && t.clientY <= b.top + textArea[1] + textArea[3];
-        const focusedNow = !wasOpen && document.activeElement === textInput;
-        if (onField && !focusedNow) {
-          // A focus() on the input that has it already does nothing on iOS: blur, then focus.
-          textInput.blur();
-          textInput.focus({ preventScroll: true });
-        }
-        if (focusedNow || onField) e.preventDefault();
+        if (!focus && !onField) return;
+        // A focus() on the input that has it already does not raise the keyboard on iOS: blur, then focus.
+        if (document.activeElement === textInput) textInput.blur();
+        textInput.focus({ preventScroll: true });
+        e.preventDefault();
       },
       { passive: false },
     );

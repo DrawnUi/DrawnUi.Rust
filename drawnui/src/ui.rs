@@ -1899,6 +1899,35 @@ impl<S: 'static> Ui<S> {
         self.tree.needs_frame = true;
     }
 
+    /// A phone's soft keyboard leaves the canvas visible from `top` to `bottom` (pixels): the
+    /// nearest scroll around the focused text field moves it up, 16 points clear of the keyboard,
+    /// never past the field's own top (React TextInputProxy.EnsureAboveKeyboard, drawnui-cross 6cj).
+    pub fn keyboard_cover(&mut self, top: f32, bottom: f32) {
+        use crate::controls::scroll::SkiaScroll;
+        let Some(field) = self.focused() else { return };
+        if !self.tree.node(field).and_then(|n| n.kind.as_deref()).is_some_and(|k| k.wants_text_input()) {
+            return;
+        }
+        let Some(rect) = drawn_rect(&self.tree, field) else { return };
+        let scale = self.tree.base(field).map_or(1.0, |b| b.scale.max(0.1));
+        let margin = 16.0 * scale;
+        let dy = (rect.bottom + margin - bottom).min(rect.top - top - margin);
+        if dy <= 0.5 {
+            return;
+        }
+        // ponytail: only the nearest scroll moves; nested scrolls sharing the distance when it is at its end.
+        let mut at = field;
+        while let Some(parent) = self.tree.parent(at) {
+            if let Some(scroll) = self.tree.find::<SkiaScroll>(parent) {
+                let (x, y) = (scroll.viewport_offset_x(), scroll.viewport_offset_y());
+                Cx { tree: &mut self.tree }.scroll_to(parent, x, y - dy / scale, 250);
+                self.tree.needs_frame = true;
+                return;
+            }
+            at = parent;
+        }
+    }
+
     fn flush_input(&mut self) {
         while let Some((kind, button, touch, location, time_ms, finger, popup)) = self.input.pop_front() {
             self.input_popup = popup;
@@ -4029,6 +4058,10 @@ impl<S: 'static> App for Ui<S> {
 
     fn accessibility_scroll_into_view(&mut self, id: u32) {
         Ui::accessibility_scroll_into_view(self, id)
+    }
+
+    fn keyboard_cover(&mut self, top: f32, bottom: f32) {
+        Ui::keyboard_cover(self, top, bottom)
     }
 
     fn accessibility_set_value(&mut self, id: u32, value: f64) {

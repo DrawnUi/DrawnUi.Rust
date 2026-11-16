@@ -295,6 +295,12 @@ pub extern "C" fn dui_key(
     state(s).app.key(kind, key, read(text, text_len), Modifiers::from_bits(modifiers), repeat != 0) as i32
 }
 
+/// A phone's soft keyboard leaves the canvas visible from `top` to `bottom` (canvas pixels).
+#[unsafe(no_mangle)]
+pub extern "C" fn dui_keyboard_cover(s: *mut WebState, top: f32, bottom: f32) {
+    state(s).app.keyboard_cover(top, bottom);
+}
+
 /// The safe area in CSS pixels (`env(safe-area-inset-*)`), at start and when it changes.
 #[unsafe(no_mangle)]
 pub extern "C" fn dui_safe_insets(s: *mut WebState, left: f32, top: f32, right: f32, bottom: f32) {

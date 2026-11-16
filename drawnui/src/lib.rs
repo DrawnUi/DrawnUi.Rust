@@ -402,6 +402,10 @@ pub trait App {
     fn accessibility_scroll(&mut self, _id: u32, _x: f32, _y: f32) {}
     /// A screen reader asked to scroll a node into view.
     fn accessibility_scroll_into_view(&mut self, _id: u32) {}
+    /// A phone's soft keyboard (browser visual viewport) leaves the canvas visible from `top` to
+    /// `bottom`, pixels from the canvas top: the scroll around the focused text field moves it there
+    /// (drawnui-cross 6cj).
+    fn keyboard_cover(&mut self, _top: f32, _bottom: f32) {}
     /// The page or window became hidden (`false`: a background tab, a minimized or covered
     /// window) or visible again (browser `visibilitychange`, winit `Occluded`).
     fn visibility(&mut self, _visible: bool) {}
