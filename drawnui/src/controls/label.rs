@@ -939,6 +939,14 @@ impl SkiaLabel {
                 std::mem::take(&mut self.selection.selecting)
             }
             GestureKind::Tapped => {
+                // The Copy button, whichever of Tapped and Up comes first.
+                if std::mem::take(&mut self.selection.copy_pressed) {
+                    if self.copy_button_at(cx).is_some_and(|r| r.contains(point)) {
+                        self.copy_selection(cx);
+                        self.clear_selection(cx);
+                    }
+                    return true;
+                }
                 if self.selection.length == 0 {
                     // Nothing selected: span links still get their tap.
                     return false;

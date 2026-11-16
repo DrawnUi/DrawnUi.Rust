@@ -4,7 +4,7 @@
 //! selects instead of scrolling and scrolls on while held past the scroll's edge. Touch keeps its
 //! own selection (a long press). Nothing runs between presses.
 
-use skia_safe::Point;
+use skia_safe::{Point, Rect};
 
 use super::{Ui, drawn_rect, to_local};
 use crate::controls::label::SkiaLabel;
@@ -67,24 +67,28 @@ fn len(tree: &Tree, id: ControlId) -> usize {
     tree.find::<SkiaLabel>(id).map_or(0, |l| l.selection_len())
 }
 
-/// The text position of a canvas point: the character boundary under it in a label, else the
-/// start of the first label after it in reading order (above it, or on its line further right),
-/// else the end of the last label.
+/// The text position of a canvas point: the character boundary under it in a label; else at the
+/// label nearest to it, as it is seen (a press beside a column's text belongs to that column, not
+/// to a label of another column further down the page): its start when the point is above it or
+/// before it on its line, its end otherwise.
 fn position(tree: &Tree, labels: &[ControlId], point: Point) -> Position {
+    let mut nearest: Option<(f32, usize, Rect)> = None;
     for (k, &id) in labels.iter().enumerate() {
         let Some(rect) = drawn_rect(tree, id) else { continue };
-        let on_line = point.y >= rect.top && point.y < rect.bottom;
-        let before = rect.bottom <= point.y || (on_line && point.x >= rect.right);
-        if before {
-            continue;
-        }
-        if on_line && point.x >= rect.left {
+        if point.x >= rect.left && point.x < rect.right && point.y >= rect.top && point.y < rect.bottom {
             let index = tree.find::<SkiaLabel>(id).map_or(0, |l| l.selection_index_at(to_local(tree, id, point)));
             return (k, index);
         }
-        return (k, 0);
+        let dx = (rect.left - point.x).max(point.x - rect.right).max(0.0);
+        let dy = (rect.top - point.y).max(point.y - rect.bottom).max(0.0);
+        let distance = dx * dx + dy * dy;
+        if nearest.is_none_or(|(d, ..)| distance < d) {
+            nearest = Some((distance, k, rect));
+        }
     }
-    labels.len().checked_sub(1).map_or((0, 0), |last| (last, len(tree, labels[last])))
+    let Some((_, k, rect)) = nearest else { return (0, 0) };
+    let on_line = point.y >= rect.top && point.y < rect.bottom;
+    if point.y < rect.top || (on_line && point.x < rect.left) { (k, 0) } else { (k, len(tree, labels[k])) }
 }
 
 impl<S: 'static> Ui<S> {
@@ -97,7 +101,9 @@ impl<S: 'static> Ui<S> {
         }
         self.text_drag = None;
         self.tree.text_scrolls.clear();
-        if gesture.touch || !gesture.is_primary() {
+        // A press in an open popup (the app's Copy menu) is the popup's: the page keeps its
+        // selection for it.
+        if gesture.touch || !gesture.is_primary() || self.input_popup.is_some() || self.popup_on_canvas_at(gesture.location).is_some() {
             return;
         }
         let labels = selectable_labels(&self.tree);
