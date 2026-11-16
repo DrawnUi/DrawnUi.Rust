@@ -241,6 +241,9 @@ fn android_main(app: drawnui::AndroidApp) {
   `android:enableOnBackInvokedCallback="false"` on the application: Back then reaches the app as a
   key (the shell goes back; at the root the app goes to the background), where predictive back
   would close it. Do not enable GameActivity's prefab / C++ glue: android-activity has its own.
+  An app that loads anything from the web (feature `http`: a model or an image from a URL) also
+  needs `<uses-permission android:name="android.permission.INTERNET" />` in the manifest; the host's
+  warnings, such as a failed download, are in logcat under the tag `drawnui`.
 - **Native libraries and assets.** Build with cargo-ndk into the Gradle `jniLibs` (one folder per
   ABI); the app's files go into the APK as `assets/assets/...` (the host reads `assets/...` through
   the AssetManager). Clear the libraries folder before a build: a library left from another ABI
