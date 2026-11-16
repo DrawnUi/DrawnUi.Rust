@@ -965,7 +965,7 @@ fn product_list(app: &mut App) -> Build<SkiaShape> {
                 // to miss on a phone).
                 .keep_scroll_bars_visible(true)
                 .scroll_bar(SkiaScrollBar::new().is_draggable(true).thickness(6))
-                .content(SkiaLayout::column().fill_x().spacing(2).accessibility_role(Aria::LIST).accessibility_label("Shop").children(rows)),)),
+                .content(SkiaLayout::column().fill_x().spacing(2).accessibility_role(Aria::LIST).accessibility_label("Products").children(rows)),)),
         ),
     )
 }
@@ -2341,6 +2341,8 @@ mod tests {
             let found: Vec<_> = nodes.iter().filter(|n| n.label == swatch).map(|n| n.role.to_string()).collect();
             assert_eq!(found, [Aria::RADIO], "{swatch}: only its radio");
         }
+        // Heading "Shop", then the list "Products" (every engine).
+        assert!(nodes.iter().any(|n| n.role == Aria::LIST && n.label == "Products"), "the list is named Products");
         let items: Vec<_> = nodes.iter().filter(|n| n.role == Aria::LIST_ITEM).collect();
         assert!(!items.is_empty() && items.iter().all(|n| n.label.is_empty()), "shop rows: unnamed list items");
     }
