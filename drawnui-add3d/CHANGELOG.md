@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-preview.1 (crates.io, 2026-11-16)
+
+The first preview: real 3D models inside a DrawnUI for Rust screen, on Windows, macOS, Linux, iOS, Android and the
+browser, next to the screen's buttons, text and lists. Needs `drawnui` 0.1.0-preview.38. Live demo:
+[add3d.drawnui.net](https://add3d.drawnui.net).
 
 ### Added
 

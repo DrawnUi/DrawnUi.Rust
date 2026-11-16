@@ -4,9 +4,68 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
-## Unreleased
+## 0.1.0-preview.38 (crates.io, 2026-11-16)
+
+Released with the first preview of [`drawnui-add3d`](drawnui-add3d) 0.1.0-preview.1: real 3D models in a
+DrawnUI screen on every platform. See it running: [add3d.drawnui.net](https://add3d.drawnui.net).
 
 ### Changed
+
+- Text selection works as on a web page, on every host: a mouse drag selects across several
+  selectable labels in page order (first and last partly, those between fully), also when it starts
+  beside the text; Ctrl/Cmd+C copies them joined by new lines; a click elsewhere clears the
+  selection, Esc keeps it. Inside a scroll that holds selectable text a mouse drag selects and the
+  scroll follows the pointer past its edge; the wheel, the bars and the keys still scroll it. Touch
+  keeps its long press.
+- Web: selectable text is selected by the engine, as on the desktop and in DrawnUI .NET on the web
+  (the gold or app-colored selection, the app's own menu); the accessibility overlay serves screen
+  readers and the keyboard.
+- A long press takes 750 ms by default (was 1500), as in every DrawnUI engine; see
+  `TouchEffect` below.
+- A long press on touch raises the context menu once per press, after the LongPressing: over
+  selected text the selection stays, on other selectable text the word is selected first. When the
+  app shows its own menu the drawn Copy button stays away. The web host passes fingers and pens as
+  touch.
+- A right or middle press keeps the text selection of a label or an editor, for the context menu.
+- The accessibility reading order and Tab follow scrolls: a scroll's items keep their place among
+  what is around them at any scroll position, and Tab / Shift+Tab reach every item of a scroll,
+  recycled ones not made yet included, each brought into view (Shift+Tab lands on a cell's last stop).
+- Without a screen reader, the keyboard focus on a control that goes away (hidden, removed) moves on
+  to the next Tab stop of the same page or popup; a whole screen replaced leaves the keys to the app.
+- A recycled cell cached as ImageDoubleBuffered and bound to another item shows its placeholder
+  until its own bitmap is made; `destroy_cache_on_context_change(false)` keeps the last pixels.
+- One wheel spin stays on the control it started on (events less than 300 ms apart): a list scrolled
+  to its end keeps the spin, the next spin moves the page.
+- Grid: an Auto row grows to its wrapped text next to star rows.
+- Android on Vulkan: the device and the Skia context stay for the next window of the process, so an
+  activity made again in the same process starts right away.
+- Accessibility: the keyboard goes into a dialog whose buttons show a moment after it, closing
+  dialogs that handed over to each other returns the keyboard to the first opener, and a nameless
+  modal around a named dialog reads as that one dialog.
+- Web: a loading screen while the app downloads and starts, the canvas scale follows its exact
+  device pixels, and a clean console at WebGL start.
+- Web: the app keeps drawing after a failure in the page's own work around a frame (the failure
+  is reported in the console).
+- Web: a tap on a text field opens the soft keyboard on iOS and keeps it open, also for a tap
+  held a moment; a touch elsewhere leaves a closed keyboard closed.
+- Phones: a scroll can follow the soft keyboard (`SkiaScroll::adapt_to_keyboard_auto`, off by
+  default, with `adapt_to_keyboard_gap`): the focused field rises above the keyboard, the last one
+  too, and the page settles back when the keyboard closes. On the web, iOS and Android.
+- Phones: a tap on the text field that has the focus shows its soft keyboard again, after Back
+  closed it or the app was in the background.
+- Android: a field tapped right after the return key ended editing opens the keyboard at once, and
+  typing in a field that scrolls keeps its text.
+- Phones: the soft keyboard's return key (done, go, search, send) in a single-line field submits
+  and ends editing, closing the keyboard; a physical Enter keeps editing (`App::soft_return`). On
+  the web the keyboard shows the field's return key label (`SkiaEditor::return_key_hint`).
+- Web: an input method's candidate window opens next to the focused field also in a scrolled page,
+  and on phones the page stays in place when a field low on the screen takes the keyboard.
+- Android: the host's warnings (a failed download, an image that would not decode) are in logcat
+  under the tag `drawnui`.
+- Screen readers: items scrolled out of a list are hidden from TalkBack and VoiceOver instead of
+  being found over the controls drawn where they would be.
+- Screen readers: the texts inside a button, radio, switch or tab are read once, as the control's
+  name; a password field is announced as a password input and never reads out its text.
 
 - Images decode at full size; every image on the same source shares one copy, so a picture is
   sharp at every size it is shown at from its first frame (as DrawnUi.Net).
@@ -49,6 +108,18 @@ version before it. Commits in parentheses.
 - `SkiaLabel::line_height_uniform`: every line as tall as the tallest one (off by default).
   `SkiaLabel::lines_height(n)`: the height n lines take, gaps included.
 
+- `drawnui::display_refresh_rate()`: the display's rate in Hz from each host (the monitor, the
+  Android vsync period, the Apple screen, measured frames on the web); 60 until known.
+- `TouchEffect::long_press_time_ms_default` / `set_long_press_time_ms_default`: the long press time
+  of the app (C# `TouchEffect.LongPressTimeMsDefault`), read when a press starts.
+- `Cx::selected_text` and `Cx::clear_text_selection`: the page's selected text for an app's own Copy
+  / Cancel menu; `SkiaLabel::set_selection_color` sets the selection color of every label.
+- `Control::on_touch_context_menu`: the control that took a touch long press hears whether its
+  context menu was taken.
+- Feature `http`: desktop and phone hosts download `http://` and `https://` assets (a model, an SVG,
+  a Lottie) on a thread of their own; apps without it build as before.
+- GPU handles for add-ons: `Gpu::gl_proc_address`, `Gpu::metal_handles`, and Vulkan images Skia can
+  borrow.
 - An add-on API: controls made in other crates (add-ons such as `drawnui-add3d`) run their own frame
   loop (`Cx::start_frame_loop` with a `FrameFn` answering a `FrameTick`, `Cx::stop_frame_loop`) and
   call the handlers the app gave them with the app state (`Cx::with_control`, `downcast_state`),

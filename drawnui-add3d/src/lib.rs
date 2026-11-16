@@ -7,8 +7,8 @@
 //!   like sprites, each with its own animations, all drawn in one pass, each model loaded once.
 //!
 //! The app drives them: animations looped, played once and back, held, layered, blended into
-//! each other; nodes and materials by name; taps that tell what was hit. WebGL2 (the browser) for
-//! now; elsewhere nothing is drawn yet.
+//! each other; nodes and materials by name; taps that tell what was hit. Drawn with the GPU API the
+//! host uses: OpenGL / WebGL2 (the browser, Windows, Linux), Vulkan (Android) and Metal (macOS, iOS).
 // ponytail: one directional light + sky light, base color texture and factor only (no normal,
 // metallic-roughness or emissive maps), no morph targets, 64 joints per skin, alpha blend drawn in
 // tree order; CUBICSPLINE samplers read as linear. Add them when a delivered model needs them.

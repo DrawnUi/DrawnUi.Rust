@@ -27,6 +27,8 @@ SkiaModel3D::new(include_bytes!("assets/boss.glb"))
     .on_tapped_3d(|me, _app: &mut App, _cx, _hit| { me.play_once("Hit"); })
 ```
 
-Draws in the browser (WebGL2) for now; other platforms draw nothing yet. Examples: `examples/model3d` (a boss fight)
-and `examples/gallery3d` (shapes made in code, images on a box and a ball, an avatar, a reward chest, a field of mobs) in the repository.
+Runs everywhere DrawnUI for Rust runs: Windows, macOS, Linux, iOS, Android and the browser. See the gallery live at
+[add3d.drawnui.net](https://add3d.drawnui.net): a product viewer, 3D thumbnails in a scrolling list, a card that
+turns over, a globe with pins, a form with a 3D mascot, confetti, dice thrown in physics and a boss fight. Its source
+is [`examples/gallery3d`](https://github.com/DrawnUi/DrawnUi.Rust/tree/main/examples/gallery3d) in the repository.
 MIT license.
