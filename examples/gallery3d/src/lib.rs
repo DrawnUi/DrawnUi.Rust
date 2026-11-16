@@ -19,7 +19,9 @@ use std::collections::HashSet;
 use std::f32::consts::TAU;
 use std::rc::Rc;
 
-use drawnui::Detached;
+use std::any::Any;
+
+use drawnui::{Detached, FrameTick, downcast_state};
 use drawnui::prelude::*;
 use drawnui::skia::{
     self, Canvas, Color4f, Data, Font, FontMgr, Paint, Path, PathBuilder, Point, RRect, Rect, TileMode,
@@ -387,6 +389,10 @@ struct App {
     game: Handle<DrawnGame>,
     // Boss fight.
     boss: Handle<SkiaModel3D>,
+    /// The page, its top texts, its buttons: what `fit_arena` measures; the arena it sizes.
+    boss_parts: [Handle<SkiaLayout>; 3],
+    boss_news_label: Handle<SkiaLabel>,
+    boss_arena: Handle<SkiaLayout>,
     /// The looping move, by caption.
     boss_looping: &'static str,
     /// The move whose button is lit: a one-shot move while it plays, else the looping one (or Death,
@@ -1884,15 +1890,17 @@ fn skin_button((caption, color): (&'static str, Option<Color>)) -> Build<Button3
 fn boss_page(app: &mut App) -> Build<SkiaLayout> {
     (app.boss_looping, app.boss_lit, app.boss_skin) = ("Idle", "Idle", "Ember");
     app.boss_news = "Tap the dragon to hit it.".into();
-    SkiaLayout::new().fill().children((
+    SkiaLayout::new().fill().assign(&mut app.boss_parts[0]).children((
         // The arena: a warm light behind the boss, drawn on the GPU once and kept there.
         SkiaShape::new().fill().background_color(Color::from_rgb(18, 14, 22)).use_cache(CacheType::GPU).fill_gradient(SkiaGradient {
             start_x_ratio: 0.5,
             start_y_ratio: 0.42,
             ..SkiaGradient::new(GradientType::Circular, vec![Color::from_rgb(92, 38, 30), Color::from_rgb(18, 14, 22)])
         }),
-        SkiaGrid::new().fill().padding(20).row_spacing(10).row_definitions("Auto,*,Auto,Auto").children((
-            SkiaLayout::column().spacing(8).fill_x().use_cache(CacheType::Image).row(0).children((
+        // A short window (a small phone): the arena keeps the dragon at a usable size and the page
+        // scrolls (`fit_arena`).
+        SkiaScroll::new().fill().content(SkiaGrid::new().fill_x().height_request(700).padding(BOSS_PAD).row_spacing(BOSS_GAP).row_definitions("Auto,*,Auto,Auto").assign(&mut app.boss_arena).children((
+            SkiaLayout::column().spacing(8).fill_x().use_cache(CacheType::Image).row(0).assign(&mut app.boss_parts[1]).children((
                 copyable("BOSS FIGHT").font_size(30).font_family(TITLE).text_color(Color::WHITE).horizontal_options(LayoutOptions::Center).accessibility_role(Aria::HEADING),
                 copyable("A glTF model drawn in 3D inside DrawnUI, driven by the app. Drag it to turn it, tap it to hit it.")
                     .font_size(15)
@@ -1930,8 +1938,9 @@ fn boss_page(app: &mut App) -> Build<SkiaLayout> {
                 .horizontal_options(LayoutOptions::Center)
                 .accessibility_live(Aria::LIVE_POLITE)
                 .row(2)
+                .assign(&mut app.boss_news_label)
                 .observe(|me, app: &App| me.set_text(app.boss_news.clone())),
-            SkiaLayout::column().spacing(10).fill_x().use_cache(CacheType::Image).row(3).children((
+            SkiaLayout::column().spacing(10).fill_x().use_cache(CacheType::Image).row(3).assign(&mut app.boss_parts[2]).children((
                 boss_caption("MOVES"),
                 SkiaLayout::wrap()
                     .spacing(8)
@@ -1967,8 +1976,39 @@ fn boss_page(app: &mut App) -> Build<SkiaLayout> {
                         }),
                 )),
             )),
-        )),
+        ))),
     ))
+}
+
+const BOSS_PAD: f32 = 20.0;
+const BOSS_GAP: f32 = 10.0;
+/// The dragon never gets less than this, points: on a shorter window the page scrolls.
+const MIN_DRAGON: f32 = 180.0;
+
+/// Starts fitting the Boss arena to the page (after a resize, or when its tab shows).
+fn fit_boss(app: &App, cx: &mut Cx) {
+    cx.start_frame_loop(app.boss_arena, fit_arena);
+}
+
+/// The arena fills the page and the dragon takes what the texts and buttons leave; when that is
+/// less than `MIN_DRAGON` (a short window) the arena grows past the page and the page scrolls.
+/// Runs a few frames after a resize, until the measured parts stand still.
+fn fit_arena(_id: ControlId, _time_ms: f64, state: &mut dyn Any, cx: &mut Cx<'_>) -> FrameTick {
+    let app = downcast_state::<App>(state);
+    let points = |cx: &Cx, id: ControlId| cx.base(id).map_or(0.0, |b| b.rect.height() / b.scale.max(0.1));
+    let page = points(cx, app.boss_parts[0].into());
+    if page <= 0.0 || app.tab != 1 {
+        return FrameTick::default();
+    }
+    let fixed = points(cx, app.boss_parts[1].into()) + points(cx, app.boss_news_label.into()) + points(cx, app.boss_parts[2].into()) + 2.0 * BOSS_PAD + 3.0 * BOSS_GAP;
+    let height = page.max(fixed + MIN_DRAGON).round();
+    let Some(mut arena) = cx.get_mut(app.boss_arena) else { return FrameTick::default() };
+    if (arena.base().p.height_request - height).abs() > 0.5 {
+        arena.set_height_request(height);
+        // Again once laid out at this height.
+        return FrameTick { keep: true, state_touched: false };
+    }
+    FrameTick::default()
 }
 
 /// A header tab: filled when its screen shows; the hidden screen asks for no frames.
@@ -1983,6 +2023,9 @@ fn tab(caption: &str, index: usize) -> Build<Button3D> {
             app.tab = index;
             if let Some(mut game) = cx.get_mut(app.game) {
                 if index == 0 { game.start_loop(0.0) } else { game.stop_loop() }
+            }
+            if index == 1 {
+                fit_boss(app, cx);
             }
         })
 }
@@ -2246,6 +2289,7 @@ pub fn run() {
                 .on_canvas_resized(|app: &mut App, size, cx| {
                     app.width = size.width;
                     wake(app, cx);
+                    fit_boss(app, cx);
                 }),
         )
     });
