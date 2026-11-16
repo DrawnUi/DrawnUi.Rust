@@ -4,6 +4,13 @@ Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI
 release lists what was added, what behaves differently, and what breaks code written for the
 version before it. Commits in parentheses.
 
+## 0.1.0-preview.39 (crates.io, 2026-11-16)
+
+### Changed
+
+- Web: pictures load in every browser, also those without `OffscreenCanvas` (Safari before 16.4),
+  where the host reads their pixels through a page canvas.
+
 ## 0.1.0-preview.38 (crates.io, 2026-11-16)
 
 Released with the first preview of [`drawnui-add3d`](drawnui-add3d) 0.1.0-preview.1: real 3D models in a
