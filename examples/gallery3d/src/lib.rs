@@ -2243,7 +2243,10 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
                         .text_color(MUTED)
                         .horizontal_text_alignment(TextAlignment::Center)
                         .horizontal_options(LayoutOptions::Center),
-                    SkiaLayout::row().spacing(20).horizontal_options(LayoutOptions::Center).children((link("Read the 3D article", ARTICLE_URL), link("Source on GitHub", SOURCE_URL))),
+                    SkiaLayout::row().spacing(20).horizontal_options(LayoutOptions::Center).children((
+                        link("Read the 3D article", ARTICLE_URL).tooltip("DrawnUI official site"),
+                        link("Source on GitHub", SOURCE_URL).tooltip("Please star if you like it"),
+                    )),
                 )),
                 globe_with_pins(app),
                 card_flip(app),
