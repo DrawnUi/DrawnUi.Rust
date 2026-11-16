@@ -174,6 +174,9 @@ pub struct Host {
     pub(crate) keyboard_navigation: bool,
     /// The node of the control that takes typed text (`text_input`), the snapshot `id`.
     pub(crate) text_input_node: Option<u32>,
+    /// A tap on the focused text field: the soft keyboard shows again (it may have been closed
+    /// with Back, or by the app going to the background).
+    pub(crate) text_input_reshow: bool,
     /// The label of a soft keyboard's return key for that control (DOM `enterkeyhint`).
     pub(crate) text_input_hint: &'static str,
     /// The engine moved the keyboard to this node (an arrow in a group): an overlay host moves its

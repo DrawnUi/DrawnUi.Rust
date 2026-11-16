@@ -401,6 +401,8 @@ pub struct Ui<S: 'static> {
     /// The soft keyboard as the host last told: the visible part of the canvas (top, bottom,
     /// pixels) and whether the keyboard covers some of it.
     soft_keyboard: Option<(f32, f32, bool)>,
+    /// A tap on the focused text field asked its soft keyboard to show again.
+    keyboard_reshow: bool,
     /// The scroll given room for the keyboard, and the field the keyboard was last adapted for.
     keyboard_scroll: Option<ControlId>,
     keyboard_field: Option<ControlId>,
@@ -582,6 +584,7 @@ impl<S: 'static> Ui<S> {
             text_input: None,
             text_input_changed: false,
             soft_keyboard: None,
+            keyboard_reshow: false,
             keyboard_scroll: None,
             keyboard_field: None,
             accessibility_built_ms: f64::NEG_INFINITY,
@@ -1780,6 +1783,12 @@ impl<S: 'static> Ui<S> {
         if self.soft_keyboard.is_some_and(|k| k.2) && area.is_some() && self.focused() != self.keyboard_field {
             self.adapt_to_keyboard();
         }
+    }
+
+    /// A tap on the focused text field asked its soft keyboard to show again and no frame has
+    /// handed that to the host yet.
+    pub fn keyboard_reshow_requested(&self) -> bool {
+        self.keyboard_reshow
     }
 
     /// The text input area the host was last told about (points), `None` = closed.
@@ -3011,7 +3020,13 @@ impl<S: 'static> Ui<S> {
             return;
         }
         match consumed {
-            Some(c) if Some(c) == focused => {}
+            // A tap on the text field that has the focus: its soft keyboard shows again (the user
+            // may have closed it with Back, or the app was in the background).
+            Some(c) if Some(c) == focused => {
+                if self.tree.node(c).and_then(|n| n.kind.as_deref()).is_some_and(|k| k.wants_text_input()) {
+                    self.keyboard_reshow = true;
+                }
+            }
             Some(c) => {
                 if self.tree.base(c).is_some_and(|b| b.p.can_be_focused) {
                     self.focus(Some(c));
@@ -4223,6 +4238,7 @@ impl<S: 'static> App for Ui<S> {
         if std::mem::take(&mut self.cursor_changed) {
             frame.host.set_cursor(self.cursor);
         }
+        frame.host.text_input_reshow |= std::mem::take(&mut self.keyboard_reshow);
         if std::mem::take(&mut self.text_input_changed) {
             frame.host.set_text_input(self.text_input);
             frame.host.text_input_node = self.focused().map(|f| f.index);

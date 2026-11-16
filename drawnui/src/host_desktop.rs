@@ -950,6 +950,11 @@ impl Desktop {
                 self.window.set_ime_cursor_area(LogicalPosition::new(r.left, r.top), LogicalSize::new(r.width(), r.height()));
             }
         }
+        // A tap on the focused field: its keyboard shows again (Android: Back closed it, or the
+        // app was in the background; the field kept the focus, so nothing else reopens it).
+        if std::mem::take(&mut self.host.text_input_reshow) && self.ime_field.is_some_and(|f| f.is_some()) {
+            self.window.set_ime_allowed(true);
+        }
     }
 
     /// Android: what the soft keyboard did to its text field (GameTextInput, which winit does not
