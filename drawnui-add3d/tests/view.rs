@@ -520,3 +520,57 @@ fn without_fling_a_released_model_stands_still() {
     host.frame_after(200.0);
     assert!((yaw(&host) - released).abs() < 0.01);
 }
+
+/// Turned away from home by a drag, then left to rest.
+fn turned(host: &mut Headless<App>) -> f32 {
+    let t = host.time_ms();
+    host.ui.pointer_touch(PointerKind::Down, 100.0, 100.0, t);
+    for i in 1..=6 {
+        host.ui.pointer_touch(PointerKind::Move, 100.0 + i as f32 * 15.0, 100.0, t + i as f64 * 16.0);
+        host.frame_after(16.0);
+    }
+    let t = host.time_ms();
+    host.ui.pointer_touch(PointerKind::Up, 190.0, 100.0, t);
+    for _ in 0..120 {
+        host.frame_after(16.0);
+    }
+    model(host).view().0
+}
+
+/// One tap (down and up 40 ms apart) at `at` ms, queued, not processed yet.
+fn tap_at(host: &mut Headless<App>, at: f64) {
+    host.ui.pointer_touch(PointerKind::Down, 100.0, 100.0, at);
+    host.ui.pointer_touch(PointerKind::Up, 100.0, 100.0, at + 40.0);
+}
+
+/// A double tap is two taps close in the time they HAPPENED (the input's time), not in the time
+/// the app got to them: on a slow frame (iOS Safari) both arrive in one late frame, or the second
+/// one a long frame after the first (DrawnUi.Net ae6bd9ef).
+#[test]
+fn a_double_tap_counts_by_when_the_taps_happened() {
+    // Close together when they happened, handled a second apart: a double tap, the view goes home.
+    let mut host = single(SkiaModel3D::from_model(&ball()).view_angles(0.0, 0.0).reset_on_double_tap(true));
+    let yaw = turned(&mut host);
+    assert!(yaw.abs() > 5.0, "the drag turned it: {yaw}");
+    let t = host.time_ms() + 16.0;
+    tap_at(&mut host, t);
+    host.frame_after(16.0);
+    tap_at(&mut host, t + 150.0);
+    host.frame_after(1000.0);
+    for _ in 0..120 {
+        host.frame_after(16.0);
+    }
+    assert!(model(&host).view().0.abs() < 0.5, "back home after a double tap handled late: {}", model(&host).view().0);
+
+    // A second apart when they happened, handled in the same frame: two single taps, it stays.
+    let mut host = single(SkiaModel3D::from_model(&ball()).view_angles(0.0, 0.0).reset_on_double_tap(true));
+    let yaw = turned(&mut host);
+    let t = host.time_ms() + 16.0;
+    tap_at(&mut host, t);
+    tap_at(&mut host, t + 1000.0);
+    host.frame_after(1100.0);
+    for _ in 0..120 {
+        host.frame_after(16.0);
+    }
+    assert!((model(&host).view().0 - yaw).abs() < 0.5, "two slow taps do not reset: {yaw} -> {}", model(&host).view().0);
+}
