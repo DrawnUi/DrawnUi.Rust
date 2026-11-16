@@ -561,7 +561,15 @@ impl Desktop {
     }
 
     /// Android: the soft keyboard's inset, read while a text field has the keyboard and a little
-    /// after (winit passes no inset changes on): every 120 ms at most, the loop woken for it.
+    /// after: every 120 ms at most, the loop woken for it without drawing a frame.
+    ///
+    /// A poll, not an event, because there is no event to take: GameActivity does report inset
+    /// changes (android-activity `MainEvent::InsetsChanged`), but winit 0.30 consumes that event
+    /// and drops it ("TODO: handle Android InsetsChanged notification"), and android-activity
+    /// 0.6.1 has no public insets API or listener of its own. A listener in a patched
+    /// android-activity works (tried on the BV8800) but would not exist for crates.io users of
+    /// drawnui. Upgrade path: once winit forwards InsetsChanged (or android-activity exposes a
+    /// listener), read `ime_inset()` on that event and remove this poll.
     #[cfg(target_os = "android")]
     fn poll_ime_inset(&mut self) {
         let height = self.window.inner_size().height as f32;
