@@ -114,3 +114,33 @@ fn the_boss_page_rows_match_the_dotnet_layout() {
     near("desktop moves (one row)", moves.height(), 40.0);
     near("desktop skin and eyes (one row)", skins.height(), 40.0);
 }
+
+#[derive(Default)]
+struct Wrapped {
+    star: Handle<SkiaShape>,
+    stack: Handle<SkiaLayout>,
+    grid: Handle<SkiaLayout>,
+}
+
+/// A grid of a set height: an Auto row whose content grows only at the real width (a full-width
+/// stack holding a wrap: one line measured unbounded, several at the grid's width) takes its room
+/// from the star row and stays inside the grid (drawnui-cross 6cg).
+#[test]
+fn an_auto_row_that_grows_at_the_real_width_takes_its_room_from_the_star_row() {
+    let ui = Ui::new(Wrapped::default(), |app: &mut Wrapped| {
+        SkiaGrid::new().fill_x().height_request(400).row_definitions("*,Auto").assign(&mut app.grid).children((
+            SkiaShape::new().fill().row(0).background_color(Color::RED).assign(&mut app.star),
+            SkiaLayout::column().fill_x().row(1).assign(&mut app.stack).children((SkiaLayout::wrap()
+                .fill_x()
+                .spacing(8)
+                .children((0..12).map(|_| SkiaShape::new().width_request(90).height_request(40)).collect::<Vec<_>>()),)),
+        ))
+    })
+    .font_bytes("Default", FONT);
+    let mut host = Headless::new(ui, 300, 600, 1.0);
+    host.settle();
+    let (grid, star, stack) = (host.rect(host.ui.state.grid), host.rect(host.ui.state.star), host.rect(host.ui.state.stack));
+    assert!(stack.height() > 100.0, "the wrap took several lines: {stack:?}");
+    assert!(stack.bottom <= grid.bottom + 0.5, "the Auto row stays inside the grid: grid {grid:?}, stack {stack:?}");
+    assert!(star.bottom <= stack.top + 0.5 && star.height() < grid.height() - stack.height() + 2.0, "the star row gave its room: grid {grid:?}, star {star:?}, stack {stack:?}");
+}
