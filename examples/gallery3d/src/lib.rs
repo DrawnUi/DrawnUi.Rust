@@ -781,13 +781,15 @@ fn product_viewer(app: &mut App) -> Build<SkiaShape> {
                 .vertical_options(LayoutOptions::Center)
                 .is_visible(false)
                 .observe(|me, app: &App| me.set_is_visible(app.load == LoadState3D::Failed))
-                .children((SkiaLayout::row().spacing(14).children((
+                // The reason wraps inside the viewer on a narrow screen: a grid gives it the width left.
+                .margin(12)
+                .children((SkiaGrid::new().column_definitions("Auto,*").column_spacing(14).children((
                     SkiaShape::new().shape_type(ShapeType::Circle).width_request(36).height_request(36).background_color(BAD).children((SkiaLabel::new("!").font_family(TITLE)
                         .font_size(22)
                         .text_color(Color::WHITE)
                         .horizontal_options(LayoutOptions::Center)
                         .vertical_options(LayoutOptions::Center),)),
-                    SkiaLayout::column().spacing(8).children((
+                    SkiaLayout::column().spacing(8).fill_x().column(1).children((
                         SkiaLabel::new("The model could not be loaded").font_size(16).font_family(TITLE).text_color(INK),
                         SkiaLabel::new("").font_size(12).text_color(MUTED).observe(|me, app: &App| me.set_text(format!("{BROKEN_URL}: {}", app.load_error))),
                         Button3D::new("Use the app's copy", ACCENT, Some(180.0)).on_tapped(|_me, app: &mut App, cx| set_source(app, cx, Source::App)),
@@ -807,7 +809,9 @@ fn product_viewer(app: &mut App) -> Build<SkiaShape> {
                     })
                     .collect::<Vec<_>>(),
             ),
+            // How to handle the model: only while one shows (the loading and error cards take its place).
             copyable("Drag to turn  ·  pinch or Ctrl+scroll to zoom  ·  double-tap to reset")
+                .observe(|me, app: &App| me.set_is_visible(app.load == LoadState3D::Ready))
                 .font_size(12)
                 .text_color(MUTED)
                 .horizontal_text_alignment(TextAlignment::Center)
@@ -2187,7 +2191,7 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
             )),)),
             SkiaLayout::wrap().spacing(8).margin((0.0, 10.0, 0.0, 0.0)).children((
                 // How many: one radio group, its own Tab stop walked with the arrows.
-                SkiaLayout::row().spacing(8).accessibility_role(Aria::RADIO_GROUP).accessibility_label("Mobs on the field").children(
+                SkiaLayout::wrap().spacing(8).horizontal_options(LayoutOptions::Start).accessibility_role(Aria::RADIO_GROUP).accessibility_label("Mobs on the field").children(
                     [10usize, 40, 100].into_iter().map(|n| choice(&format!("{n} mobs"), Some(110.0), move |app| app.mobs == n).on_tapped(move |_me, app: &mut App, _cx| app.mobs = n)).collect::<Vec<_>>(),
                 ),
                 // How they look, switched in place: lit 3D, or drawn as a cartoon. A Tab stop of its own.
