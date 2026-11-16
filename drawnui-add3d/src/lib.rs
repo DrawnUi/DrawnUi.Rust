@@ -1128,6 +1128,9 @@ pub trait Model3DSet {
 
     /// Turns a node by name: rotations around x, y, z in degrees (applied in that order).
     fn set_node_rotation(&mut self, name: &str, degrees: [f32; 3]) -> bool;
+    /// Turns a node by name with a quaternion `[x, y, z, w]` (a turn worked out in code, such as
+    /// a physics step).
+    fn set_node_rotation_quat(&mut self, name: &str, xyzw: [f32; 4]) -> bool;
 
     /// Scales a node by name.
     fn set_node_scale(&mut self, name: &str, xyz: [f32; 3]) -> bool;
@@ -1242,6 +1245,10 @@ impl Model3DSet for Mut<'_, SkiaModel3D> {
     fn set_node_rotation(&mut self, name: &str, degrees: [f32; 3]) -> bool {
         let [x, y, z] = degrees.map(f32::to_radians);
         with_node(self, name, |n| n.rotation = Some(Quat::from_euler(glam::EulerRot::XYZ, x, y, z)))
+    }
+
+    fn set_node_rotation_quat(&mut self, name: &str, xyzw: [f32; 4]) -> bool {
+        with_node(self, name, |n| n.rotation = Some(Quat::from_array(xyzw).normalize()))
     }
 
     fn set_node_scale(&mut self, name: &str, xyz: [f32; 3]) -> bool {

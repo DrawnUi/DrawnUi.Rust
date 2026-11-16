@@ -29,6 +29,7 @@ use drawnui_add3d::prelude::*;
 use glam::{EulerRot, Quat};
 
 mod dice;
+mod dice_throw;
 mod theme;
 use theme::*;
 
