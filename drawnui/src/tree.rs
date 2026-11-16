@@ -446,10 +446,11 @@ base_props! {
     /// aria-expanded: the menu or list this control opens is open (`Some(true)`) or closed
     /// (`Some(false)`), as a menu bar title or a dropdown button; `None` = it opens nothing.
     accessibility_is_expanded / set_accessibility_is_expanded: Option<bool> = None, NONE;
-    /// The overlay carries the control's text as real, invisible text in its lines (React
-    /// AccessibilityTextSelectable, off by default): the browser selects and copies it, a screen
-    /// reader reads it word by word. Pointer input over that text goes to the selection, not to
-    /// the control: never on gesture-driven controls.
+    /// Text the user can select and copy (C# AccessibilityTextSelectable, off by default): a mouse
+    /// drag (across labels too) or a double click, a touch long press; Ctrl/Cmd+C copies, a right
+    /// click or long press raises the context menu. The engine draws the selection on every host,
+    /// the browser included; the web overlay carries the text in its lines for screen readers
+    /// only (never selected by the browser). Never on gesture-driven controls.
     accessibility_text_selectable / set_accessibility_text_selectable: bool = false, NONE;
     /// aria-live: `Aria::LIVE_POLITE` or `Aria::LIVE_ASSERTIVE`; changes are announced.
     accessibility_live / set_accessibility_live: std::borrow::Cow<'static, str> = std::borrow::Cow::Borrowed(""), NONE;

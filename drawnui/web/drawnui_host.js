@@ -680,8 +680,8 @@ window.DrawnUi = {
 .drawnui-a11y-node:focus-visible{outline:3px solid rgba(13,110,253,.85);outline-offset:1px;border-radius:3px}
 .drawnui-a11y-node::selection,.drawnui-a11y-node *::selection{background:transparent;color:transparent}
 .drawnui-a11y-text{overflow:visible}
-.drawnui-a11y-text>span{position:absolute;white-space:pre;color:transparent;user-select:text;-webkit-user-select:text;pointer-events:auto;cursor:text;line-height:1;font-kerning:none;font-feature-settings:"kern" 0,"liga" 0,"calt" 0;text-rendering:geometricPrecision}
-.drawnui-a11y-text>span::selection{background:rgba(110,168,254,.55);color:transparent}`;
+.drawnui-a11y-text>span{position:absolute;white-space:pre;color:transparent;user-select:none;-webkit-user-select:none;pointer-events:none;line-height:1;font-kerning:none;font-feature-settings:"kern" 0,"liga" 0,"calt" 0;text-rendering:geometricPrecision}
+.drawnui-a11y-text>span::selection{background:transparent;color:transparent}`;
       document.head.appendChild(css);
     }
     canvas.setAttribute("aria-hidden", "true");
