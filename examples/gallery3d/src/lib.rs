@@ -1224,16 +1224,16 @@ fn pose_mascot(app: &App, cx: &mut Cx) {
     let Some(mut mascot) = cx.get_mut(app.mascot) else { return };
     match app.focused {
         Some(Field::Password) => {
-            // The hands go over the eyes; the ears lie back, clear of the face and the hands
-            // (folded forward they passed through both; .NET af01f27b).
-            mascot.reset_node("Head");
+            // The head tips down behind the hands over its eyes; the ears lie back, clear of the
+            // face and the hands (as the .NET gallery, tuned by a probe sweep).
+            mascot.set_node_rotation("Head", bone(HEAD_REST, 20.0, 0.0, 0.0));
             mascot.set_node_rotation("Ear1.L", bone(EAR1_L_REST, -25.0, 0.0, 0.0));
             mascot.set_node_rotation("Ear1.R", bone(EAR1_R_REST, -25.0, 0.0, 0.0));
             mascot.reset_node("Ear2.L");
             mascot.reset_node("Ear2.R");
-            mascot.set_node_rotation("UpperArm.L", bone(UPPER_L_REST, -150.0, -150.0, 60.0));
+            mascot.set_node_rotation("UpperArm.L", bone(UPPER_L_REST, -140.0, -150.0, 60.0));
             mascot.set_node_rotation("LowerArm.L", bone(LOWER_L_REST, 0.0, 0.0, 85.0));
-            mascot.set_node_rotation("UpperArm.R", bone(UPPER_R_REST, 30.0, 30.0, 120.0));
+            mascot.set_node_rotation("UpperArm.R", bone(UPPER_R_REST, 40.0, 30.0, 120.0));
             mascot.set_node_rotation("LowerArm.R", bone(LOWER_R_REST, 0.0, 0.0, -85.0));
         }
         focused => {
