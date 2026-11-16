@@ -454,7 +454,7 @@ pub struct Ui<S: 'static> {
     screen_reader: bool,
     /// The last snapshot order (controls) that still held the control with the keyboard: when it
     /// goes away, the keyboard goes on from its place there.
-    focus_order: Vec<ControlId>,
+    focus_order: Vec<(ControlId, Option<u32>)>,
     /// The modals that were active, oldest first, with where the keyboard was as each came.
     modal_stack: Vec<(ControlId, Option<ControlId>)>,
     /// A modal the keyboard goes into once something in it takes input, until this time (its
@@ -2604,11 +2604,16 @@ impl<S: 'static> Ui<S> {
     fn build_accessibility(&mut self, width: f32, height: f32, scale: f32, time_ms: f64) {
         self.accessibility_built_ms = time_ms;
         self.accessibility_stale = false;
+        // The order is kept from a snapshot taken while the focused control was alive: one taken
+        // after it went (its popup closed) no longer knows which layer it was in.
         if let Some(focused) = self.tree.accessibility_focused
+            && self.tree.node(focused).is_some()
             && self.tree.accessibility.iter().any(|n| n.control == focused)
         {
             self.focus_order.clear();
-            self.focus_order.extend(self.tree.accessibility.iter().map(|n| n.control));
+            // With its layer: the page (`None`) or the popup it is in.
+            let tree = &self.tree;
+            self.focus_order.extend(tree.accessibility.iter().map(|n| (n.control, tree.popup_of(n.control).map(|p| p.id))));
         }
         let Some(root) = self.tree.root else { return };
         let mut list = std::mem::take(&mut self.accessibility_next);
@@ -4254,13 +4259,15 @@ impl<S: 'static> Ui<S> {
             // No reader: the Tab stop that followed it in the last order that held it and is still on
             // the page, else the last one before it (a pin turned to the back of a globe, a row
             // removed: never to nothing); a whole screen replaced leaves none, and the keys are the
-            // app's again (DrawnUi.Net NextStopAfter).
+            // app's again (DrawnUi.Net NextStopAfter). Only in its own layer: a closed popup's item
+            // hands the keyboard to nothing on the page (no stop down the page is scrolled to).
             false => {
                 let stops = self.tab_stops();
                 let order = &self.focus_order;
-                order.iter().position(|c| *c == focused).and_then(|at| {
-                    let usable = |c: &&ControlId| stops.contains(*c);
-                    order[at + 1..].iter().find(usable).or_else(|| order[..at].iter().rev().find(usable)).copied()
+                order.iter().position(|(c, _)| *c == focused).and_then(|at| {
+                    let layer = order[at].1;
+                    let usable = |e: &&(ControlId, Option<u32>)| e.1 == layer && stops.contains(&e.0);
+                    order[at + 1..].iter().find(usable).or_else(|| order[..at].iter().rev().find(usable)).map(|e| e.0)
                 })
             }
         };
