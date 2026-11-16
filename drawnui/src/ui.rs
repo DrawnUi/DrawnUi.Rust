@@ -1743,8 +1743,9 @@ impl<S: 'static> Ui<S> {
     fn update_text_input(&mut self) {
         let area = self.focused().and_then(|f| {
             let node = self.tree.node(f)?;
+            // Where the field is drawn (scrolls and transforms included), as the host places its input there.
             node.kind.as_deref().is_some_and(|k| k.wants_text_input()).then(|| {
-                let (r, s) = (node.base.rect, node.base.scale.max(0.1));
+                let (r, s) = (drawn_rect(&self.tree, f).unwrap_or(node.base.rect), node.base.scale.max(0.1));
                 Rect::new(r.left / s, r.top / s, r.right / s, r.bottom / s)
             })
         });
@@ -3131,19 +3132,16 @@ fn idle_gpu(tree: &mut Tree, gpu: &mut Gpu, canvas_height: f32, frame_ms: f32) {
 /// Where a control is drawn on the canvas, pixels: its rect through every render matrix and
 /// scroll offset above it, as the accessibility snapshot maps it.
 pub(crate) fn drawn_rect(tree: &Tree, id: ControlId) -> Option<Rect> {
-    let mut path = vec![id];
-    while let Some(parent) = tree.parent(*path.last()?) {
-        path.push(parent);
-    }
-    path.reverse();
-    let mut matrix = Matrix::new_identity();
-    for (i, &at) in path.iter().enumerate() {
-        if let Some(own) = tree.render.get(at.index as usize).and_then(|r| r.matrix) {
-            matrix = Matrix::concat(&matrix, &own);
-        }
-        if i + 1 < path.len() {
-            matrix.pre_translate(tree.base(at)?.content_offset);
-        }
+    // Walked up from the control, each parent's matrix and content offset put in front: no
+    // allocation (the host's text input follows a focused field every frame).
+    let own = |at: ControlId| tree.render.get(at.index as usize).and_then(|r| r.matrix).unwrap_or_else(Matrix::new_identity);
+    let mut matrix = own(id);
+    let mut at = id;
+    while let Some(parent) = tree.parent(at) {
+        let mut above = own(parent);
+        above.pre_translate(tree.base(parent)?.content_offset);
+        matrix = Matrix::concat(&above, &matrix);
+        at = parent;
     }
     Some(matrix.map_rect(tree.base(id)?.rect).0)
 }

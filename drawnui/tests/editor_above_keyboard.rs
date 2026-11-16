@@ -80,3 +80,14 @@ fn a_visible_field_or_no_focus_does_not_move() {
     keyboard(&mut host, 900.0);
     assert_eq!(on_screen(&host, high), start, "the field is above the keyboard: the page stays");
 }
+
+#[test]
+fn the_text_input_area_is_where_the_field_is_drawn() {
+    let mut host = scene();
+    let low = host.ui.state.low;
+    focus(&mut host, low);
+    keyboard(&mut host, 900.0);
+    let (top, bottom) = on_screen(&host, low);
+    let area = host.ui.text_input().expect("open");
+    assert!((area.top * 2.0 - top).abs() < 1.0 && (area.bottom * 2.0 - bottom).abs() < 1.0, "the host's text input follows the scroll: {area:?} vs {top}..{bottom} px");
+}

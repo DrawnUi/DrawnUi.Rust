@@ -685,7 +685,9 @@ window.DrawnUi = {
     // leaves iOS with a focused input and no keyboard.
     let touching = false;
     let focusOnTouchEnd = false;
-    const openTextInput = (rect) => {
+    // `same`: the field that has the input moved (a scroll): the input only follows it.
+    const openTextInput = (rect, same) => {
+      const moved = same && textOpen && !!rect && !!textInput;
       textOpen = !!rect;
       textArea = rect;
       if (!rect) {
@@ -693,9 +695,8 @@ window.DrawnUi = {
         return;
       }
       textInput ??= makeTextInput();
-      const b = canvas.getBoundingClientRect();
-      textInput.style.left = `${Math.round(b.left + rect[0])}px`;
-      textInput.style.top = `${Math.round(b.top + rect[1])}px`;
+      placeTextInput(touching || (moved && tapFocused));
+      if (moved) return;
       resetTextInput();
       textInput.enterKeyHint = textHint || "";
       if (touching) focusOnTouchEnd = true;
@@ -705,6 +706,15 @@ window.DrawnUi = {
       }
       // A keyboard already open (another field had it) does not resize the viewport again.
       setTimeout(aboveKeyboard, 50);
+    };
+    // Where the hidden input sits (drawnui-cross 6ci): for a field focused by a touch, pinned at the
+    // page's top-left (iOS pans the whole page to reveal an input over a field low on screen);
+    // for a mouse or the keyboard, over the field, so an IME's candidate window shows by the text.
+    const placeTextInput = (pinned) => {
+      if (!textInput) return;
+      const b = canvas.getBoundingClientRect();
+      textInput.style.left = pinned || !textArea ? "0px" : `${Math.round(b.left + textArea[0])}px`;
+      textInput.style.top = pinned || !textArea ? "0px" : `${Math.round(b.top + textArea[1])}px`;
     };
     // A phone's soft keyboard shrinks the visual viewport over the canvas: the scroll around the
     // focused field moves it into the part left visible (drawnui-cross 6cj).
@@ -726,6 +736,7 @@ window.DrawnUi = {
       (e) => {
         if (e.pointerType !== "touch" && textOpen && textInput && e.target === canvas) {
           tapFocused = false;
+          placeTextInput(false);
           textInput.focus({ preventScroll: true });
         }
       },
@@ -762,8 +773,9 @@ window.DrawnUi = {
         if (!focus && !onField) return;
         // A focus() on the input that has it already does not raise the keyboard on iOS: blur, then focus.
         if (document.activeElement === textInput) textInput.blur();
-        textInput.focus({ preventScroll: true });
         tapFocused = true;
+        placeTextInput(true);
+        textInput.focus({ preventScroll: true });
         e.preventDefault();
       },
       { passive: false },
@@ -1012,9 +1024,10 @@ window.DrawnUi = {
           case "t": {
             const parts = message.length > 1 ? rest.split(" ") : null;
             const area = parts && parts.slice(0, 5).map(Number);
+            const previous = textNode;
             textNode = area && area.length > 4 ? area[4] : null;
             textHint = (parts && parts[5]) || "";
-            openTextInput(area);
+            openTextInput(area, area && previous === textNode);
             break;
           }
           case "f":
