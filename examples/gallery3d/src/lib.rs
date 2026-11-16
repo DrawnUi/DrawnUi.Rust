@@ -738,8 +738,9 @@ fn set_source(app: &mut App, cx: &mut Cx, source: Source) {
 }
 
 /// A small caps heading in the viewer's side panel.
+/// It says the name of the group below it, which a screen reader reads: no node of its own.
 fn panel_label(text: &str) -> Build<SkiaLabel> {
-    copyable(text).font_size(12).font_family(TITLE).text_color(MUTED).character_spacing(1.5).margin((0.0, 8.0, 0.0, 0.0))
+    SkiaLabel::new(text).accessibility_role(Aria::PRESENTATION).font_size(12).font_family(TITLE).text_color(MUTED).character_spacing(1.5).margin((0.0, 8.0, 0.0, 0.0))
 }
 
 fn product_viewer(app: &mut App) -> Build<SkiaShape> {
@@ -824,7 +825,7 @@ fn product_viewer(app: &mut App) -> Build<SkiaShape> {
         copyable("Three-seater, carved walnut frame").font_size(13).text_color(MUTED),
         copyable(&dollars(SWATCHES[0].4)).font_size(18).font_family(TITLE).text_color(GOLD).observe(|me, app: &App| me.set_text(dollars(app.price_shown))),
         panel_label("FABRIC"),
-        SkiaLayout::wrap().spacing(14).children(
+        SkiaLayout::wrap().spacing(14).accessibility_role(Aria::RADIO_GROUP).accessibility_label("Fabric").children(
             (0..SWATCHES.len())
                 .map(|i| {
                     SkiaLayout::column().spacing(4).width_request(56).children((
@@ -846,7 +847,8 @@ fn product_viewer(app: &mut App) -> Build<SkiaShape> {
                                 app.swatch = i;
                                 apply_swatch(app, cx);
                             }),
-                        copyable(SWATCHES[i].0).font_size(12).text_color(MUTED).horizontal_options(LayoutOptions::Center),
+                        // The swatch's caption: its radio says the name already.
+                        SkiaLabel::new(SWATCHES[i].0).font_size(12).text_color(MUTED).horizontal_options(LayoutOptions::Center).accessibility_role(Aria::PRESENTATION),
                     ))
                 })
                 .collect::<Vec<_>>(),
@@ -897,6 +899,8 @@ fn product_list(app: &mut App) -> Build<SkiaShape> {
                 });
             }
             SkiaLayout::row()
+                // A list item named by its texts (name, detail, price), read in order.
+                .accessibility_role(Aria::LIST_ITEM)
                 .fill_x()
                 .minimum_height_request(84)
                 .spacing(16)
@@ -961,7 +965,7 @@ fn product_list(app: &mut App) -> Build<SkiaShape> {
                 // to miss on a phone).
                 .keep_scroll_bars_visible(true)
                 .scroll_bar(SkiaScrollBar::new().is_draggable(true).thickness(6))
-                .content(SkiaLayout::column().fill_x().spacing(2).children(rows)),)),
+                .content(SkiaLayout::column().fill_x().spacing(2).accessibility_role(Aria::LIST).accessibility_label("Shop").children(rows)),)),
         ),
     )
 }
@@ -2068,7 +2072,8 @@ fn build(app: &mut App) -> Build<SkiaLayout> {
                             end_y_ratio: 1.0,
                             ..SkiaGradient::new(GradientType::Linear, vec![ACCENT, Color::from_rgb(255, 99, 132)])
                         })
-                        .children(SkiaLabel::new("3D").font_size(13).font_family(TITLE).text_color(Color::WHITE).center()),
+                        // The logo's letters: the title next to it names the app.
+                        .children(SkiaLabel::new("3D").font_size(13).font_family(TITLE).text_color(Color::WHITE).center().accessibility_role(Aria::PRESENTATION)),
                     SkiaLayout::column().spacing(0).vertical_options(LayoutOptions::Center).children((
                         copyable("DrawnUI 3D Demo").font_size(17).font_family(TITLE).text_color(INK).accessibility_role(Aria::HEADING),
                         copyable("Add3D addon to DrawnUI for Rust").font_size(12).text_color(MUTED),
@@ -2300,4 +2305,43 @@ pub fn run() {
                 }),
         )
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use drawnui::testing::Headless;
+
+    /// A screen reader reads each name once: no text repeats the control or group it is in, the
+    /// captions that a control or group says already and the logo letters are no nodes, the shop
+    /// rows are list items named by their texts (.NET / React galleries, drawnui-3d 2026-11-16).
+    #[test]
+    fn each_name_is_read_once() {
+        let ui = Ui::new(App::default(), build).default_accessibility_role::<SkiaLabel>(Aria::TEXT).default_accessibility_role::<SkiaButton>(Aria::BUTTON);
+        // Tall enough for every section to be in the snapshot.
+        let mut host = Headless::new(ui, 1280, 16000, 1.0);
+        host.ui.set_accessibility_enabled(true);
+        for _ in 0..6 {
+            host.frame_after(16.0);
+        }
+        host.frame_after(1100.0);
+        let nodes = host.ui.accessibility_nodes();
+        let by_id = |id: u32| nodes.iter().find(|n| n.id == id);
+        let repeats: Vec<String> = nodes
+            .iter()
+            .filter(|n| !n.label.is_empty())
+            .filter_map(|n| n.parent.and_then(by_id).filter(|p| p.label == n.label).map(|p| format!("{} {:?} in {} {:?}", n.role, n.label, p.role, p.label)))
+            .collect();
+        assert!(repeats.is_empty(), "names read twice: {repeats:?}");
+        for caption in ["3D", "FABRIC", "MODEL", "Spin", "Drawn"] {
+            let found: Vec<_> = nodes.iter().filter(|n| n.label == caption).map(|n| n.role.to_string()).collect();
+            assert!(found.iter().all(|r| r != Aria::TEXT), "{caption} is read as a text: {found:?}");
+        }
+        for swatch in ["Linen", "Wool", "Velvet", "Leather"] {
+            let found: Vec<_> = nodes.iter().filter(|n| n.label == swatch).map(|n| n.role.to_string()).collect();
+            assert_eq!(found, [Aria::RADIO], "{swatch}: only its radio");
+        }
+        let items: Vec<_> = nodes.iter().filter(|n| n.role == Aria::LIST_ITEM).collect();
+        assert!(!items.is_empty() && items.iter().all(|n| n.label.is_empty()), "shop rows: unnamed list items");
+    }
 }
