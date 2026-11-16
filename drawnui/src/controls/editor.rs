@@ -1412,6 +1412,10 @@ impl Control for SkiaEditor {
     fn accessibility_can_interact(&self) -> Option<bool> {
         Some(true)
     }
+
+    fn accessibility_is_password(&self) -> bool {
+        self.p.is_password
+    }
 }
 
 impl SkiaEditor {

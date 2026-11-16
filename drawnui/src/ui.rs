@@ -215,6 +215,8 @@ pub struct AccessibilityNode {
     pub modal: bool,
     /// The control has an `on_context_menu` handler: a screen reader offers "show menu" on it.
     pub has_context_menu: bool,
+    /// A password field (`Control::accessibility_is_password`): its text is never given out.
+    pub is_password: bool,
 }
 
 /// A role a user operates (a button, a field, a toggle...): one that takes no input is read as
@@ -2790,6 +2792,7 @@ impl<S: 'static> Ui<S> {
                         group: None,
                         modal: is_modal,
                         has_context_menu: node.handlers.input.as_ref().is_some_and(|h| h.context_menu.is_some()),
+                        is_password: kind.is_some_and(|k| k.accessibility_is_password()),
                     });
                 }
             }

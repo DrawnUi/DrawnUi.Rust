@@ -61,7 +61,8 @@ pub(crate) fn tree(title: &str, nodes: &[AccessibilityNode], scale: f64, focus: 
     let mut out = Vec::with_capacity(nodes.len() + 1);
     out.push((ROOT, window));
     for n in nodes {
-        let role = role(&n.role);
+        // A password field: screen readers mask it (its name is its placeholder already).
+        let role = if n.is_password && n.role == Aria::TEXT_BOX { Role::PasswordInput } else { role(&n.role) };
         let mut node = Node::new(role);
         // A text's words are its value: AccessKit names a Label from it (UI Automation Name), and
         // a label set on it would be read as nothing.
@@ -226,6 +227,7 @@ mod tests {
             group: None,
             modal: false,
             has_context_menu: false,
+            is_password: false,
         }
     }
 
@@ -284,6 +286,15 @@ mod tests {
         let bounds = |id| built(&nodes, id).bounds().expect("bounds");
         assert_eq!((bounds(2).y0, bounds(2).y1), (20.0, 30.0), "a row in view keeps its box");
         assert_eq!((bounds(5).y0, bounds(5).y1), (40.0, 40.0), "a row below the view: empty, at the bottom");
+    }
+
+    #[test]
+    fn a_password_field_is_a_password_input() {
+        let mut password = node(1, Aria::TEXT_BOX, "Password", true, None);
+        password.is_password = true;
+        let nodes = [password, node(2, Aria::TEXT_BOX, "Name", true, None)];
+        assert_eq!(built(&nodes, 1).role(), Role::PasswordInput, "screen readers mask what it holds");
+        assert_eq!(built(&nodes, 2).role(), Role::TextInput);
     }
 
     #[test]

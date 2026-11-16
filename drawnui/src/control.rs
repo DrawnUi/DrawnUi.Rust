@@ -190,6 +190,11 @@ pub trait Control: Any {
         self.inner().and_then(|inner| inner.accessibility_can_interact())
     }
 
+    /// A field whose text is a password: screen readers get a password input and never its text.
+    fn accessibility_is_password(&self) -> bool {
+        self.inner().is_some_and(|inner| inner.accessibility_is_password())
+    }
+
     /// Takes hover when `receives_hover` is not set (DrawnUI ReceivesHoverByDefault): true for
     /// buttons, sliders, toggles, radio buttons, carousels and drawers.
     fn receives_hover(&self) -> bool {
