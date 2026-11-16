@@ -219,6 +219,16 @@ pub struct AccessibilityNode {
 
 /// A role a user operates (a button, a field, a toggle...): one that takes no input is read as
 /// unavailable (aria-disabled, UI Automation IsEnabled false).
+/// Roles whose content is their look, not more nodes (ARIA "children presentational"): a screen
+/// reader says the control's name once, never the texts inside it again. A link, a group, a list
+/// keep their content (DrawnUi.Net Aria.ChildrenArePresentational).
+pub(crate) fn children_presentational(role: &str) -> bool {
+    matches!(
+        role,
+        Aria::BUTTON | Aria::CHECKBOX | Aria::RADIO | Aria::SWITCH | Aria::TAB | Aria::OPTION | Aria::SLIDER | Aria::PROGRESS_BAR | "meter" | "scrollbar" | Aria::SEPARATOR | Aria::IMG | Aria::MENU_ITEM_CHECKBOX | Aria::MENU_ITEM_RADIO
+    )
+}
+
 pub(crate) fn is_control_role(role: &str) -> bool {
     matches!(
         role,
@@ -401,7 +411,9 @@ pub struct Ui<S: 'static> {
     /// A frame was drawn inside the interval: the snapshot may be behind it.
     accessibility_stale: bool,
     /// The walk's stack and the next snapshot, kept for their allocations.
-    accessibility_stack: Vec<(ControlId, Matrix, Option<u32>)>,
+    /// The snapshot walk: control, matrix, nearest node above, inside a control whose children
+    /// are presentational.
+    accessibility_stack: Vec<(ControlId, Matrix, Option<u32>, bool)>,
     /// The host has no keyboard navigation of its own (`Host::keyboard_navigation`).
     keyboard_navigation: bool,
     /// The focus ring shows: the keyboard moved the focus; a pointer press hides it.
@@ -2716,8 +2728,8 @@ impl<S: 'static> Ui<S> {
                     None => continue,
                 },
             };
-            stack.push((seed_root, seed_matrix, None));
-        while let Some((id, matrix, parent)) = stack.pop() {
+            stack.push((seed_root, seed_matrix, None, false));
+        while let Some((id, matrix, parent, inside_look)) = stack.pop() {
             let mut below_parent = parent;
             let Some(node) = self.tree.node(id) else { continue };
             if !node.base.p.is_visible || node.base.p.opacity <= 0.0 || node.base.offscreen {
@@ -2738,7 +2750,11 @@ impl<S: 'static> Ui<S> {
                 ),
                 _ => p.accessibility_role.clone(),
             };
-            if !role.is_empty() && role != Aria::PRESENTATION {
+            // A text inside a button, a radio, a tab... is the control's look: its name says it
+            // (ARIA children presentational). Selectable text and controls nested in it stay.
+            let look = inside_look && !is_control_role(&role) && !p.accessibility_text_selectable;
+            let children_look = inside_look || children_presentational(&role);
+            if !role.is_empty() && role != Aria::PRESENTATION && !look {
                 let rect = matrix.map_rect(node.base.rect).0;
                 let outside = !popup && (rect.right < -width || rect.bottom < -height || rect.left > 2.0 * width || rect.top > 2.0 * height);
                 if rect.width() > 0.0 && rect.height() > 0.0 && !outside {
@@ -2780,7 +2796,7 @@ impl<S: 'static> Ui<S> {
             let mut below = matrix;
             below.pre_translate(node.base.content_offset);
             // Reversed: children come off the stack in tree order, which equal positions keep.
-            stack.extend(node.children.iter().rev().map(|c| (*c, below, below_parent)));
+            stack.extend(node.children.iter().rev().map(|c| (*c, below, below_parent, children_look)));
         }
             if seed == 0 {
                 main_len = list.len();
