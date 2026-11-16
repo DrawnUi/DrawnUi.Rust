@@ -30,6 +30,10 @@
 // calls this (createImageBitmap); what runs on it is the copy out of the bitmap. It runs in a
 // worker, so it must not use anything outside itself.
 async function drawnUiDecodeImage(url, width, height, frames) {
+  // A canvas to read pixels from: an OffscreenCanvas (also in a worker), else a page canvas
+  // (browsers without OffscreenCanvas, such as Safari before 16.4, decode on the page).
+  const canvas2d = (w, h) =>
+    (typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(w, h) : Object.assign(document.createElement("canvas"), { width: w, height: h })).getContext("2d", { willReadFrequently: true });
   const response = await fetch(url);
   if (!response.ok) throw new Error(`${url}: ${response.status}`);
   const blob = await response.blob();
@@ -48,7 +52,7 @@ async function drawnUiDecodeImage(url, width, height, frames) {
       if (!all) {
         size = frame.displayWidth * frame.displayHeight * 4;
         all = new Uint8ClampedArray(size * count);
-        context = new OffscreenCanvas(frame.displayWidth, frame.displayHeight).getContext("2d", { willReadFrequently: true });
+        context = canvas2d(frame.displayWidth, frame.displayHeight);
       }
       // Each decoded frame is whole (the decoder composites it): nothing of the last one may stay.
       context.clearRect(0, 0, frame.displayWidth, frame.displayHeight);
@@ -75,7 +79,7 @@ async function drawnUiDecodeImage(url, width, height, frames) {
     bitmap = await createImageBitmap(full, resize);
     full.close();
   }
-  const context = new OffscreenCanvas(bitmap.width, bitmap.height).getContext("2d", { willReadFrequently: true });
+  const context = canvas2d(bitmap.width, bitmap.height);
   context.drawImage(bitmap, 0, 0);
   const pixels = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
   const result = { pixels, width: bitmap.width, height: bitmap.height, sourceWidth, sourceHeight };
