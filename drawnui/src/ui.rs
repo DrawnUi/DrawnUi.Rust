@@ -3535,7 +3535,7 @@ impl<T: Control> Build<T> {
         self
     }
 
-    /// The press stayed on the control for `LONG_PRESS_MS` without moving (DrawnUI LongPressing).
+    /// The press stayed on the control for `TouchEffect::long_press_time_ms_default` without moving (DrawnUI LongPressing).
     /// A press reached the control, with its point in the control's points (DrawnUI SkiaButton
     /// Down). The control gets it when it takes the press, or when no child under it took it.
     pub fn on_down<S: Any>(mut self, mut f: impl FnMut(&mut crate::Mut<'_, T>, &mut S, &mut Cx<'_>, Point) + 'static) -> Self {

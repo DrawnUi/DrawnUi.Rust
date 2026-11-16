@@ -12,7 +12,7 @@ pub enum GestureKind {
     Tapped,
     Up,
     Wheel,
-    /// The pointer stayed down without moving for `LONG_PRESS_MS` (DrawnUI LongPressing). Routed
+    /// The pointer stayed down without moving for `TouchEffect::long_press_time_ms_default` (DrawnUI LongPressing). Routed
     /// by the press location; the press goes on, its Up follows later.
     LongPressing,
     /// The mouse moves over the control with no button down (DrawnUI TouchActionResult.Pointer).
@@ -235,9 +235,29 @@ impl Multitouch {
 /// A release closer than this to the press (points, each axis) is a tap.
 pub const TAPPED_CANCEL_MOVE_THRESHOLD_POINTS: f32 = 16.0;
 
-/// A press held this long without moving past the tap threshold is a LongPressing (DrawnUI
-/// `TouchEffect.LongPressTimeMsDefault`, the desktop head; React produces none).
-pub const LONG_PRESS_MS: f64 = 1500.0;
+/// The long press time the app starts with (DrawnUI `TouchEffect.LongPressTimeMsDefault`):
+/// `TouchEffect::set_long_press_time_ms_default` changes it.
+pub const LONG_PRESS_MS: f64 = 750.0;
+
+/// The long press time in milliseconds, as f64 bits.
+static LONG_PRESS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(LONG_PRESS_MS.to_bits());
+
+/// Gesture settings of the app (DrawnUI `TouchEffect`).
+pub struct TouchEffect;
+
+impl TouchEffect {
+    /// How long a press must stay still to be a LongPressing, milliseconds (DrawnUI
+    /// `TouchEffect.LongPressTimeMsDefault`; 750 by default). One value for the app, read when a
+    /// press starts.
+    pub fn long_press_time_ms_default() -> f64 {
+        f64::from_bits(LONG_PRESS.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
+    /// Sets the long press time of every press that starts from now on, milliseconds.
+    pub fn set_long_press_time_ms_default(ms: f64) {
+        LONG_PRESS.store(ms.max(0.0).to_bits(), std::sync::atomic::Ordering::Relaxed);
+    }
+}
 
 /// A move's velocity is its displacement over this much time, the position that long before
 /// interpolated between the press's last positions.
@@ -319,6 +339,8 @@ struct Pressed {
     trail: Trail,
     button: MouseButton,
     down_ms: f64,
+    /// The long press time when the press started (`TouchEffect`).
+    long_ms: f64,
     /// The long press fired, or a move past the threshold cancelled it.
     long_press_done: bool,
     /// The long press fired: the release is no tap (AppoMobi.Gestures `!IsLongPressing`).
@@ -344,7 +366,7 @@ impl Recognizer {
 
     /// The frame time the long press of the current press is due at, if one is still pending.
     pub fn long_press_due(&self) -> Option<f64> {
-        self.down.filter(|p| !p.long_press_done).map(|p| p.down_ms + LONG_PRESS_MS)
+        self.down.filter(|p| !p.long_press_done).map(|p| p.down_ms + p.long_ms)
     }
 
     /// The time of the latest press, also after its release.
@@ -358,14 +380,14 @@ impl Recognizer {
     }
 
     /// The LongPressing gesture of the current press now, before its time (the browser asked for
-    /// the context menu of a touch press earlier than `LONG_PRESS_MS`); none when it already fired
+    /// the context menu of a touch press before its long press time); none when it already fired
     /// or the press moved.
     pub fn long_press_now(&mut self, time_ms: f64) -> Option<Gesture> {
         self.long_press_when(time_ms, true)
     }
 
     fn long_press_when(&mut self, time_ms: f64, now: bool) -> Option<Gesture> {
-        let pressed = self.down.as_mut().filter(|p| !p.long_press_done && (now || time_ms >= p.down_ms + LONG_PRESS_MS))?;
+        let pressed = self.down.as_mut().filter(|p| !p.long_press_done && (now || time_ms >= p.down_ms + p.long_ms))?;
         (pressed.long_press_done, pressed.long_pressed) = (true, true);
         let (start, button, touch) = (pressed.start, pressed.button, pressed.touch);
         let zero = Point::default();
@@ -450,16 +472,16 @@ impl Recognizer {
                 let mut trail = Trail::default();
                 trail.push(location, time_ms);
                 self.last_down_ms = time_ms;
-                self.down = Some(Pressed { start, previous, velocity, trail, button, down_ms, long_press_done, long_pressed, touch, multi: false });
+                self.down = Some(Pressed { start, previous, velocity, trail, button, down_ms, long_ms: TouchEffect::long_press_time_ms_default(), long_press_done, long_pressed, touch, multi: false });
                 [Some(gesture(GestureKind::Down, location, location, zero, button)), None]
             }
-            (PointerKind::Move, Some(Pressed { start, previous, velocity, mut trail, button, down_ms, long_press_done, long_pressed, multi, .. })) => {
+            (PointerKind::Move, Some(Pressed { start, previous, velocity, mut trail, button, down_ms, long_ms, long_press_done, long_pressed, multi, .. })) => {
                 let velocity = trail.velocity(location, time_ms, velocity);
                 trail.push(location, time_ms);
                 let total = location - start;
                 // Moved away from the press point: it is a pan, no long press comes (C# CancelDesktopLongPress).
                 let long_press_done = long_press_done || total.x.abs() >= threshold || total.y.abs() >= threshold;
-                self.down = Some(Pressed { start, previous: location, velocity, trail, button, down_ms, long_press_done, long_pressed, touch, multi });
+                self.down = Some(Pressed { start, previous: location, velocity, trail, button, down_ms, long_ms, long_press_done, long_pressed, touch, multi });
                 if location == previous {
                     return [None, None];
                 }

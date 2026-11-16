@@ -8,7 +8,7 @@ use crate::gpu::Gpu;
 use crate::tree::ControlId;
 use crate::ui::Ui;
 use crate::{
-    App as _, ContextMenuSource, HistoryOp, ImageRequest, Images, KeyKind, LONG_PRESS_MS, Modifiers, MouseButton, PointerKind,
+    App as _, ContextMenuSource, HistoryOp, ImageRequest, Images, KeyKind, Modifiers, TouchEffect, MouseButton, PointerKind,
     key_name,
 };
 
@@ -275,12 +275,12 @@ impl<S: 'static> Headless<S> {
         self.frame_after(16.0);
     }
 
-    /// Pointer down, held still for `LONG_PRESS_MS` (the LongPressing fires in the frame at that
+    /// Pointer down, held still for the long press time (the LongPressing fires in the frame at that
     /// time), then up, then everything settles.
     pub fn long_press(&mut self, x: f32, y: f32) {
         self.press(PointerKind::Down, x, y);
         self.frame();
-        self.frame_after(LONG_PRESS_MS);
+        self.frame_after(TouchEffect::long_press_time_ms_default());
         self.press(PointerKind::Up, x, y);
         self.settle();
     }

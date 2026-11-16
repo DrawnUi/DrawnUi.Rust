@@ -36,7 +36,7 @@ pub use animators::{AnimationId, Easing, FrameFn, FrameTick, ValueAnimator, easi
 pub use bakes::BakeRequest;
 pub use control::{Control, FRAME_BUDGET_MS, GestureCx, Handled, Has, IdleGpu, IdleGpuCx, LayoutCx, PaintCx};
 pub use fonts::Fonts;
-pub use gestures::{ContextMenuSource, Gesture, GestureKind, LONG_PRESS_MS, Manipulation, MouseButton, VelocityAccumulator};
+pub use gestures::{ContextMenuSource, Gesture, GestureKind, LONG_PRESS_MS, Manipulation, MouseButton, TouchEffect, VelocityAccumulator};
 pub use gpu::{GlTarget, Gpu, GpuApi, VulkanHandles};
 pub use images::{Frames, ImageRequest, Images};
 pub use keyboard::{Cursor, InputKey, KEY_CODES, KeyEvent, KeyKind, Keyboard, Modifiers, key_name};
