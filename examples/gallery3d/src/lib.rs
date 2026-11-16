@@ -2171,7 +2171,15 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
                 me.start_loop(0.0);
             }
         }).children((
-        SkiaScroll::new().fill().on_scrolled(|_me, app: &mut App, cx, _offset| wake(app, cx)).content(
+        SkiaScroll::new()
+            .fill()
+            // An overlay bar, as on phones and the Mac: it shows while the page moves and fades out
+            // after; it can be dragged; nothing holds it on hover (the mouse is always over the page).
+            .scroll_bar(SkiaScrollBar::new().is_draggable(true).thickness(6))
+            .scroll_bar_thumb_color(MUTED)
+            .scroll_bar_track_color(Color::from_argb(18, 255, 255, 255))
+            .on_scrolled(|_me, app: &mut App, cx, _offset| wake(app, cx))
+            .content(
             SkiaLayout::column().fill_x().padding(24).spacing(20).children((
                 SkiaLayout::column().fill_x().spacing(20).use_cache(CacheType::Image).children((
                     copyable("3D, made in the app").font_size(30).font_family(TITLE).text_color(INK).horizontal_options(LayoutOptions::Center).accessibility_role(Aria::HEADING),
