@@ -2225,6 +2225,9 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
             .scroll_bar(SkiaScrollBar::new().is_draggable(true).thickness(6))
             .scroll_bar_thumb_color(MUTED)
             .scroll_bar_track_color(Color::from_argb(18, 255, 255, 255))
+            // A phone's soft keyboard: the focused form field rises 16 points above it.
+            .adapt_to_keyboard_auto(true)
+            .adapt_to_keyboard_gap(16)
             .on_scrolled(|_me, app: &mut App, cx, _offset| wake(app, cx))
             .content(
             SkiaLayout::column().fill_x().padding(24).spacing(20).children((

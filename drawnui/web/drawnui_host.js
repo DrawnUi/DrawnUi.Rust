@@ -720,7 +720,8 @@ window.DrawnUi = {
     // focused field moves it into the part left visible (drawnui-cross 6cj).
     const aboveKeyboard = () => {
       const vv = window.visualViewport;
-      if (!textOpen || !vv || lost || !module._dui_keyboard_cover) return;
+      // Also with no field focused: the keyboard closing takes the scroll's room away.
+      if (!vv || lost || !module._dui_keyboard_cover) return;
       const b = canvas.getBoundingClientRect();
       // Canvas pixels per CSS pixel: the width, which a keyboard never changes.
       const k = b.width > 0 ? canvas.width / b.width : 1;

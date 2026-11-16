@@ -83,6 +83,9 @@ enum Arrived {
     /// Windows: the light / dark app mode, read when the system announced a color change.
     #[cfg(windows)]
     Theme(crate::SystemTheme),
+    /// iOS: the soft keyboard's top edge on the screen, points (`f64::INFINITY`: closed).
+    #[cfg(target_os = "ios")]
+    Keyboard(f64),
 }
 
 impl From<accesskit_winit::Event> for Arrived {
@@ -159,6 +162,8 @@ struct Desktop {
     /// Android: an editor has the soft keyboard; its text field is read after every event.
     #[cfg(target_os = "android")]
     ime_open: bool,
+    /// The field the IME is open for (its snapshot node), `None`: closed.
+    ime_field: Option<Option<u32>>,
     /// Android: the vsync time of the frame to draw, CLOCK_MONOTONIC nanoseconds.
     #[cfg(target_os = "android")]
     vsync_ns: Option<i64>,
@@ -176,6 +181,17 @@ struct Desktop {
     /// Android, iOS: the motion sensor, running while a control listens and the app is in front.
     #[cfg(any(target_os = "ios", target_os = "android"))]
     rotation: Option<rotation::Sensor>,
+    /// iOS: the soft keyboard's notifications, for the app's whole life.
+    #[cfg(target_os = "ios")]
+    _keyboard: Option<keyboard::Observer>,
+    /// Android, iOS: the soft keyboard's top edge on the screen as last told to the app, pixels
+    /// (`f32::INFINITY`: closed); Android: when the IME inset was last read.
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    keyboard_top: f32,
+    #[cfg(target_os = "android")]
+    ime_read: Option<Instant>,
+    #[cfg(target_os = "android")]
+    ime_next: Option<Instant>,
     start: Instant,
     /// When the app wants a frame although it asked for none (a timer).
     wake: Option<Instant>,
@@ -347,6 +363,14 @@ impl Desktop {
         let mut desktop = Desktop {
             app,
             host,
+            #[cfg(target_os = "ios")]
+            _keyboard: keyboard::Observer::start(&proxy),
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            keyboard_top: f32::INFINITY,
+            #[cfg(target_os = "android")]
+            ime_read: None,
+            #[cfg(target_os = "android")]
+            ime_next: None,
             images: image_workers(proxy.clone()),
             bakes: bake_workers(proxy.clone()),
             #[cfg(not(any(target_os = "ios", target_os = "android")))]
@@ -383,6 +407,7 @@ impl Desktop {
             frame_wanted: false,
             #[cfg(target_os = "android")]
             ime_open: false,
+            ime_field: None,
             #[cfg(target_os = "android")]
             vsync_ns: None,
             #[cfg(target_os = "android")]
@@ -512,6 +537,51 @@ impl Desktop {
     /// Android: the safe area, the system bars and the display cutout as insets in points (the
     /// window is edge to edge), given to the app when it changes. Read once after each resize or
     /// resume; until the decor view has its insets, at every frame.
+    /// The soft keyboard's top edge on the screen moved (`f64::INFINITY`: closed), points on iOS:
+    /// the app hears what part of the canvas stays visible (drawnui-cross 6cj).
+    #[cfg(target_os = "ios")]
+    fn keyboard_top(&mut self, top: f64) {
+        let scale = self.window.scale_factor();
+        let origin = self.window.inner_position().map_or(0.0, |p| p.y as f64);
+        let height = self.window.inner_size().height as f32;
+        let bottom = if top.is_finite() { (top * scale - origin) as f32 } else { f32::INFINITY };
+        self.report_keyboard(bottom.min(height), height);
+    }
+
+    /// The canvas is visible down to `bottom` pixels (its height when no keyboard covers it).
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    fn report_keyboard(&mut self, bottom: f32, height: f32) {
+        let bottom = bottom.clamp(0.0, height);
+        if (bottom - self.keyboard_top).abs() < 1.0 {
+            return;
+        }
+        self.keyboard_top = bottom;
+        self.app.keyboard_cover(0.0, bottom);
+        self.redraw();
+    }
+
+    /// Android: the soft keyboard's inset, read while a text field has the keyboard and a little
+    /// after (winit passes no inset changes on): every 120 ms at most, the loop woken for it.
+    #[cfg(target_os = "android")]
+    fn poll_ime_inset(&mut self) {
+        let height = self.window.inner_size().height as f32;
+        // A text field has the keyboard, or the keyboard is still over the canvas (closing).
+        if !self.ime_open && self.keyboard_top >= height {
+            self.ime_read = None;
+            return;
+        }
+        // Read again while it may still move: the loop wakes for it without drawing a frame.
+        let now = Instant::now();
+        self.ime_next = Some(now + Duration::from_millis(120));
+        if self.ime_read.is_some_and(|at| now.duration_since(at) < Duration::from_millis(120)) {
+            return;
+        }
+        self.ime_read = Some(now);
+        if let Some(inset) = android::ime_inset() {
+            self.report_keyboard(height - inset.max(0) as f32, height);
+        }
+    }
+
     #[cfg(target_os = "android")]
     fn report_safe_area(&mut self) {
         if self.insets_read {
@@ -846,17 +916,28 @@ impl Desktop {
             }
         }
         if let Some(area) = self.host.text_input.take() {
-            // The IME composes over the focused editor; games and plain controls get raw keys.
-            self.window.set_ime_allowed(area.is_some());
-            if let Some(r) = area {
-                self.window.set_ime_cursor_area(LogicalPosition::new(r.left, r.top), LogicalSize::new(r.width(), r.height()));
-            }
+            // The IME composes over the focused editor; games and plain controls get raw keys. It
+            // opens again only for another field: a field that moved (a scroll) only moves its
+            // area, else the keyboard's text would be reset while typing.
+            let field = area.map(|_| self.host.text_input_node);
+            let reopened = field != self.ime_field;
+            self.ime_field = field;
+            // Android: the keyboard's text field is set up for the new field before the keyboard
+            // shows, and emptied when it closes, so no text of one field reaches the next.
             #[cfg(target_os = "android")]
-            {
+            if reopened {
                 self.ime_open = area.is_some();
                 if self.ime_open {
                     android::open_text_input();
+                } else {
+                    android::close_text_input();
                 }
+            }
+            if reopened {
+                self.window.set_ime_allowed(area.is_some());
+            }
+            if let Some(r) = area {
+                self.window.set_ime_cursor_area(LogicalPosition::new(r.left, r.top), LogicalSize::new(r.width(), r.height()));
             }
         }
     }
@@ -1175,6 +1256,85 @@ mod rotation {
     }
 }
 
+/// iOS: the soft keyboard's frame, from UIKit's keyboard notifications (will change frame, will
+/// hide), for scrolls that follow it (drawnui-cross 6cj).
+#[cfg(target_os = "ios")]
+mod keyboard {
+    use objc2::rc::Retained;
+    use objc2::runtime::AnyObject;
+    use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, class, define_class, msg_send, sel};
+    use objc2_core_foundation::CGRect;
+    use objc2_foundation::{NSObject, NSString};
+    use winit::event_loop::EventLoopProxy;
+
+    use super::Arrived;
+
+    pub(crate) struct Target {
+        proxy: EventLoopProxy<Arrived>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DrawnUiKeyboard"]
+        #[ivars = Target]
+        pub(crate) struct Listener;
+
+        impl Listener {
+            #[unsafe(method(changed:))]
+            fn changed(&self, note: &AnyObject) {
+                // SAFETY: an NSNotification of the keyboard; its user info holds the end frame as
+                // an NSValue of a CGRect, in screen points.
+                let top = unsafe {
+                    let name: Retained<NSString> = msg_send![note, name];
+                    let info: Option<Retained<AnyObject>> = msg_send![note, userInfo];
+                    let key = NSString::from_str("UIKeyboardFrameEndUserInfoKey");
+                    let frame: Option<Retained<AnyObject>> = info.and_then(|info| msg_send![&*info, objectForKey: &*key]);
+                    match frame {
+                        Some(value) if name.to_string() != "UIKeyboardWillHideNotification" => {
+                            let rect: CGRect = msg_send![&*value, CGRectValue];
+                            if rect.size.height > 0.0 { rect.origin.y } else { f64::INFINITY }
+                        }
+                        _ => f64::INFINITY,
+                    }
+                };
+                let _ = self.ivars().proxy.send_event(Arrived::Keyboard(top));
+            }
+        }
+    );
+
+    /// Listens while it lives.
+    pub(super) struct Observer(Retained<Listener>);
+
+    impl Observer {
+        pub fn start(proxy: &EventLoopProxy<Arrived>) -> Option<Self> {
+            let mtm = MainThreadMarker::new()?;
+            let listener = mtm.alloc::<Listener>().set_ivars(Target { proxy: proxy.clone() });
+            let listener: Retained<Listener> = unsafe { msg_send![super(listener), init] };
+            // SAFETY: the default center keeps an unretained observer; Drop removes it first.
+            unsafe {
+                let center: Retained<AnyObject> = msg_send![class!(NSNotificationCenter), defaultCenter];
+                for name in ["UIKeyboardWillChangeFrameNotification", "UIKeyboardWillHideNotification"] {
+                    let name = NSString::from_str(name);
+                    let none: Option<&AnyObject> = None;
+                    let _: () = msg_send![&*center, addObserver: &*listener, selector: sel!(changed:), name: &*name, object: none];
+                }
+            }
+            Some(Self(listener))
+        }
+    }
+
+    impl Drop for Observer {
+        fn drop(&mut self) {
+            // SAFETY: removes this observer from every name it was added for.
+            unsafe {
+                let center: Retained<AnyObject> = msg_send![class!(NSNotificationCenter), defaultCenter];
+                let _: () = msg_send![&*center, removeObserver: &*self.0];
+            }
+        }
+    }
+}
+
 /// Android: what the app prints goes nowhere; panics and the host's lines go to logcat.
 /// Frames come from Choreographer.
 #[cfg(target_os = "android")]
@@ -1318,6 +1478,13 @@ mod android {
         let kind = InputType::TYPE_CLASS_TEXT | InputType::TYPE_TEXT_FLAG_MULTI_LINE | InputType::TYPE_TEXT_FLAG_NO_SUGGESTIONS;
         // `IMG_`: android-activity's spelling of IME_FLAG_NO_EXTRACT_UI.
         app.set_ime_editor_info(kind, TextInputAction::None, ImeOptions::IME_FLAG_NO_FULLSCREEN | ImeOptions::IMG_FLAG_NO_EXTRACT_UI);
+        reset_field(&app);
+    }
+
+    /// The editor gave up the keyboard: its text field goes back to the placeholder, so the input
+    /// method does not keep the old field's text for the next one.
+    pub(super) fn close_text_input() {
+        let Some(app) = super::android_app() else { return };
         reset_field(&app);
     }
 
@@ -1550,6 +1717,18 @@ mod android {
     /// displayCutout())` from API 30, its system window insets before. `None` until the view has
     /// insets (not attached yet) or when a call throws.
     pub(super) fn system_insets() -> Option<[i32; 4]> {
+        root_insets(&[c"systemBars", c"displayCutout"], true)
+    }
+
+    /// The soft keyboard's inset at the bottom of the window, pixels (0: closed):
+    /// `getInsets(ime())`, API 30+.
+    pub(super) fn ime_inset() -> Option<i32> {
+        root_insets(&[c"ime"], false).map(|[_, _, _, bottom]| bottom)
+    }
+
+    /// `getRootWindowInsets().getInsets(<types or-ed>)` from API 30; before it the system window
+    /// insets when `legacy`, else `None`.
+    fn root_insets(kinds: &[&std::ffi::CStr], legacy: bool) -> Option<[i32; 4]> {
         use jni_sys::{JNIEnv, JavaVM, jobject, jvalue};
         use std::ptr::{null, null_mut};
         let app = super::android_app()?;
@@ -1606,7 +1785,7 @@ mod android {
                     let value = (e.CallStaticIntMethodA?)(env, types, method, null());
                     if failed(env) { None } else { Some(value) }
                 };
-                let mask = static_int(c"systemBars").zip(static_int(c"displayCutout")).map(|(a, b)| a | b);
+                let mask = kinds.iter().try_fold(0, |mask, name| static_int(name).map(|t| mask | t));
                 (e.DeleteLocalRef?)(env, types);
                 let rect = mask.and_then(|mask| {
                     let class = (e.GetObjectClass?)(env, insets);
@@ -1632,6 +1811,8 @@ mod android {
                     (e.DeleteLocalRef?)(env, rect);
                     Some([sides[0]?, sides[1]?, sides[2]?, sides[3]?])
                 })
+            } else if !legacy {
+                None
             } else {
                 let side = |name: &std::ffi::CStr| call_int(insets, name, c"()I", &[]);
                 Some([
@@ -1929,6 +2110,11 @@ impl ApplicationHandler<Arrived> for Desktop {
                 self.window.request_redraw();
                 return;
             }
+            // Android: only the soft keyboard's inset was due (read in `about_to_wait`): no frame.
+            #[cfg(target_os = "android")]
+            if self.wake.is_none_or(|at| at > Instant::now()) {
+                return;
+            }
             self.redraw();
         }
     }
@@ -1959,11 +2145,18 @@ impl ApplicationHandler<Arrived> for Desktop {
         if self.ime_open {
             self.take_soft_keyboard_text();
         }
+        #[cfg(target_os = "android")]
+        self.poll_ime_inset();
         #[cfg(any(target_os = "ios", target_os = "android"))]
         if self.rotation.is_some() != (!self.suspended && self.app.wants_device_rotation()) {
             self.rotation = if self.rotation.is_some() { None } else { rotation::Sensor::start(&self.proxy) };
         }
         let wake = self.wake;
+        #[cfg(target_os = "android")]
+        let wake = match (wake, self.ime_next.take()) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
         #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
         let wake = match (wake, self.pacing.due) {
             (Some(a), Some(b)) => Some(a.min(b)),
@@ -1993,6 +2186,8 @@ impl ApplicationHandler<Arrived> for Desktop {
             Arrived::Wake => {}
             #[cfg(any(target_os = "ios", target_os = "android"))]
             Arrived::Rotation(degrees) => self.app.device_rotation(degrees),
+            #[cfg(target_os = "ios")]
+            Arrived::Keyboard(top) => self.keyboard_top(top),
             // The display link ticked: the frame wanted is drawn; with none wanted it stops.
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             Arrived::Tick => {
