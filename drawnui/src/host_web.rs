@@ -295,6 +295,12 @@ pub extern "C" fn dui_key(
     state(s).app.key(kind, key, read(text, text_len), Modifiers::from_bits(modifiers), repeat != 0) as i32
 }
 
+/// A phone's soft keyboard return key (the hidden input's line break with no physical Enter).
+#[unsafe(no_mangle)]
+pub extern "C" fn dui_soft_return(s: *mut WebState) -> i32 {
+    state(s).app.soft_return() as i32
+}
+
 /// A phone's soft keyboard leaves the canvas visible from `top` to `bottom` (canvas pixels).
 #[unsafe(no_mangle)]
 pub extern "C" fn dui_keyboard_cover(s: *mut WebState, top: f32, bottom: f32) {
@@ -419,7 +425,8 @@ pub extern "C" fn dui_poll_output(s: *mut WebState) -> *const c_char {
         Some(format!("c {n}"))
     } else if let Some(area) = host.text_input.take() {
         let node = host.text_input_node.map_or(String::new(), |n| n.to_string());
-        Some(area.map_or_else(|| "t".to_owned(), |r| format!("t {} {} {} {} {node}", r.left, r.top, r.width(), r.height())))
+        let hint = host.text_input_hint;
+        Some(area.map_or_else(|| "t".to_owned(), |r| format!("t {} {} {} {} {node} {hint}", r.left, r.top, r.width(), r.height())))
     } else if let Some(text) = host.clipboard.take() {
         Some(format!("p {text}"))
     } else if let Some(url) = (!host.urls.is_empty()).then(|| host.urls.remove(0)) {

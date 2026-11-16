@@ -861,9 +861,10 @@ impl Desktop {
             self.key(KeyKind::Up, "Backspace", "", false);
         }
         for (i, line) in typed.split('\n').enumerate() {
+            // The soft keyboard's return key (a single-line editor submits and ends editing).
             if i > 0 {
-                self.key(KeyKind::Down, "Enter", "", false);
-                self.key(KeyKind::Up, "Enter", "", false);
+                self.app.soft_return();
+                self.sync_access_focus();
             }
             if !line.is_empty() {
                 self.key(KeyKind::Char, "", line, false);
@@ -2166,12 +2167,19 @@ impl ApplicationHandler<Arrived> for Desktop {
                     self.redraw();
                     return;
                 }
+                // iOS's soft keyboard types Return as the text "\n" with no physical key: the soft
+                // return (a single-line editor submits and ends editing, drawnui-cross 6ci).
+                #[cfg(target_os = "ios")]
+                if matches!(event.physical_key, PhysicalKey::Unidentified(_)) && matches!(&event.logical_key, Key::Character(c) if c == "\n" || c == "\r") {
+                    if event.state == ElementState::Pressed {
+                        self.app.soft_return();
+                        self.sync_access_focus();
+                    }
+                    self.redraw();
+                    return;
+                }
                 let key = match event.physical_key {
                     PhysicalKey::Code(code) => key_name(code),
-                    // iOS's soft keyboard types Return as the text "\n" with no physical key: it is
-                    // Enter for the app (a single-line editor submits).
-                    #[cfg(target_os = "ios")]
-                    PhysicalKey::Unidentified(_) if matches!(&event.logical_key, Key::Character(c) if c == "\n" || c == "\r") => "Enter",
                     PhysicalKey::Unidentified(_) => "Unknown",
                 };
                 let down = event.state == ElementState::Pressed;

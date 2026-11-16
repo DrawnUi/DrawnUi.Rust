@@ -174,6 +174,8 @@ pub struct Host {
     pub(crate) keyboard_navigation: bool,
     /// The node of the control that takes typed text (`text_input`), the snapshot `id`.
     pub(crate) text_input_node: Option<u32>,
+    /// The label of a soft keyboard's return key for that control (DOM `enterkeyhint`).
+    pub(crate) text_input_hint: &'static str,
     /// The engine moved the keyboard to this node (an arrow in a group): an overlay host moves its
     /// focus there.
     pub(crate) keyboard_moved: Option<u32>,
@@ -349,6 +351,11 @@ pub trait App {
     /// action away, the page does not scroll on Space).
     fn key(&mut self, _kind: KeyKind, _key: InputKey, _text: &str, _modifiers: Modifiers, _repeat: bool) -> bool {
         false
+    }
+    /// A phone's soft keyboard return key (not a physical Enter). By default it is Enter.
+    fn soft_return(&mut self) -> bool {
+        let down = self.key(KeyKind::Down, "Enter", "", Modifiers::default(), false);
+        self.key(KeyKind::Up, "Enter", "", Modifiers::default(), false) || down
     }
     /// The host used the key it is about to hand over (the browser overlay activated its element):
     /// `Ui::mark_key_handled`.

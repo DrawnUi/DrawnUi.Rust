@@ -285,6 +285,20 @@ impl SkiaEditor {
         self.p.max_lines != 1
     }
 
+    /// The label of a soft keyboard's return key (DOM `enterkeyhint`): `return_type`, "done" for a
+    /// single line by default, "enter" for a multiline editor that breaks lines.
+    pub fn return_key_hint(&self) -> &'static str {
+        match self.p.return_type {
+            ReturnType::Go => "go",
+            ReturnType::Next => "next",
+            ReturnType::Search => "search",
+            ReturnType::Send => "send",
+            ReturnType::Done => "done",
+            ReturnType::Default if self.is_multiline() => "enter",
+            ReturnType::Default => "done",
+        }
+    }
+
     /// The selected text.
     pub fn selected_text(&self) -> &str {
         let (a, b) = (byte_at(&self.p.text, self.cursor), byte_at(&self.p.text, self.cursor + self.selection));

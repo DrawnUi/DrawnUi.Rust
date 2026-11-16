@@ -621,6 +621,11 @@ window.DrawnUi = {
     let textOpen = false;
     // The accessibility node of the text field, and the node the keyboard is leaving it through.
     let textNode = null;
+    // The soft keyboard's return key label of the focused field (enterkeyhint).
+    let textHint = "";
+    // The focused field got the input's focus from a touch tap (the touchend): its line breaks
+    // come from the soft keyboard's return key. A mouse click or the keyboard: a physical Enter.
+    let tapFocused = false;
     let tabbingOut = null;
     const resetTextInput = () => {
       textInput.value = " ";
@@ -648,7 +653,14 @@ window.DrawnUi = {
         if (e.isComposing || e.inputType === "insertCompositionText") return;
         if (e.inputType === "insertText" || e.inputType === "insertReplacementText") {
           if (e.data) sendKey(2, "", e.data, e);
-        } else if (e.inputType === "insertLineBreak" || e.inputType === "insertParagraph") tapKey("Enter", e);
+        } else if (e.inputType === "insertLineBreak" || e.inputType === "insertParagraph") {
+          // A soft keyboard's return key ends editing in a single-line field; a physical
+          // keyboard's Enter stays Enter (drawnui-cross 6ci). Told apart by how the field was
+          // focused, as DrawnUi.React: a touch tap means the soft keyboard.
+          if (tapFocused) module._dui_soft_return(app);
+          else tapKey("Enter", e);
+          requestFrame();
+        }
         else if (e.inputType.startsWith("deleteContentBackward") || e.inputType.startsWith("deleteWordBackward")) tapKey("Backspace", e);
         else if (e.inputType.startsWith("deleteContentForward") || e.inputType.startsWith("deleteWordForward")) tapKey("Delete", e);
         else return;
@@ -685,8 +697,12 @@ window.DrawnUi = {
       textInput.style.left = `${Math.round(b.left + rect[0])}px`;
       textInput.style.top = `${Math.round(b.top + rect[1])}px`;
       resetTextInput();
+      textInput.enterKeyHint = textHint || "";
       if (touching) focusOnTouchEnd = true;
-      else textInput.focus({ preventScroll: true });
+      else {
+        tapFocused = false;
+        textInput.focus({ preventScroll: true });
+      }
       // A keyboard already open (another field had it) does not resize the viewport again.
       setTimeout(aboveKeyboard, 50);
     };
@@ -708,7 +724,10 @@ window.DrawnUi = {
     window.addEventListener(
       "pointerup",
       (e) => {
-        if (e.pointerType !== "touch" && textOpen && textInput && e.target === canvas) textInput.focus({ preventScroll: true });
+        if (e.pointerType !== "touch" && textOpen && textInput && e.target === canvas) {
+          tapFocused = false;
+          textInput.focus({ preventScroll: true });
+        }
       },
       true,
     );
@@ -744,6 +763,7 @@ window.DrawnUi = {
         // A focus() on the input that has it already does not raise the keyboard on iOS: blur, then focus.
         if (document.activeElement === textInput) textInput.blur();
         textInput.focus({ preventScroll: true });
+        tapFocused = true;
         e.preventDefault();
       },
       { passive: false },
@@ -990,8 +1010,10 @@ window.DrawnUi = {
             canvas.style.cursor = ["", "pointer", "text", "col-resize", "row-resize"][Number(rest)] ?? "";
             break;
           case "t": {
-            const area = message.length > 1 ? rest.split(" ").map(Number) : null;
+            const parts = message.length > 1 ? rest.split(" ") : null;
+            const area = parts && parts.slice(0, 5).map(Number);
             textNode = area && area.length > 4 ? area[4] : null;
+            textHint = (parts && parts[5]) || "";
             openTextInput(area);
             break;
           }

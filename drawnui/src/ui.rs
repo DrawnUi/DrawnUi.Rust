@@ -1899,6 +1899,20 @@ impl<S: 'static> Ui<S> {
         self.tree.needs_frame = true;
     }
 
+    /// A phone's soft keyboard return key (done / go / search / send), as MAUI: in a single-line
+    /// field it submits and ends editing (the focus leaves, the keyboard closes); `Next` and a
+    /// multiline field get Enter, as from a physical keyboard (drawnui-cross 6ci).
+    pub fn soft_return(&mut self) -> bool {
+        use crate::controls::editor::{ReturnType, SkiaEditor};
+        let ends = self.focused().and_then(|f| self.tree.find::<SkiaEditor>(f)).is_some_and(|e| !e.is_multiline() && e.p.return_type != ReturnType::Next);
+        let down = self.key(KeyKind::Down, "Enter", "", Modifiers::default(), false);
+        let used = self.key(KeyKind::Up, "Enter", "", Modifiers::default(), false) || down;
+        if ends {
+            self.focus(None::<ControlId>);
+        }
+        used
+    }
+
     /// A phone's soft keyboard leaves the canvas visible from `top` to `bottom` (pixels): the
     /// nearest scroll around the focused text field moves it up, 16 points clear of the keyboard,
     /// never past the field's own top (React TextInputProxy.EnsureAboveKeyboard, drawnui-cross 6cj).
@@ -3976,6 +3990,10 @@ impl<S: 'static> App for Ui<S> {
         Ui::key(self, kind, key, text, modifiers, repeat)
     }
 
+    fn soft_return(&mut self) -> bool {
+        Ui::soft_return(self)
+    }
+
     fn mark_key_handled(&mut self, key: InputKey) {
         Ui::mark_key_handled(self, key);
     }
@@ -4160,6 +4178,7 @@ impl<S: 'static> App for Ui<S> {
         if std::mem::take(&mut self.text_input_changed) {
             frame.host.set_text_input(self.text_input);
             frame.host.text_input_node = self.focused().map(|f| f.index);
+            frame.host.text_input_hint = self.focused().and_then(|f| self.tree.find::<crate::controls::editor::SkiaEditor>(f)).map_or("", |e| e.return_key_hint());
         }
         if let Some(id) = self.keyboard_moved.take() {
             frame.host.keyboard_moved = Some(id);
