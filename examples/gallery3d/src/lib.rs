@@ -1343,7 +1343,7 @@ fn sign_up(app: &mut App) -> Build<SkiaShape> {
             sunk(SkiaShape::new().corner_radius(14).background_color(STAGE).fill_x().height_request(VIEW.1))
                 .observe(|me, app: &App| me.set_height_request(if two_columns(app) { VIEW.1 } else { STACKED_VIEW }))
                 .children((SkiaModel3D::from_url("")
-                .accessibility_role(Aria::IMG).accessibility_label("Sign-up mascot, 3D view")
+                .accessibility_role(Aria::IMG).accessibility_label("Mascot, 3D view")
                 .on_load_state(|_me, app: &mut App, cx, state| loaded(app, cx, AVATAR, state))
                 .animation("CharacterArmature|Idle")
                 // Framed for what it does here, not for the file's jumps and falls it never plays.
@@ -2341,6 +2341,23 @@ mod tests {
             let found: Vec<_> = nodes.iter().filter(|n| n.label == swatch).map(|n| n.role.to_string()).collect();
             assert_eq!(found, [Aria::RADIO], "{swatch}: only its radio");
         }
+        // Every 3D view is an image named "<name>, 3D view" (the dice "Two dice"); the shop's
+        // thumbnails are none. The pins and hotspots on a view stay buttons (an image's content is
+        // its look: they are its siblings).
+        let mut views: Vec<String> = nodes.iter().filter(|n| n.role == Aria::IMG).map(|n| n.label.clone()).collect();
+        views.sort();
+        let mut expected = [
+            "3D mobs on a 2D field, 3D view", "Boss dragon, 3D view", "Confetti and stars, 3D view", "Drawn Rewards Gold card, 3D view",
+            "Globe with office pins, 3D view", "Mascot, 3D view", "Product box, 3D view", "Reward chest, 3D view", "Two dice", "Walnut sofa, 3D view",
+        ]
+        .map(String::from)
+        .to_vec();
+        expected.sort();
+        // The Boss page is a page of its own: its dragon is not on the gallery page.
+        expected.retain(|v| views.contains(v) || v != "Boss dragon, 3D view");
+        assert_eq!(views, expected, "the 3D views");
+        assert!(nodes.iter().any(|n| n.role == Aria::BUTTON && n.label.ends_with(", hotspot")), "the viewer's hotspots stay buttons");
+        assert!(nodes.iter().any(|n| n.role == Aria::BUTTON && n.label == "Tokyo"), "the globe's pins stay buttons");
         // Heading "Shop", then the list "Products" (every engine).
         assert!(nodes.iter().any(|n| n.role == Aria::LIST && n.label == "Products"), "the list is named Products");
         let items: Vec<_> = nodes.iter().filter(|n| n.role == Aria::LIST_ITEM).collect();
