@@ -154,6 +154,13 @@ props!(@table ScrollProps, ScrollBuild, ScrollSet {
     refresh_distance_limit / set_refresh_distance_limit: f32 = 150.0, NONE;
     /// Points of pull at which the indicator is all there.
     refresh_show_distance / set_refresh_show_distance: f32 = 50.0, NONE;
+    /// Follows a phone's soft keyboard (drawnui-cross 6cj): the focused text field's nearest scroll
+    /// with this on moves it `adapt_to_keyboard_gap` above the keyboard, and while the keyboard is
+    /// up the part of its viewport the keyboard covers (plus the gap) is room at its content end, so
+    /// the last field rises too. Off: the keyboard moves nothing.
+    adapt_to_keyboard_auto / set_adapt_to_keyboard_auto: bool = false, NONE;
+    /// Points between the focused field and the keyboard (`adapt_to_keyboard_auto`).
+    adapt_to_keyboard_gap / set_adapt_to_keyboard_gap: f32 = 8.0, NONE;
 });
 
 // ---------------------------------------------------------------- physics
@@ -535,6 +542,9 @@ pub struct SkiaScroll {
     on_load_more_top: Option<LoadMore>,
     on_index_changed: Option<IndexChanged>,
     on_refresh: Option<LoadMore>,
+    /// Room at the content end while a soft keyboard covers the viewport, points
+    /// (`adapt_to_keyboard_auto`); 0 without a keyboard.
+    keyboard_room: f32,
 }
 
 impl SkiaScroll {
@@ -1016,7 +1026,7 @@ impl SkiaScroll {
         // How far the content can go, points.
         let travel = |extent: f32, viewport: f32| -(extent - viewport).max(0.0) / scale;
         self.min.x = if orientation.along_x() { travel(extent.width, viewport.width) } else { 0.0 };
-        self.min.y = if orientation.along_y() { travel(extent.height, viewport.height) } else { 0.0 };
+        self.min.y = if orientation.along_y() { travel(extent.height + self.keyboard_room * scale, viewport.height) } else { 0.0 };
         // Other content: the edges are looked at again.
         self.check_edges = true;
         // An offset the new bounds no longer contain comes back inside, unless a gesture or an
@@ -1906,6 +1916,26 @@ impl Cx<'_> {
         } else {
             animators::sleep(self.tree, id, 0.0);
         }
+    }
+
+    /// The room at the content end a soft keyboard asks for, points (0: none; drawnui-cross 6cj).
+    /// When it shrinks, a scroll past the new end settles at the end, animated.
+    pub(crate) fn set_keyboard_room(&mut self, scroll: ControlId, room: f32) {
+        self.scroll_with(scroll, |scroll| {
+            if (room - scroll.keyboard_room).abs() < 0.5 || !scroll.p.orientation.along_y() {
+                return;
+            }
+            let shrinking = room < scroll.keyboard_room;
+            scroll.keyboard_room = room;
+            let scale = scroll.scale.max(0.1);
+            scroll.min.y = -(scroll.extent.height + room * scale - scroll.viewport.height).max(0.0) / scale;
+            scroll.check_edges = true;
+            if shrinking && scroll.offset.y < scroll.min.y && !scroll.is_user_panning {
+                scroll.order = None;
+                let to = Point::new(scroll.offset.x, scroll.min.y);
+                scroll.scroll_to(to, 250.0);
+            }
+        })
     }
 
     /// Scrolls to a viewport offset in points: 0 is the start, negative values go into the

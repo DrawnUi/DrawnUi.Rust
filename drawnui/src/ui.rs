@@ -386,6 +386,12 @@ pub struct Ui<S: 'static> {
     /// The last text input area told to the host (`None` = closed), and whether it changed.
     text_input: Option<Rect>,
     text_input_changed: bool,
+    /// The soft keyboard as the host last told: the visible part of the canvas (top, bottom,
+    /// pixels) and whether the keyboard covers some of it.
+    soft_keyboard: Option<(f32, f32, bool)>,
+    /// The scroll given room for the keyboard, and the field the keyboard was last adapted for.
+    keyboard_scroll: Option<ControlId>,
+    keyboard_field: Option<ControlId>,
     /// When the accessibility snapshot (`Tree::accessibility`) was built, and whether the host
     /// has not seen it yet.
     accessibility_built_ms: f64,
@@ -561,6 +567,9 @@ impl<S: 'static> Ui<S> {
             cursor_changed: false,
             text_input: None,
             text_input_changed: false,
+            soft_keyboard: None,
+            keyboard_scroll: None,
+            keyboard_field: None,
             accessibility_built_ms: f64::NEG_INFINITY,
             accessibility_changed: false,
             accessibility_on: false,
@@ -1753,6 +1762,10 @@ impl<S: 'static> Ui<S> {
             self.text_input = area;
             self.text_input_changed = true;
         }
+        // The focus moved to another field with the keyboard up: it follows that one.
+        if self.soft_keyboard.is_some_and(|k| k.2) && area.is_some() && self.focused() != self.keyboard_field {
+            self.adapt_to_keyboard();
+        }
     }
 
     /// The text input area the host was last told about (points), `None` = closed.
@@ -1914,33 +1927,51 @@ impl<S: 'static> Ui<S> {
         used
     }
 
-    /// A phone's soft keyboard leaves the canvas visible from `top` to `bottom` (pixels): the
-    /// nearest scroll around the focused text field moves it up, 16 points clear of the keyboard,
-    /// never past the field's own top (React TextInputProxy.EnsureAboveKeyboard, drawnui-cross 6cj).
+    /// A phone's soft keyboard leaves the canvas visible from `top` to `bottom` (pixels; the whole
+    /// canvas when it closed). Scrolls with `adapt_to_keyboard_auto` follow it (`adapt_to_keyboard`).
     pub fn keyboard_cover(&mut self, top: f32, bottom: f32) {
+        let height = self.tree.root.and_then(|r| self.tree.base(r)).map_or(f32::MAX, |b| b.rect.bottom);
+        self.soft_keyboard = Some((top, bottom, bottom < height - 1.0));
+        self.adapt_to_keyboard();
+    }
+
+    /// The soft keyboard and the focused text field (drawnui-cross 6cj): the field's nearest scroll
+    /// with `adapt_to_keyboard_auto` gets the part of its viewport the keyboard covers, plus the
+    /// gap, as room at its content end, and moves the field that gap above the keyboard (no move
+    /// when it is there already). Between two fields the room stays; the keyboard closed, it goes.
+    fn adapt_to_keyboard(&mut self) {
         use crate::controls::scroll::SkiaScroll;
-        let Some(field) = self.focused() else { return };
-        if !self.tree.node(field).and_then(|n| n.kind.as_deref()).is_some_and(|k| k.wants_text_input()) {
+        let Some((top, bottom, covered)) = self.soft_keyboard else { return };
+        let tree = &self.tree;
+        let field = self.focused().filter(|&f| tree.node(f).and_then(|n| n.kind.as_deref()).is_some_and(|k| k.wants_text_input()));
+        self.keyboard_field = field;
+        // Between two fields with the keyboard up: the room and the keyboard stay.
+        if covered && field.is_none() {
             return;
         }
+        let follows = |id: ControlId| tree.find::<SkiaScroll>(id).is_some_and(|s| s.p.adapt_to_keyboard_auto);
+        let scroll = field.and_then(|f| std::iter::successors(tree.parent(f), |&p| tree.parent(p)).find(|&p| follows(p)));
+        let roomed = if covered { scroll } else { None };
+        if let Some(old) = self.keyboard_scroll.filter(|&old| Some(old) != roomed) {
+            Cx { tree: &mut self.tree }.set_keyboard_room(old, 0.0);
+            self.tree.needs_frame = true;
+        }
+        self.keyboard_scroll = roomed;
+        let (Some(field), Some(scroll)) = (field, scroll) else { return };
+        let Some(sc) = self.tree.find::<SkiaScroll>(scroll) else { return };
+        let (x, gap) = (sc.viewport_offset_x(), sc.p.adapt_to_keyboard_gap.max(0.0));
+        let scale = self.tree.base(scroll).map_or(1.0, |b| b.scale.max(0.1));
+        if covered && let Some(view) = drawn_rect(&self.tree, scroll) {
+            let room = if view.bottom > bottom { (view.bottom - bottom) / scale + gap } else { 0.0 };
+            Cx { tree: &mut self.tree }.set_keyboard_room(scroll, room);
+        }
+        let y = self.tree.find::<SkiaScroll>(scroll).map_or(0.0, |s| s.viewport_offset_y());
         let Some(rect) = drawn_rect(&self.tree, field) else { return };
-        let scale = self.tree.base(field).map_or(1.0, |b| b.scale.max(0.1));
-        let margin = 16.0 * scale;
-        let dy = (rect.bottom + margin - bottom).min(rect.top - top - margin);
-        if dy <= 0.5 {
-            return;
+        let dy = (rect.bottom + gap * scale - bottom).min(rect.top - top - gap * scale);
+        if dy > 0.5 {
+            Cx { tree: &mut self.tree }.scroll_to(scroll, x, y - dy / scale, 250);
         }
-        // ponytail: only the nearest scroll moves; nested scrolls sharing the distance when it is at its end.
-        let mut at = field;
-        while let Some(parent) = self.tree.parent(at) {
-            if let Some(scroll) = self.tree.find::<SkiaScroll>(parent) {
-                let (x, y) = (scroll.viewport_offset_x(), scroll.viewport_offset_y());
-                Cx { tree: &mut self.tree }.scroll_to(parent, x, y - dy / scale, 250);
-                self.tree.needs_frame = true;
-                return;
-            }
-            at = parent;
-        }
+        self.tree.needs_frame = true;
     }
 
     fn flush_input(&mut self) {

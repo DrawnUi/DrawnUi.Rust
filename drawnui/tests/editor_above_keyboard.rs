@@ -20,7 +20,7 @@ type Host = Headless<App>;
 /// scroll with room below.
 fn scene() -> Host {
     let build = |app: &mut App| {
-        SkiaScroll::new().fill().assign(&mut app.scroll).content(SkiaLayout::column().fill_x().spacing(0).children((
+        SkiaScroll::new().fill().adapt_to_keyboard_auto(true).adapt_to_keyboard_gap(16).assign(&mut app.scroll).content(SkiaLayout::column().fill_x().spacing(0).children((
             SkiaEditor::new().fill_x().height_request(44).font_size(16).assign(&mut app.high),
             SkiaLayout::new().fill_x().height_request(640),
             SkiaEditor::new().fill_x().height_request(44).font_size(16).assign(&mut app.low),
