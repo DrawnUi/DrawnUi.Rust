@@ -1,8 +1,17 @@
 # Changelog
 
-Versions are `0.1.0-preview.N`, tagged `v0.1.0-preview.N` (the scheme of DrawnUI for React). Each
-release lists what was added, what behaves differently, and what breaks code written for the
-version before it. Commits in parentheses.
+Versions follow semver from 1.0.1, tagged `v<version>`; before it they were `0.1.0-preview.N`, tagged
+`v0.1.0-preview.N`. Each release lists what was added, what behaves differently, and what breaks code
+written for the version before it. Commits in parentheses.
+
+## 1.0.1 (crates.io, 2026-11-16)
+
+The first stable release of DrawnUI for Rust, with the 3D add-on [`drawnui-add3d`](drawnui-add3d) 1.0.1.
+It carries everything of 0.1.0-preview.39, unchanged: the drawn controls, layouts, caches, gestures, animations,
+text, shaders, accessibility and the hosts for Windows, macOS, Linux, iOS, Android and the browser.
+
+Projects on a `0.1.0-preview` version: set `drawnui = "1.0"` (and `drawnui-add3d = "1.0"`) in `Cargo.toml`;
+`cargo update` does not move to a new major version by itself.
 
 ## 0.1.0-preview.39 (crates.io, 2026-11-16)
 

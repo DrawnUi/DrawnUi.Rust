@@ -14,8 +14,8 @@ buttons, text and lists.
 
 ```toml
 [dependencies]
-drawnui = "0.1.0-preview"
-drawnui-add3d = "0.1.0-preview"
+drawnui = "1.0"
+drawnui-add3d = "1.0"
 ```
 
 ```rust

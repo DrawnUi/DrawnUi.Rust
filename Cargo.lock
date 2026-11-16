@@ -731,7 +731,7 @@ version = "0.1.1"
 
 [[package]]
 name = "drawnui"
-version = "0.1.0-preview.39"
+version = "1.0.1"
 dependencies = [
  "accesskit",
  "accesskit_winit",
@@ -764,7 +764,7 @@ dependencies = [
 
 [[package]]
 name = "drawnui-add3d"
-version = "0.1.0-preview.2"
+version = "1.0.1"
 dependencies = [
  "ash",
  "drawnui",

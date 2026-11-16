@@ -100,8 +100,8 @@ Please star ⭐ if you like it!
 
 | Crate | What it is | Version |
 |---|---|---|
-| [`drawnui`](https://crates.io/crates/drawnui) | the engine: controls, layouts, caches, gestures, animations, accessibility, the desktop, mobile and browser hosts | 0.1.0-preview.39 |
-| [`drawnui-add3d`](https://crates.io/crates/drawnui-add3d) | the 3D add-on: real 3D models in a DrawnUI screen (glTF scenes with skeleton animations, many objects on one game field, shapes made in code); demo at [add3d.drawnui.net](https://add3d.drawnui.net) | 0.1.0-preview.2 |
+| [`drawnui`](https://crates.io/crates/drawnui) | the engine: controls, layouts, caches, gestures, animations, accessibility, the desktop, mobile and browser hosts | 1.0.1 |
+| [`drawnui-add3d`](https://crates.io/crates/drawnui-add3d) | the 3D add-on: real 3D models in a DrawnUI screen (glTF scenes with skeleton animations, many objects on one game field, shapes made in code); demo at [add3d.drawnui.net](https://add3d.drawnui.net) | 1.0.1 |
 | [`drawnui-skia-safe`](https://crates.io/crates/drawnui-skia-safe) | Skia for Rust: rust-skia's skia-safe plus SkMesh; drawnui re-exports it as `drawnui::skia` | 0.153.7 |
 | [`drawnui-skia-bindings`](https://crates.io/crates/drawnui-skia-bindings) | the native Skia under drawnui-skia-safe, downloaded prebuilt from [DrawnUi/rust-skia](https://github.com/DrawnUi/rust-skia/releases) | 0.153.7 |
 
@@ -114,13 +114,12 @@ to an app: a program links one Skia.
 **The fastest way:** copy [`templates/app`](templates/app), rename `myapp`, build. It is an empty
 app with an icon, assets, a web page and build scripts for the desktop, the browser and Android.
 
-Or by hand, in a new project (`cargo new myapp`): `cargo add drawnui` (it takes the newest
-preview), or in `Cargo.toml`:
+Or by hand, in a new project (`cargo new myapp`): `cargo add drawnui`, or in `Cargo.toml`:
 
 ```toml
 [dependencies]
-# The newest 0.1.0 preview; `cargo update` moves a project to a newer one.
-drawnui = "0.1.0-preview"
+# The newest 1.x; `cargo update` moves a project to a newer one.
+drawnui = "1.0"
 
 [profile.release]
 lto = "thin"

@@ -1,5 +1,5 @@
 # Makes the assets of a drawnui release in target\release\<version>\ (nothing is published):
-#   dev\release.ps1 -Version 0.1.0-preview.1
+#   dev\release.ps1 -Version 1.0.1
 #
 # - Skia: the archive of every target, keyed by the commit drawnui-skia-bindings was published
 #   from (its .cargo_vcs_info.json): inside a crate skia-bindings keys its download by it. The

@@ -20,12 +20,12 @@ script): copy it and rename `myapp`. By hand:
 skia-safe or skia-bindings to the app: a program can link one Skia only. The desktop and the
 browser need no `[patch]`.
 
-`cargo add drawnui` takes the newest preview; by hand:
+`cargo add drawnui` takes the newest version; by hand:
 
 ```toml
 [dependencies]
-# The newest 0.1.0 preview; `cargo update` moves a project to a newer one.
-drawnui = "0.1.0-preview"
+# The newest 1.x; `cargo update` moves a project to a newer one.
+drawnui = "1.0"
 
 [profile.release]
 lto = "thin"
@@ -808,7 +808,7 @@ closures are kept, nothing runs unless a designer asks.
 
 ## 3D models (the drawnui-add3d add-on)
 
-3D lives in its own crate next to drawnui: `drawnui-add3d = "..."` in `[dependencies]` and
+3D lives in its own crate next to drawnui: `drawnui-add3d = "1.0"` in `[dependencies]` and
 `use drawnui_add3d::prelude::*;` (its controls, their `...Build` / `...Set` traits, shapes and looks). A
 glTF 2.0 binary (`.glb`) drawn in 3D inside any layout, from its bytes:
 `SkiaModel3D::new(include_bytes!("assets/boss.glb"))`. It draws through the

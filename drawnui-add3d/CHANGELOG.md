@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1 (crates.io, 2026-11-16)
+
+The first stable release, with `drawnui` 1.0.1: real 3D models in a DrawnUI screen on every platform, the same as
+0.1.0-preview.2. Projects on a preview: set `drawnui-add3d = "1.0"` and `drawnui = "1.0"` in `Cargo.toml`.
+
 ## 0.1.0-preview.2 (crates.io, 2026-11-16)
 
 ### Changed

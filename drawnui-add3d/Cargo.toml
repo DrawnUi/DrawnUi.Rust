@@ -1,6 +1,6 @@
 [package]
 name = "drawnui-add3d"
-version = "0.1.0-preview.2"
+version = "1.0.1"
 edition.workspace = true
 license.workspace = true
 description = "An add-on for DrawnUI for Rust: 3D models in a DrawnUI screen. glTF scenes with skeleton animations, many objects on one game field, shapes made in code, shaded, cartoon or flat looks."
@@ -15,7 +15,7 @@ include = ["src/**/*", "README.md", "CHANGELOG.md"]
 [dependencies]
 # The add-on API (Cx::start_frame_loop, Cx::with_control, downcast_state) and the engine.
 # On release: the drawnui version that has it.
-drawnui = { path = "../drawnui", version = "0.1.0-preview.38" }
+drawnui = { path = "../drawnui", version = "1.0.1" }
 # The glTF reader without its image decoders (Skia decodes), and the vector math for poses and cameras.
 gltf = { version = "1.4", default-features = false, features = ["utils", "names"] }
 glam = "0.30"
