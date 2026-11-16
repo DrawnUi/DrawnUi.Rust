@@ -2264,7 +2264,7 @@ fn gallery(app: &mut App) -> Build<DrawnGame> {
 }
 
 const ARTICLE_URL: &str = "https://drawnui.net/articles/add3d.html";
-const SOURCE_URL: &str = "https://github.com/DrawnUi/DrawnUi.Rust";
+const SOURCE_URL: &str = "https://github.com/DrawnUi/DrawnUi.Rust/tree/main/examples/gallery3d";
 
 /// The end of the page: a line, the links to the article, the docs, the source and the same demo
 /// on the other engines, and what drew it.
