@@ -2298,6 +2298,15 @@ pub fn run() {
                 // Screen readers read every text and reach every button (Tab, Enter).
                 .default_accessibility_role::<SkiaLabel>(Aria::TEXT)
                 .default_accessibility_role::<SkiaButton>(Aria::BUTTON)
+                // Tooltips in the look of the active button: the gold with its dark text, in the
+                // buttons' font, no border (as the .NET gallery).
+                .tooltip_style(TooltipStyle {
+                    background_color: ACCENT,
+                    border_color: Color::TRANSPARENT,
+                    text_color: Color::from_rgb(40, 28, 6),
+                    font_family: TITLE.into(),
+                    ..TooltipStyle::default()
+                })
                 .background(PAGE)
                 .on_canvas_resized(|app: &mut App, size, cx| {
                     app.width = size.width;
