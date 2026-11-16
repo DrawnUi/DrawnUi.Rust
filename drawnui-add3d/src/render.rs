@@ -273,6 +273,8 @@ void main() {
         /// The GL functions of the current context, and that context's epoch.
         static API: std::cell::Cell<Option<&'static Api>> = const { std::cell::Cell::new(None) };
         static API_EPOCH: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+        /// glBindSampler of the current context, when it has sampler objects (GL 3.3+, GL ES 3).
+        static BIND_SAMPLER: std::cell::Cell<Option<unsafe extern "system" fn(u32, u32)>> = const { std::cell::Cell::new(None) };
     }
 
     /// Loads the GL functions for `gpu`'s context when it is another one than last time; false
@@ -285,12 +287,36 @@ void main() {
         API_EPOCH.set(Some(gpu.epoch()));
         // ponytail: one table leaked per GL context made (a handful per run: GPU resets).
         API.set(Api::load(gpu).map(|api| &*Box::leak(Box::new(api))));
+        let at = gpu.gl_proc_address("glBindSampler");
+        // SAFETY: the context's glBindSampler(unit, sampler), when it has one.
+        BIND_SAMPLER.set((!at.is_null()).then(|| unsafe { std::mem::transmute::<*const std::ffi::c_void, unsafe extern "system" fn(u32, u32)>(at) }));
         API.get().is_some()
     }
 
     #[cfg(target_os = "emscripten")]
     fn load_api(_gpu: &Gpu) -> bool {
         true
+    }
+
+    /// Unbinds the sampler object on the current texture unit: Skia draws its images through
+    /// sampler objects and leaves one bound, and a bound sampler overrides the texture's own
+    /// filtering, so the models' mipmaps, trilinear filter and anisotropy were ignored (Skia's
+    /// nearest sampling: stepped edges inside textures). Skia binds its own again after our pass.
+    /// A context without sampler objects (GL before 3.3) has nothing bound.
+    fn unbind_sampler() {
+        #[cfg(target_os = "emscripten")]
+        {
+            unsafe extern "C" {
+                fn glBindSampler(unit: u32, sampler: u32);
+            }
+            // SAFETY: WebGL2 has sampler objects; unit 0, no sampler.
+            unsafe { glBindSampler(0, 0) };
+        }
+        #[cfg(not(target_os = "emscripten"))]
+        if let Some(bind) = BIND_SAMPLER.get() {
+            // SAFETY: loaded with this context's functions (`load_api`); unit 0, no sampler.
+            unsafe { bind(0, 0) };
+        }
     }
 
     gl_api! {
@@ -804,6 +830,7 @@ void main() {
                 glUniform2f(u.viewport, size.width as f32, size.height as f32);
                 glUniform4fv(u.outline_color, 1, style.outline_color.as_ptr());
                 glActiveTexture(TEXTURE0);
+                unbind_sampler();
                 let mut joints = vec![0f32; MAX_JOINTS * 16];
                 // The outline first (back faces pushed out), then opaque, then blended, each in tree order.
                 let passes: &[(bool, bool)] = if style.outline > 0.0 { &[(true, false), (false, false), (false, true)] } else { &[(false, false), (false, true)] };
