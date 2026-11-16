@@ -317,8 +317,35 @@ window.DrawnUi = {
     let rateSent = false;
     const draw = (time) => {
       if (lost) return;
-      const start = performance.now();
-      const more = module._dui_frame(app, time);
+      // The next frame (or the app's timer) is asked for whatever the page's own work around the
+      // frame does: one failure there is reported and never ends the frame loop (drawnui-cross
+      // 6ch). A failed frame of the app itself (a panic) ends it: the app is gone.
+      let more = true;
+      let crashed = false;
+      try {
+        const start = performance.now();
+        try {
+          more = module._dui_frame(app, time);
+        } catch (e) {
+          crashed = true;
+          throw e;
+        }
+        afterFrame(time, start);
+      } finally {
+        if (!crashed) schedule(more);
+      }
+    };
+    // The next frame, or the app's timer when it wants none now.
+    const schedule = (more) => {
+      clearTimeout(wakeTimer);
+      if (more) return requestFrame();
+      last = 0;
+      // A timer in the app: no frames until its time comes.
+      const wake = module._dui_wake(app);
+      if (wake >= 0) wakeTimer = setTimeout(requestFrame, Math.max(0, wake - performance.now()));
+    };
+    // What a frame hands the page: the CPU pixels, the loader, stats, assets, the app's output.
+    const afterFrame = (time, start) => {
       if (ctx2d) present2d();
       if (loader && module._dui_drawn && module._dui_drawn(app)) {
         const done = loader;
@@ -342,12 +369,6 @@ window.DrawnUi = {
       last = time;
       pumpAssets();
       applyOutput();
-      clearTimeout(wakeTimer);
-      if (more) return requestFrame();
-      last = 0;
-      // A timer in the app: no frames until its time comes.
-      const wake = module._dui_wake(app);
-      if (wake >= 0) wakeTimer = setTimeout(requestFrame, Math.max(0, wake - performance.now()));
     };
     const requestFrame = () => {
       if (!pending && !lost)
