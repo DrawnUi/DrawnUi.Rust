@@ -664,8 +664,11 @@ window.DrawnUi = {
       document.body.appendChild(el);
       return el;
     };
+    // The focused field's box on the canvas (CSS px), for a tap on it to bring the keyboard back.
+    let textArea = null;
     const openTextInput = (rect) => {
       textOpen = !!rect;
+      textArea = rect;
       if (!rect) {
         if (textInput && document.activeElement === textInput) textInput.blur();
         return;
@@ -677,14 +680,42 @@ window.DrawnUi = {
       resetTextInput();
       textInput.focus({ preventScroll: true });
     };
-    // A tap on the canvas moves the page focus away from the text input; while an editor is
-    // focused it goes back at once, inside the tap, which is what keeps a soft keyboard open.
+    // A mouse or pen click on the canvas moves the page focus away from the text input; while an
+    // editor is focused it goes back at once (IME, paste). Never for a finger: a touch elsewhere (a
+    // scroll) must not bring a closed soft keyboard back (drawnui-cross 6ci).
     window.addEventListener(
       "pointerup",
       (e) => {
-        if (textOpen && textInput && e.target === canvas) textInput.focus({ preventScroll: true });
+        if (e.pointerType !== "touch" && textOpen && textInput && e.target === canvas) textInput.focus({ preventScroll: true });
       },
       true,
+    );
+    // A tap (drawnui-cross 6ci): iOS opens the soft keyboard only for a focus() done inside the
+    // tap's touchend. The tap's input is run now, in this event, so an editor it focuses opens the
+    // text input here; a tap on the focused field gives the input its focus again (the user may
+    // have closed the keyboard). That touchend is cancelled: the browser's mousedown / click that
+    // follow it would move the focus to the page and take the keyboard away.
+    canvas.addEventListener(
+      "touchend",
+      (e) => {
+        if (lost || e.touches.length > 0) return;
+        const wasOpen = textOpen && textInput && document.activeElement === textInput;
+        if (pending) cancelAnimationFrame(pending);
+        pending = 0;
+        draw(performance.now());
+        if (!textOpen || !textInput) return;
+        const t = e.changedTouches[0];
+        const b = canvas.getBoundingClientRect();
+        const onField = t && textArea && t.clientX >= b.left + textArea[0] && t.clientX <= b.left + textArea[0] + textArea[2] && t.clientY >= b.top + textArea[1] && t.clientY <= b.top + textArea[1] + textArea[3];
+        const focusedNow = !wasOpen && document.activeElement === textInput;
+        if (onField && !focusedNow) {
+          // A focus() on the input that has it already does nothing on iOS: blur, then focus.
+          textInput.blur();
+          textInput.focus({ preventScroll: true });
+        }
+        if (focusedNow || onField) e.preventDefault();
+      },
+      { passive: false },
     );
 
     // The accessibility overlay (React AccessibilityOverlay, DrawnUi.Blazor): the canvas is hidden
