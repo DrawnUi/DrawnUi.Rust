@@ -559,6 +559,18 @@ impl Desktop {
     }
 }
 
+/// A host warning: stderr on the desktop, logcat (tag `drawnui`) on Android, where stderr goes
+/// nowhere.
+macro_rules! warn {
+    ($($arg:tt)*) => {{
+        let line = format!($($arg)*);
+        #[cfg(target_os = "android")]
+        crate::host_desktop::android::log(&line);
+        #[cfg(not(target_os = "android"))]
+        eprintln!("drawnui: {line}");
+    }};
+}
+
 /// Downloads an asset from the web on a thread of its own; the bytes come back as an event (empty
 /// when it failed), which wakes the event loop.
 #[cfg(feature = "http")]
@@ -566,7 +578,7 @@ fn download(id: u32, url: String, proxy: EventLoopProxy<Arrived>) {
     std::thread::spawn(move || {
         let read = ureq::get(&url).call().and_then(|mut response| response.body_mut().with_config().limit(256 << 20).read_to_vec());
         let bytes = read.unwrap_or_else(|e| {
-            eprintln!("drawnui: asset {url}: {e}");
+            warn!("asset {url}: {e}");
             Vec::new()
         });
         let _ = proxy.send_event(Arrived::Asset(id, bytes));
@@ -593,7 +605,7 @@ fn image_workers(proxy: EventLoopProxy<Arrived>) -> Sender<ImageRequest> {
                     Ok(bytes) if request.frames => Images::decode_frames(&bytes),
                     Ok(bytes) => Images::decode(&bytes, request.width, request.height),
                     Err(e) => {
-                        eprintln!("drawnui: image {path}: {e}");
+                        warn!("image {path}: {e}");
                         None
                     }
                 };
@@ -643,7 +655,7 @@ impl Desktop {
             match read_app_file(&url) {
                 Ok(bytes) => self.app.asset(id, bytes),
                 Err(e) => {
-                    eprintln!("drawnui: asset {url}: {e}");
+                    warn!("asset {url}: {e}");
                     self.app.asset(id, Vec::new());
                 }
             }
@@ -800,7 +812,7 @@ impl Desktop {
     /// A new GPU context on the same window after the GPU lost the old one; the window surface
     /// is made again at the next frame.
     fn recreate_gpu(&mut self) {
-        eprintln!("drawnui: the GPU context was lost, making a new one");
+        warn!("the GPU context was lost, making a new one");
         self.surface = None;
         let gpu = self.presenter.gpu_after(&self.window, &mut self.gpu);
         self.gpu = gpu;
@@ -1664,7 +1676,7 @@ fn open_url(url: &str) {
     unsafe {
         let link: Option<Retained<AnyObject>> = msg_send![class!(NSURL), URLWithString: &*text];
         let Some(link) = link else {
-            eprintln!("drawnui: could not open {url}: not a URL");
+            warn!("could not open {url}: not a URL");
             return;
         };
         let app: Option<Retained<AnyObject>> = msg_send![class!(UIApplication), sharedApplication];
@@ -1690,7 +1702,7 @@ fn open_url(url: &str) {
     #[cfg(not(any(windows, target_os = "macos")))]
     command.arg(url);
     if let Err(e) = command.spawn() {
-        eprintln!("drawnui: could not open {url}: {e}");
+        warn!("could not open {url}: {e}");
     }
 }
 
@@ -2321,7 +2333,7 @@ impl Desktop {
                         false => self.presenter.popup_window(event_loop, attributes).map(|(window, target)| (window, Some(target))),
                     };
                     let Some((window, target)) = made else {
-                        eprintln!("drawnui: no popup window could be made");
+                        warn!("no popup window could be made");
                         continue;
                     };
                     // A tooltip: the mouse goes through it to the app's window.
@@ -3560,7 +3572,7 @@ mod gl {
             let gl_surface = window_surface(&gl_config, &window);
             let gl_context = context.make_current(&gl_surface).expect("GL context not current");
             if let Err(e) = gl_surface.set_swap_interval(&gl_context, SwapInterval::Wait(NonZeroU32::new(1).unwrap())) {
-                eprintln!("drawnui: vsync not set: {e}");
+                warn!("vsync not set: {e}");
             }
             let samples = gl_config.num_samples() as usize;
             let stencil = gl_config.stencil_size() as usize;
@@ -4099,7 +4111,7 @@ impl Pacing {
             let (median, period_ms) = (self.intervals[30], self.period.as_secs_f32() * 1000.0);
             let ignored = median < period_ms / 2.0;
             if ignored {
-                eprintln!("drawnui: the driver does not wait for vsync (frames {median:.1} ms apart): frames paced at {:.0} Hz", 1000.0 / period_ms);
+                warn!("the driver does not wait for vsync (frames {median:.1} ms apart): frames paced at {:.0} Hz", 1000.0 / period_ms);
             }
             self.on = Some(ignored);
         }
@@ -4292,7 +4304,7 @@ impl Stats {
                 line += &format!(" | {} images, ms each {}", self.image_ms.len(), summary(&mut self.image_ms));
             }
             #[cfg(target_os = "android")]
-            android::log(&line);
+            crate::host_desktop::android::log(&line);
             #[cfg(not(target_os = "android"))]
             println!("{line}");
             self.cpu_ms.clear();
