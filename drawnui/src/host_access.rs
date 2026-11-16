@@ -31,6 +31,24 @@ pub(crate) fn refocus(nodes: &[AccessibilityNode], focus: NodeId, height: f32) -
     nodes.iter().filter(says).find(|n| n.rect.bottom > 0.0 && n.rect.top < height).map_or(ROOT, |n| node_id(n.id))
 }
 
+/// The part of a node its scrolls show, as a screen reader is told (a native view clipped by its
+/// scroll reports its visible part): one scrolled out of view becomes an empty box at the edge it
+/// went past, so it never lies over what is drawn there.
+fn visible_part(nodes: &[AccessibilityNode], n: &AccessibilityNode) -> skia_safe::Rect {
+    let mut r = n.rect;
+    let mut parent = n.parent;
+    while let Some(p) = parent.and_then(|id| nodes.iter().find(|x| x.id == id)) {
+        if p.scrolls.0 || p.scrolls.1 {
+            let v = p.rect;
+            let (left, right) = (r.left.clamp(v.left, v.right), r.right.clamp(v.left, v.right));
+            let (top, bottom) = (r.top.clamp(v.top, v.bottom), r.bottom.clamp(v.top, v.bottom));
+            r = skia_safe::Rect::new(left, top, right, bottom);
+        }
+        parent = p.parent;
+    }
+    r
+}
+
 /// The whole tree: the window and every node of the snapshot, each under its nearest node above
 /// (a card holds its items), in reading order. Bounds are in points; the window's transform scales
 /// them to its pixels.
@@ -64,7 +82,7 @@ pub(crate) fn tree(title: &str, nodes: &[AccessibilityNode], scale: f64, focus: 
         if !n.hint.is_empty() {
             node.set_description(n.hint.as_str());
         }
-        let r = n.rect;
+        let r = visible_part(nodes, n);
         node.set_bounds(Rect::new(r.left as f64, r.top as f64, r.right as f64, r.bottom as f64));
         // Any node can be scrolled into view (a screen reader moving to a node off screen).
         node.add_action(Action::ScrollIntoView);
@@ -89,6 +107,11 @@ pub(crate) fn tree(title: &str, nodes: &[AccessibilityNode], scale: f64, focus: 
         }
         if h != v {
             node.set_orientation(if v { Orientation::Vertical } else { Orientation::Horizontal });
+        }
+        // Its items scrolled out of view are hidden, not lying over what is drawn there: AccessKit
+        // leaves them out (all but the next one, which a screen reader scrolls to).
+        if h || v {
+            node.set_clips_children();
         }
         if let Some(v) = &n.value {
             // Sliders and progress bars run left to right. Without an orientation VoiceOver on
@@ -240,6 +263,27 @@ mod tests {
         assert!(built(&nodes, 1).is_disabled());
         assert!(!built(&nodes, 2).is_disabled());
         assert!(!built(&nodes, 3).is_disabled(), "a group is not a control");
+    }
+
+    #[test]
+    fn a_scroll_clips_its_items() {
+        // A screen reader takes an item scrolled out of its list as hidden, not as one lying over
+        // whatever is drawn there (TalkBack found the rows of a list below its view on the cards
+        // under the list).
+        let mut list = node(1, Aria::SCROLL_VIEW, "", false, None);
+        list.scrolls = (false, true);
+        let nodes = [list, node(2, Aria::BUTTON, "Row", true, Some(1)), node(3, Aria::GROUP, "Card", false, None)];
+        assert!(built(&nodes, 1).clips_children(), "a scroll clips");
+        assert!(!built(&nodes, 3).clips_children(), "a card does not");
+        // The list shows 0..40 points; the row at 50..60 is below it: an empty box at its bottom.
+        let mut list = node(1, Aria::SCROLL_VIEW, "", false, None);
+        (list.scrolls, list.rect) = ((false, true), skia_safe::Rect::from_xywh(0.0, 0.0, 100.0, 40.0));
+        let mut below = node(5, Aria::BUTTON, "Below", true, Some(1));
+        below.rect = skia_safe::Rect::from_xywh(0.0, 50.0, 100.0, 10.0);
+        let nodes = [list, node(2, Aria::BUTTON, "Row", true, Some(1)), below];
+        let bounds = |id| built(&nodes, id).bounds().expect("bounds");
+        assert_eq!((bounds(2).y0, bounds(2).y1), (20.0, 30.0), "a row in view keeps its box");
+        assert_eq!((bounds(5).y0, bounds(5).y1), (40.0, 40.0), "a row below the view: empty, at the bottom");
     }
 
     #[test]
