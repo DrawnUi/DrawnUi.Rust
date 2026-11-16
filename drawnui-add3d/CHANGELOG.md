@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-preview.2 (crates.io, 2026-11-16)
+
+### Changed
+
+- Pictures on 3D models are drawn smooth on every GL and WebGL platform (Windows, Linux, Android on GL ES and the
+  browser): edges, lines and text inside a model's texture stay clean at any size and angle, with the full mipmap
+  and anisotropic filtering.
+
 ## 0.1.0-preview.1 (crates.io, 2026-11-16)
 
 The first preview: real 3D models inside a DrawnUI for Rust screen, on Windows, macOS, Linux, iOS, Android and the
