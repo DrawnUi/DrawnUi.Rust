@@ -1218,25 +1218,23 @@ const LOWER_L_REST: [f32; 4] = [-0.029, 0.262, -0.281, 0.923];
 const LOWER_R_REST: [f32; 4] = [-0.029, -0.262, 0.281, 0.923];
 const EAR1_L_REST: [f32; 4] = [0.095, -0.049, -0.194, 0.975];
 const EAR1_R_REST: [f32; 4] = [0.095, 0.049, 0.193, 0.975];
-const EAR2_L_REST: [f32; 4] = [-0.237, -0.034, -0.011, 0.971];
-const EAR2_R_REST: [f32; 4] = [-0.223, 0.028, 0.012, 0.974];
 
 /// The mascot watches the field that has the keyboard, and covers its eyes for the password.
 fn pose_mascot(app: &App, cx: &mut Cx) {
     let Some(mut mascot) = cx.get_mut(app.mascot) else { return };
     match app.focused {
         Some(Field::Password) => {
-            // Its arms are too short to reach its eyes: the long ears fold down over them, the
-            // hands go up to the cheeks (poses found by forward kinematics on the file's bones).
+            // The hands go over the eyes; the ears lie back, clear of the face and the hands
+            // (folded forward they passed through both; .NET af01f27b).
             mascot.reset_node("Head");
-            mascot.set_node_rotation("Ear1.L", bone(EAR1_L_REST, 150.0, 0.0, 0.0));
-            mascot.set_node_rotation("Ear1.R", bone(EAR1_R_REST, 150.0, 0.0, 0.0));
-            mascot.set_node_rotation("Ear2.L", bone(EAR2_L_REST, -30.0, 0.0, 0.0));
-            mascot.set_node_rotation("Ear2.R", bone(EAR2_R_REST, -30.0, 0.0, 0.0));
+            mascot.set_node_rotation("Ear1.L", bone(EAR1_L_REST, -25.0, 0.0, 0.0));
+            mascot.set_node_rotation("Ear1.R", bone(EAR1_R_REST, -25.0, 0.0, 0.0));
+            mascot.reset_node("Ear2.L");
+            mascot.reset_node("Ear2.R");
             mascot.set_node_rotation("UpperArm.L", bone(UPPER_L_REST, -150.0, -150.0, 60.0));
-            mascot.set_node_rotation("LowerArm.L", bone(LOWER_L_REST, 0.0, 0.0, 60.0));
+            mascot.set_node_rotation("LowerArm.L", bone(LOWER_L_REST, 0.0, 0.0, 85.0));
             mascot.set_node_rotation("UpperArm.R", bone(UPPER_R_REST, 30.0, 30.0, 120.0));
-            mascot.set_node_rotation("LowerArm.R", bone(LOWER_R_REST, 0.0, 0.0, -60.0));
+            mascot.set_node_rotation("LowerArm.R", bone(LOWER_R_REST, 0.0, 0.0, -85.0));
         }
         focused => {
             for part in ["UpperArm.L", "UpperArm.R", "LowerArm.L", "LowerArm.R", "Ear1.L", "Ear1.R", "Ear2.L", "Ear2.R"] {
