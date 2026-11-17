@@ -2373,4 +2373,46 @@ mod tests {
         let items: Vec<_> = nodes.iter().filter(|n| n.role == Aria::LIST_ITEM).collect();
         assert!(!items.is_empty() && items.iter().all(|n| n.label.is_empty()), "shop rows: unnamed list items");
     }
+
+    /// The confetti falls whenever some of its tile is on screen, at any window width (the tiles in
+    /// one row or wrapped) and scroll position, scrolled the way a touchpad does (Nick, 2026-11-17:
+    /// frozen in a narrow Safari window).
+    #[test]
+    fn the_confetti_falls_whenever_its_tile_is_on_screen() {
+        let (mut frozen, mut checked) = (Vec::new(), Vec::new());
+        for (width, scale) in [(760, 1), (880, 1), (900, 1), (900, 2), (1000, 1), (1300, 1), (1300, 2)] {
+            let height = 640;
+            let mut host = Headless::new(Ui::new(App::default(), build), width * scale, height * scale, scale as f32);
+            let (width, height, k) = (width * scale, height * scale, scale as f32);
+            let rain = host.ui.state.rain.id();
+            let mut seen = 0;
+            for _ in 0..6 {
+                host.frame_after(16.0);
+            }
+            for _ in 0..400 {
+                // A touchpad's small event: the page moves at once (67 points), no glide.
+                // In the page margin, outside every inner scroll and 3D view.
+                host.wheel(8.0 * k, 400.0 * k, -0.45);
+                host.frame_after(16.0);
+                // Where the tile is on screen, in pixels.
+                let r = host.ui.tree.screen_rect(rain);
+                if r.bottom < 0.0 {
+                    break;
+                }
+                let (before, spin) = (host.ui.state.rain_time, host.ui.state.spin_time);
+                for _ in 0..3 {
+                    host.frame_after(16.0);
+                }
+                // Below the page's 64-point header and above the bottom edge, by 8 points or more.
+                let on_screen = r.bottom > 72.0 * k && r.top < height as f32 - 8.0 * k;
+                seen += on_screen as u32;
+                if on_screen && host.ui.state.rain_time == before {
+                    frozen.push(format!("{width} px wide, tile at {:.0}..{:.0}, loop ran {}, visible_rect {:?}", r.top, r.bottom, host.ui.state.spin_time != spin, host.ui.tree.visible_rect(rain)));
+                }
+            }
+            checked.push((width, seen));
+        }
+        assert!(checked.iter().all(|c| c.1 >= 3), "the tile came on screen at every width: {checked:?}");
+        assert!(frozen.is_empty(), "the confetti stood still on screen: {frozen:?}");
+    }
 }
