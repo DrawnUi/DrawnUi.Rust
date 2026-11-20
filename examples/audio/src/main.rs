@@ -1,6 +1,7 @@
-//! Sound with drawnui-audio: a tone the app pushes as a stream (the way an emulator feeds its sound
-//! chip, paced by how much is queued) and a chime a generator makes on the audio side, mixed with
-//! their own volumes and a master volume. The same code runs on the desktop, on phones and in the
+//! Sound with drawnui-audio: a sample played on tracker channels (panned, at other pitches), a
+//! tone the app pushes as a stream (the way an emulator feeds its sound chip, paced by how much is
+//! queued) and a chime a generator makes on the audio side, mixed with their own volumes and a
+//! master volume. The same code runs on the desktop, on phones and in the
 //! browser (there the sound starts with the first click, tap or key).
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -8,7 +9,7 @@
 use std::f32::consts::TAU;
 
 use drawnui::prelude::*;
-use drawnui_audio::{Audio, AudioGenerator, AudioStream};
+use drawnui_audio::{Audio, AudioGenerator, AudioStream, Layout, Note, Sample};
 
 const PAGE: Color = Color::from_rgb(18, 18, 24);
 const CARD: Color = Color::from_rgb(30, 31, 42);
@@ -18,6 +19,9 @@ const ACCENT: Color = Color::from_rgb(245, 184, 61);
 const TITLE: &str = "FontTitle";
 /// How much sound the tone keeps queued: the app tops it up every frame.
 const TARGET_MS: f32 = 60.0;
+/// A plucked string (made for this example), decoded once at start.
+const PLUCK: &[u8] = include_bytes!("../assets/pluck.wav");
+const BUTTON: Color = Color::from_rgb(58, 62, 84);
 
 struct App {
     audio: Option<Audio>,
@@ -28,6 +32,9 @@ struct App {
     pitch: f32,
     phase: f32,
     queued_ms: f32,
+    pluck: Option<Sample>,
+    /// Channels with a note playing, one bit each.
+    busy: u64,
 }
 
 impl App {
@@ -36,19 +43,20 @@ impl App {
             Ok(audio) => (Some(audio), String::new()),
             Err(e) => (None, e.to_string()),
         };
-        let tone = audio.as_ref().map(|a| a.stream(1, 120));
+        let tone = audio.as_ref().map(|a| a.stream(Layout::Mono, 120));
         let chime = audio.as_ref().map(|a| chime(a.sample_rate() as f32, a));
         if let Some(c) = &chime {
             c.set_volume(0.0);
         }
-        App { audio, error, tone, chime, tone_on: true, pitch: 330.0, phase: 0.0, queued_ms: 0.0 }
+        let pluck = Sample::decode(PLUCK).ok();
+        App { audio, error, tone, chime, tone_on: true, pitch: 330.0, phase: 0.0, queued_ms: 0.0, pluck, busy: 0 }
     }
 
     fn status(&self) -> String {
         match &self.audio {
             None => format!("No sound output: {}", self.error),
-            Some(a) if !a.is_running() => format!("{} Hz, {} channels · click, tap or press a key to start the sound", a.sample_rate(), a.channels()),
-            Some(a) => format!("{} Hz, {} channels · playing", a.sample_rate(), a.channels()),
+            Some(a) if !a.is_running() => format!("{} Hz, {} speakers · click, tap or press a key to start the sound", a.sample_rate(), a.speakers()),
+            Some(a) => format!("{} Hz, {} speakers · playing", a.sample_rate(), a.speakers()),
         }
     }
 }
@@ -56,7 +64,7 @@ impl App {
 /// A bell struck twice a second: a decaying sine and its fifth, made on the audio side.
 fn chime(rate: f32, audio: &Audio) -> AudioGenerator {
     let (mut t, period) = (0.0f32, 0.5f32);
-    audio.generator(1, move |buffer| {
+    audio.generator(Layout::Mono, move |buffer| {
         for s in buffer.iter_mut() {
             let since = t % period;
             let strike = (t / period) as u32 % 4;
@@ -71,6 +79,10 @@ fn chime(rate: f32, audio: &Audio) -> AudioGenerator {
 /// Every frame: top the tone's stream up to `TARGET_MS`, as an emulator feeds its sound chip.
 fn feed(app: &mut App) {
     let (Some(audio), Some(tone)) = (&app.audio, &app.tone) else { return };
+    let busy = (0..audio.channels()).filter(|&i| audio.channel(i).is_playing()).fold(0u64, |b, i| b | 1 << i);
+    if busy != app.busy {
+        app.busy = busy;
+    }
     let rate = audio.sample_rate() as f32;
     let mut chunk = [0.0f32; 256];
     while tone.queued_ms() < TARGET_MS {
@@ -93,6 +105,17 @@ fn card(title: &str, text: &str, rows: impl IntoChildren) -> Build<SkiaShape> {
     )),))
 }
 
+/// Plays the pluck on the next free channel, placed and pitched by the note.
+fn pluck(app: &App, pan: f32, speed: f32) {
+    if let (Some(audio), Some(sample)) = (&app.audio, &app.pluck) {
+        audio.play(sample, Note { pan: Some(pan), speed, volume: 0.8, ..Note::default() });
+    }
+}
+
+fn button(text: &str, tap: impl FnMut(&mut Mut<'_, SkiaButton>, &mut App, &mut Cx<'_>) + 'static) -> Build<SkiaButton> {
+    SkiaButton::new(text).background_color(BUTTON).text_color(INK).on_tapped(tap)
+}
+
 fn row(label: &str, control: impl IntoChildren) -> Build<SkiaLayout> {
     SkiaLayout::row().fill_x().spacing(16).children((SkiaLabel::new(label).font_size(15).text_color(INK).width_request(90).vertical_options(LayoutOptions::Center), control))
 }
@@ -104,6 +127,25 @@ fn build(_app: &mut App) -> Build<SkiaLayout> {
             SkiaLayout::column().fill_x().maximum_width_request(640).horizontal_options(LayoutOptions::Center).padding(24).spacing(20).children((
                 SkiaLabel::new("DrawnUI Audio").font_size(30).font_family(TITLE).text_color(INK).accessibility_role(Aria::HEADING),
                 SkiaLabel::new("").font_size(14).text_color(MUTED).observe(|me, app: &App| me.set_text(app.status())),
+                card(
+                    "Channels",
+                    "A sample decoded once, played on the next free channel: placed left or right, or at other pitches as a chord.",
+                    (SkiaLayout::wrap().fill_x().spacing(10).children((
+                        button("Left", |_me, app: &mut App, _cx| pluck(app, -0.8, 1.0)),
+                        button("Center", |_me, app: &mut App, _cx| pluck(app, 0.0, 1.0)),
+                        button("Right", |_me, app: &mut App, _cx| pluck(app, 0.8, 1.0)),
+                        button("Chord", |_me, app: &mut App, _cx| {
+                            // A major chord: the root, a major third and a fifth up.
+                            for (pan, speed) in [(-0.5, 1.0), (0.0, 1.26), (0.5, 1.5)] {
+                                pluck(app, pan, speed);
+                            }
+                        }),
+                    )),
+                    SkiaLabel::new("").font_size(13).text_color(MUTED).observe(|me, app: &App| {
+                        let on: Vec<String> = (0..64).filter(|i| app.busy & (1 << i) != 0).map(|i| (i + 1).to_string()).collect();
+                        me.set_text(if on.is_empty() { "Channels playing: none".to_string() } else { format!("Channels playing: {}", on.join(", ")) });
+                    })),
+                ),
                 card(
                     "Tone",
                     "A stream the app fills every frame, kept 60 ms ahead of the speaker.",

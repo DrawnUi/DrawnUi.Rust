@@ -882,37 +882,52 @@ use `torus` / `lathe` for rings). `lathe(&[(radius, height)], segments)` turns a
 ## Sound (the drawnui-audio add-on)
 
 Sound lives in its own crate next to drawnui, `drawnui-audio`, on Windows, macOS, Linux, iOS,
-Android and the browser. It needs nothing from the engine: any app adds it.
+Android and the browser, in Impulse Tracker's model: numbered channels play samples as notes. It
+needs nothing from the engine: any app adds it.
 
 ```rust
-use drawnui_audio::Audio;
+use drawnui_audio::{Audio, Layout, Loop, Note, Sample};
 
-let audio = Audio::open()?;            // the default output device
-let rate = audio.sample_rate();        // produce samples at this rate; read it again later
-let chip = audio.stream(1, 100);       // mono (2 = stereo interleaved), room for 100 ms
-chip.push(sample);                     // per sample: no allocation, no lock
-chip.push_slice(&samples);             // or a slice; returns how many fit
-let ms = chip.queued_ms();             // pace a producer by it (keep 50-80 ms queued)
-let tone = audio.generator(1, |buffer| { /* fill on the audio thread */ });
-tone.set_volume(0.5);                  // per source; audio.set_volume for everything
+let audio = Audio::open()?;                    // the default output device
+let brick = Sample::decode(&bytes)?;           // WAV, MP3, OGG Vorbis, FLAC, decoded once
+let music = Sample::streamed(music_bytes)?;    // decoded while it plays
+audio.channel(0).set_reserved(true);           // the music's own channel
+audio.channel(0).play(&music, Note { looped: true, ..Note::default() });
+audio.play(&brick, Note { pan: Some(-0.5), volume: 0.8, ..Note::default() });   // next free channel
+let ch = audio.channel(2);
+ch.set_volume(0.7); ch.set_pan(0.3); ch.set_muted(false); ch.set_solo(false);
+ch.play(&brick, Note { speed: 1.5, ..Note::default() });   // a fifth up
+ch.set_speed(1.2); ch.set_note_volume(0.5); ch.stop();      // slides, fades, note cut
 ```
 
-- A stream plays silence when it runs dry and drops samples beyond its room, so it never grows.
-  An emulator or a synth driven by the frame loop tops it up each frame (a `DrawnGame` loop) to a
-  target level, making one step more or less. Slow down only while the output is pulling (the
-  queue dropped since the last frame): a paused, stalled or null output (`Audio::null` with no
-  `render`) keeps the queue full, and a loop that holds back whenever it is high stops for good.
-- A generator's closure runs where the sound is made (the audio thread; the page's thread in the
-  browser): short, no locks, no allocation. Drop its handle to remove it.
+- Channels: `audio.set_channels(n)` (1 to 64, 16 at first); each plays one note, a new note cuts
+  it, `Note::keep_previous` lets it ring on in the background (IT's "continue"). `audio.play` takes
+  the first free channel that is not reserved, else the one whose note started first.
+- Samples play at their own pitch on any output (any file rate, cubic interpolation); loops with
+  `sample.with_loop(Loop::Forward { start, end })` or `Loop::PingPong`; `Note::start` is the sample
+  offset; `Sample::from_frames(frames, Layout::Mono, rate)` for sound made in code.
+- Panning: -1 left, 1 right; a mono sample has equal power (full in both at the center), a stereo
+  one is balanced.
+- Streams the app pushes (an emulator's sound chip): `audio.stream(Layout::Mono, 100)`, then
+  `push(sample)` per sample (no allocation, no lock) or `push_slice`; it plays silence when dry and
+  drops beyond its room. Keep `queued_ms()` at 50 to 80 ms by making one step more or less, and slow
+  down only while the output is pulling (the queue dropped since the last frame): a paused, stalled
+  or null output (`Audio::null` with no `render`) keeps the queue full, and a loop that holds back
+  whenever it is high stops for good.
+- Generators: `audio.generator(Layout::Mono, |buffer| ...)` fills each buffer on the audio thread
+  (the page's thread in the browser): short, no locks, no allocation. Drop the handle to remove it.
+- Streams and generators run at `audio.sample_rate()`; `audio.speakers()` is the output's channel
+  count. `audio.set_volume` is the master volume.
 - Pause in the background: `.on_visibility_changed(|app: &mut App, visible, _cx| app.audio.set_paused(!visible))`.
-- When the playing device goes away (headphones unplugged), the output opens the default device
-  again by itself; `sample_rate()` follows it.
+  When the playing device goes away (headphones unplugged), the output opens the default device again.
 - Browser: sound may start only after the user's first click, tap or key on the page. The output
   opens its audio inside that gesture, at 48000 Hz stereo, with a clean console; until then
-  `is_running()` reads false and streams keep their samples. The add-on links emscripten's OpenAL
-  (Web Audio) by itself: no flag in `.cargo/config.toml`.
+  `is_running()` reads false. The add-on links emscripten's OpenAL (Web Audio) by itself: no flag in
+  `.cargo/config.toml`. Music: prefer `Sample::streamed` (decoding happens on the page's thread).
+- Feature `files` (on by default) brings the decoders (about 650 KB in a browser build); an app that
+  only pushes streams sets `default-features = false`.
 - Linux builds need the ALSA headers (`libasound2-dev` on Debian and Ubuntu).
-- Tests: `Audio::null(rate, channels)` has no device; `render(frames)` mixes every source on the spot
+- Tests: `Audio::null(rate, speakers)` has no device; `render(frames)` mixes everything on the spot
   and returns the samples, `recorded()` all of them.
 
 ## Add-on controls (controls in another crate)

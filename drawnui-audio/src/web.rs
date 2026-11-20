@@ -73,7 +73,7 @@ pub(crate) fn open(output: Arc<Output>, mixer: Mixer) -> Result<(), AudioError> 
         return Err(AudioError("one audio output per page".into()));
     }
     output.sample_rate.store(RATE, Ordering::Release);
-    output.channels.store(CHANNELS as u32, Ordering::Release);
+    output.speakers.store(CHANNELS as u32, Ordering::Release);
     // SAFETY: emscripten's timer and html5 event registrations with plain function pointers.
     let timer = unsafe {
         emscripten_set_keydown_callback_on_thread(EVENT_TARGET_DOCUMENT, std::ptr::null_mut(), true, Some(gesture), CALLING_THREAD);
@@ -129,6 +129,7 @@ extern "C" fn pump(_user: *mut c_void) {
         if w.device.is_null() || w.output.paused.load(Ordering::Acquire) {
             return;
         }
+        w.output.feed();
         // SAFETY: as in `gesture`; the chunk outlives the alBufferData call, which copies it.
         unsafe {
             let mut processed = 0;
@@ -139,7 +140,7 @@ extern "C" fn pump(_user: *mut c_void) {
                 w.free.push(buffer);
             }
             while let Some(buffer) = w.free.pop() {
-                w.mixer.render(&mut w.chunk, CHANNELS);
+                w.mixer.render(&mut w.chunk, CHANNELS, RATE);
                 alBufferData(buffer, AL_FORMAT_STEREO_FLOAT32, w.chunk.as_ptr().cast(), (w.chunk.len() * 4) as i32, RATE as i32);
                 alSourceQueueBuffers(w.source, 1, &buffer);
             }

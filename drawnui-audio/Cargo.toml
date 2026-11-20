@@ -11,6 +11,14 @@ categories = ["multimedia::audio", "game-development"]
 publish = false
 include = ["src/**/*", "build.rs", "README.md", "CHANGELOG.md"]
 
+[features]
+default = ["files"]
+# Samples and music from WAV, MP3, OGG Vorbis and FLAC files (symphonia, pure Rust).
+files = ["dep:symphonia"]
+
+[dependencies]
+symphonia = { version = "0.6.1", default-features = false, features = ["wav", "pcm", "mp3", "ogg", "vorbis", "flac"], optional = true }
+
 # Desktop and phones: the system's audio through cpal (WASAPI, Core Audio, ALSA, AAudio).
 [target.'cfg(not(target_os = "emscripten"))'.dependencies]
 cpal = "0.18"

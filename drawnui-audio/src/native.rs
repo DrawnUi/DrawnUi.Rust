@@ -72,29 +72,30 @@ fn run(output: Arc<Output>, mixer: Arc<Mutex<Mixer>>, commands: Receiver<Command
             return;
         }
     };
+    // Every 10 ms: decode music ahead; while the device is gone, look for one twice a second.
+    let mut last_try = std::time::Instant::now();
     loop {
-        // While the device is gone, look for one twice a second.
-        let command = if stream.is_none() { commands.recv_timeout(Duration::from_millis(500)).ok() } else { commands.recv().ok().or(Some(Command::Quit)) };
-        match command {
-            Some(Command::Quit) => break,
-            Some(Command::Pause) => {
+        match commands.recv_timeout(Duration::from_millis(10)) {
+            Ok(Command::Quit) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            Ok(Command::Pause) => {
                 if let Some(s) = &stream {
                     let _ = s.pause();
                 }
             }
-            Some(Command::Resume) => {
+            Ok(Command::Resume) => {
                 if let Some(s) = &stream {
                     let _ = s.play();
                 }
             }
-            Some(Command::Lost) => {
+            Ok(Command::Lost) => {
                 output.running.store(false, Ordering::Release);
                 stream = None;
             }
-            None => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
         }
-        if stream.is_none() {
-            // Drain the Lost reports the old stream may have sent after the first one.
+        output.feed();
+        if stream.is_none() && last_try.elapsed() >= Duration::from_millis(500) {
+            last_try = std::time::Instant::now();
             stream = start(&output, &mixer, &lost).ok();
             if let Some(s) = &stream
                 && output.paused.load(Ordering::Acquire)
@@ -120,13 +121,13 @@ fn start(output: &Arc<Output>, mixer: &Arc<Mutex<Mixer>>, lost: &Sender<Command>
     }?;
     stream.play().map_err(|e| AudioError(e.to_string()))?;
     output.sample_rate.store(config.sample_rate, Ordering::Release);
-    output.channels.store(config.channels as u32, Ordering::Release);
+    output.speakers.store(config.channels as u32, Ordering::Release);
     output.running.store(true, Ordering::Release);
     Ok(stream)
 }
 
 fn build<T: SizedSample + FromSample<f32>>(device: &cpal::Device, config: &cpal::StreamConfig, mixer: &Arc<Mutex<Mixer>>, lost: &Sender<Command>) -> Result<cpal::Stream, AudioError> {
-    let channels = config.channels as usize;
+    let (speakers, rate) = (config.channels as usize, config.sample_rate);
     let mixer = mixer.clone();
     let lost = lost.clone();
     // ponytail: the float buffer grows once to the largest buffer the device asks for.
@@ -138,7 +139,7 @@ fn build<T: SizedSample + FromSample<f32>>(device: &cpal::Device, config: &cpal:
                 mixed.resize(data.len(), 0.0);
                 // Only this thread locks it while the stream plays: never waits.
                 match mixer.try_lock() {
-                    Ok(mut m) => m.render(&mut mixed, channels),
+                    Ok(mut m) => m.render(&mut mixed, speakers, rate),
                     Err(_) => mixed.fill(0.0),
                 }
                 for (d, s) in data.iter_mut().zip(&mixed) {
