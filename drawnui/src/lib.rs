@@ -470,6 +470,10 @@ pub trait App {
     /// The app's windows lost the keyboard to another app: every popup window closes, as native
     /// menus do.
     fn close_popup_windows(&mut self) {}
+    /// A host with popup windows hands the app a way to hide one at once, by its id: a popup the
+    /// app closes leaves the screen before the code that closed it goes on (which may block, as a
+    /// file dialog does). The host still destroys the window after the frame.
+    fn popup_window_hider(&mut self, _hide: Box<dyn FnMut(u32)>) {}
     /// The app as `Any`, so code that knows its type can reach it ([`Ui`] returns itself; hot
     /// reload reads the state through it).
     /// Feature `designer`: a frame was asked for while the window shows none
