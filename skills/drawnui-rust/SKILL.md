@@ -664,6 +664,13 @@ SkiaButton::new("Fruit").assign(&mut app.fruit).on_tapped(|_me, app: &mut App, c
   `place_popup_window(id, width, height, scale, offset)`, `draw_popup_window(id, w, h)`,
   `popup_tap(id, x, y)` and `popup_hover(id, at)` drive the popup's window. Without that call, popups
   are on the canvas, as in the browser.
+- A menu line that opens a system dialog (a file picker): close the menu, then open the dialog on
+  another thread (rfd's `FileDialog` there, or its async dialog) and take the answer from a channel
+  in the game loop or a later handler. A dialog that blocks in the handler, or in a game-loop tick of
+  the same frame, holds the closed menu's window on screen until the dialog returns: the host takes
+  the window away after the frame.
+- On Windows a popup window is owned by the app's window: it stays above that window, and dialogs and
+  other apps' windows come in front of it.
 
 ### Desktop menu bar
 
