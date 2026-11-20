@@ -4,6 +4,16 @@ Versions follow semver from 1.0.1, tagged `v<version>`; before it they were `0.1
 `v0.1.0-preview.N`. Each release lists what was added, what behaves differently, and what breaks code
 written for the version before it. Commits in parentheses.
 
+## 1.0.2 (crates.io, 2026-11-20)
+
+### Changed
+
+- Desktop: a menu or dropdown the app closes leaves the screen at once, so a dialog opened from a
+  menu line (a file picker) shows with nothing over it. Close the popup, then open the dialog in the
+  same handler.
+- Windows: menus and dropdowns stay above their app window, while dialogs the app opens and other
+  apps' windows come in front of them.
+
 ## 1.0.1 (crates.io, 2026-11-16)
 
 The first stable release of DrawnUI for Rust, with the 3D add-on [`drawnui-add3d`](drawnui-add3d) 1.0.1.
