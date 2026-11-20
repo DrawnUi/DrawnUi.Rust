@@ -106,6 +106,10 @@ struct Desktop {
     /// The popup windows open (`Cx::open_popup_window`), drawn in the frames of the app's window.
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     popups: Vec<PopupWindow>,
+    /// The popup windows by id, for the app to hide one at once when it closes it
+    /// (`App::popup_window_hider`); destroyed with `popups`.
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    popup_handles: PopupHandles,
     /// Draws the popup windows that asked for the CPU (`PopupWindowOptions::cpu`, Windows).
     #[cfg(windows)]
     popup_raster: Option<Gpu>,
@@ -341,6 +345,19 @@ impl Desktop {
             let _ = waking.lock().map(|proxy| proxy.send_event(Arrived::Wake));
         });
         app.init(&mut host);
+        // A popup the app closes leaves the screen at once, also when the code that closed it then
+        // blocks (a file dialog opened from a menu line).
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        let popup_handles = {
+            let handles = PopupHandles::default();
+            let windows = handles.clone();
+            app.popup_window_hider(Box::new(move |id| {
+                if let Some(window) = windows.borrow().iter().find(|(i, _)| *i == id).and_then(|(_, w)| w.upgrade()) {
+                    window.set_visible(false);
+                }
+            }));
+            handles
+        };
         // The system's light / dark appearance as it is now (`Ui::on_system_theme_changed`).
         // Windows: read from the setting itself, and again on every change the system announces
         // (winit's own value keeps the first change only: uxtheme hands it a cached answer).
@@ -375,6 +392,8 @@ impl Desktop {
             bakes: bake_workers(proxy.clone()),
             #[cfg(not(any(target_os = "ios", target_os = "android")))]
             popups: Vec::new(),
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
+            popup_handles,
             #[cfg(windows)]
             popup_raster: None,
             #[cfg(not(any(target_os = "ios", target_os = "android")))]
@@ -2489,7 +2508,12 @@ impl ApplicationHandler<Arrived> for Desktop {
     }
 }
 
-/// A popup window (`Cx::open_popup_window`): frameless, on top of every window, no taskbar or Dock
+/// The popup windows by id, shared with the app's hider; a closed one's window is gone with it.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+type PopupHandles = std::rc::Rc<std::cell::RefCell<Vec<(u32, std::rc::Weak<Window>)>>>;
+
+/// A popup window (`Cx::open_popup_window`): frameless, on top of the app's window (macOS, X11:
+/// of every window; Windows: owned, not topmost), no taskbar or Dock
 /// entry; on Windows it never takes the activation (WS_EX_NOACTIVATE), on X11 the window manager
 /// leaves it alone (override-redirect). Field order is drop order: the surface before what it
 /// draws on, the window last.
@@ -2499,7 +2523,7 @@ struct PopupWindow {
     surface: Option<skia::Surface>,
     /// `None`: drawn on the CPU into a layered window (`PopupWindowOptions::cpu`, Windows).
     target: Option<PopupTarget>,
-    window: Window,
+    window: std::rc::Rc<Window>,
     /// What the app asked for when it was placed: another size places it again.
     request: crate::PopupWindowRequest,
     /// Shown once its first frame is drawn (no flash of an empty window).
@@ -2521,6 +2545,7 @@ impl Desktop {
         let before = self.popups.len();
         let requests = &self.host.popup_windows;
         self.popups.retain(|p| requests.iter().any(|r| r.id == p.id));
+        self.popup_handles.borrow_mut().retain(|(_, w)| w.strong_count() > 0);
         let mut changed = before != self.popups.len();
         for i in 0..self.host.popup_windows.len() {
             let request = self.host.popup_windows[i];
@@ -2552,6 +2577,8 @@ impl Desktop {
                     }
                     // macOS: made on screen already (see `popup_attributes`).
                     let shown = cfg!(target_os = "macos");
+                    let window = std::rc::Rc::new(window);
+                    self.popup_handles.borrow_mut().push((request.id, std::rc::Rc::downgrade(&window)));
                     self.popups.push(PopupWindow { id: request.id, surface: None, target, window, request, shown, stale: true, cursor: (0.0, 0.0) });
                     self.popup_placed(self.popups.len() - 1);
                     changed = true;

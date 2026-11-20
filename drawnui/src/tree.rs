@@ -851,6 +851,8 @@ pub struct Tree {
     pub(crate) popup_next_id: u32,
     /// Popups closed since `Ui::on_popup_window_closed` last heard (passive ones not counted).
     pub(crate) popups_closed: Vec<crate::popups::Closed>,
+    /// The host's way to take a popup window off the screen at once (`App::popup_window_hider`).
+    pub(crate) hide_popup_window: Option<Box<dyn FnMut(u32)>>,
     /// How tooltips look (`Ui::tooltip_style`, `Cx::set_tooltip_style`).
     pub(crate) tooltip_style: crate::TooltipStyle,
     /// `Ui::tooltips_from_accessibility`, `Cx::set_tooltips_from_accessibility`.

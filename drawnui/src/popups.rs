@@ -267,6 +267,11 @@ impl crate::tree::Tree {
     pub(crate) fn close_popup(&mut self, id: u32) {
         let Some(index) = self.popups.iter().position(|p| p.id == id) else { return };
         let popup = self.popups.remove(index);
+        // Off the screen now: the handler that closed it may go on with a call that blocks (a
+        // file dialog), and the host takes the window away only after the frame.
+        if let Some(hide) = self.hide_popup_window.as_mut() {
+            hide(popup.id);
+        }
         if !popup.options.passive {
             self.popups_closed.push(crate::popups::Closed { id: PopupId(popup.id), root: popup.root, opener: popup.opener });
         }

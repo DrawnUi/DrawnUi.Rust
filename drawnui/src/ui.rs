@@ -4301,6 +4301,10 @@ impl<S: 'static> App for Ui<S> {
     fn close_popup_windows(&mut self) {
         Cx { tree: &mut self.tree }.close_popup_windows();
     }
+
+    fn popup_window_hider(&mut self, hide: Box<dyn FnMut(u32)>) {
+        self.tree.hide_popup_window = Some(hide);
+    }
 }
 
 impl<S: 'static> Ui<S> {
