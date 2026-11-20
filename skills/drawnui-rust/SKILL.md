@@ -1,6 +1,6 @@
 ---
 name: drawnui-rust
-description: Building apps with DrawnUI for Rust (the `drawnui` crate, Skia via skia-safe) for Windows, macOS, Linux, iOS, Android and the browser (macOS and iOS on Metal, iOS builds through dev/ios in the repo) — adding drawnui to a project (crates.io, Skia downloaded prebuilt with no setup, the starter template), the browser (wasm32-unknown-emscripten) build setup every app must copy into its own .cargo/config.toml, above all the 1 MB wasm stack and its overflow check, how to recognize and prove a wasm stack overflow, the web host page, the Linux build (clang 16+, X11 / Wayland, icon, clipboard), the Android app (GameActivity, Gradle, 16 KB pages, soft keyboard, TalkBack), transforms in 2D and 3D (rotation_x / rotation_y with perspective, translation_z depth, a card's back side, cached content and taps under 3D), popup windows (context menus and dropdowns that open past the app window's edge), and masonry feeds (SkiaMasonry: Pinterest-style columns, children or items, LoadMore). Load before building or debugging any Rust app that uses drawnui, especially its web or Android build, before turning, flipping or scaling controls, and before opening menus or popups.
+description: Building apps with DrawnUI for Rust (the `drawnui` crate, Skia via skia-safe) for Windows, macOS, Linux, iOS, Android and the browser (macOS and iOS on Metal, iOS builds through dev/ios in the repo) — adding drawnui to a project (crates.io, Skia downloaded prebuilt with no setup, the starter template), the browser (wasm32-unknown-emscripten) build setup every app must copy into its own .cargo/config.toml, above all the 1 MB wasm stack and its overflow check, how to recognize and prove a wasm stack overflow, the web host page, the Linux build (clang 16+, X11 / Wayland, icon, clipboard), the Android app (GameActivity, Gradle, 16 KB pages, soft keyboard, TalkBack), transforms in 2D and 3D (rotation_x / rotation_y with perspective, translation_z depth, a card's back side, cached content and taps under 3D), popup windows (context menus and dropdowns that open past the app window's edge), masonry feeds (SkiaMasonry: Pinterest-style columns, children or items, LoadMore), and sound with the drawnui-audio add-on (streams, generators, mixer, browser autoplay). Load before building or debugging any Rust app that uses drawnui, especially its web or Android build, before turning, flipping or scaling controls, and before opening menus or popups.
 ---
 
 # DrawnUI for Rust: building an app
@@ -864,6 +864,40 @@ SkiaModel3D::from_model(&medal).look(Look::Flat).outline(2.5, ink).orbit(false).
 
 `Mesh3D::extrude` takes any Skia path (y down), centered; each closed contour is a solid (no holes:
 use `torus` / `lathe` for rings). `lathe(&[(radius, height)], segments)` turns a side profile.
+
+## Sound (the drawnui-audio add-on)
+
+Sound lives in its own crate next to drawnui, `drawnui-audio`, on Windows, macOS, Linux, iOS,
+Android and the browser. It needs nothing from the engine: any app adds it.
+
+```rust
+use drawnui_audio::Audio;
+
+let audio = Audio::open()?;            // the default output device
+let rate = audio.sample_rate();        // produce samples at this rate; read it again later
+let chip = audio.stream(1, 100);       // mono (2 = stereo interleaved), room for 100 ms
+chip.push(sample);                     // per sample: no allocation, no lock
+chip.push_slice(&samples);             // or a slice; returns how many fit
+let ms = chip.queued_ms();             // pace a producer by it (keep 50-80 ms queued)
+let tone = audio.generator(1, |buffer| { /* fill on the audio thread */ });
+tone.set_volume(0.5);                  // per source; audio.set_volume for everything
+```
+
+- A stream plays silence when it runs dry and drops samples beyond its room, so it never grows.
+  An emulator or a synth driven by the frame loop tops it up each frame (a `DrawnGame` loop) to a
+  target level, making one step more or less.
+- A generator's closure runs where the sound is made (the audio thread; the page's thread in the
+  browser): short, no locks, no allocation. Drop its handle to remove it.
+- Pause in the background: `.on_visibility_changed(|app: &mut App, visible, _cx| app.audio.set_paused(!visible))`.
+- When the playing device goes away (headphones unplugged), the output opens the default device
+  again by itself; `sample_rate()` follows it.
+- Browser: sound may start only after the user's first click, tap or key on the page. The output
+  opens its audio inside that gesture, at 48000 Hz stereo, with a clean console; until then
+  `is_running()` reads false and streams keep their samples. The add-on links emscripten's OpenAL
+  (Web Audio) by itself: no flag in `.cargo/config.toml`.
+- Linux builds need the ALSA headers (`libasound2-dev` on Debian and Ubuntu).
+- Tests: `Audio::null(rate, channels)` has no device; `render(frames)` mixes every source on the spot
+  and returns the samples, `recorded()` all of them.
 
 ## Add-on controls (controls in another crate)
 

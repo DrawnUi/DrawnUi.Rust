@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["drawnui", "drawnui-add3d", "examples/bench", "examples/dungeon", "examples/dungeon/android", "examples/hello", "examples/hellorust", "examples/hellorust/android", "examples/gallery3d", "examples/gallery3d/android", "examples/images", "examples/model3d", "examples/popups"]
+members = ["drawnui", "drawnui-add3d", "drawnui-audio", "examples/audio", "examples/bench", "examples/dungeon", "examples/dungeon/android", "examples/hello", "examples/hellorust", "examples/hellorust/android", "examples/gallery3d", "examples/gallery3d/android", "examples/images", "examples/model3d", "examples/popups"]
 
 [workspace.package]
 edition = "2024"
