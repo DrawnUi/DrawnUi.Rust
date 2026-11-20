@@ -4,7 +4,7 @@ One line each; found while building the first version. Nothing here blocks the m
 
 - Verify at runtime on macOS, iOS (Core Audio) and in real Safari (Mac off on 2026-11-20); only compile checks so far.
 - Verify at runtime on Android (AAudio, API 26+ = the examples' minSdk); compiles with cargo-ndk, no phone was attached. Needs examples/audio/android (copy of gallery3d/android).
-- Linux: not even compiled (WSL lacks libasound2-dev; installing it is Nick's call). cpal needs ALSA headers at build time.
+- Linux: builds, tests pass and the output plays in WSL (Ubuntu 22.04, WSLg PulseAudio through ALSA, 48000 Hz stereo, 2026-11-20); check a desktop Linux (PipeWire) on real hardware.
 - iOS: set the AVAudioSession category (playback vs ambient: the silent switch mutes ambient), and resume after an interruption (a call).
 - iOS Safari: Web Audio follows the silent switch unless navigator.audioSession.type = "playback".
 - Windows: headphones plugged in while playing: check the stream follows the new default (cpal 0.18 reports StreamInvalidated, we reopen) without a gap the user hears.
