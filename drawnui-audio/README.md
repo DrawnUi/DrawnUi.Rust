@@ -36,6 +36,9 @@ chip.set_volume(0.8);
 A stream plays what it holds and plays silence when it runs dry; samples that do not fit its room
 are dropped, so it never grows. An app that makes its sound in steps (an emulator, a synth driven
 by the frame loop) keeps `queued_ms` near a target, 50 to 80 ms, by making a step more or less.
+Hold back only while the output is pulling (the queue dropped since the last frame): a paused or
+stalled output, or a null one nobody renders, keeps the queue full, and a loop that holds back
+whenever it is high would stop for good.
 Stereo streams take interleaved samples (`audio.stream(2, 100)`).
 
 ## Generators: sound made on the audio side

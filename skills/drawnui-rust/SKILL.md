@@ -744,6 +744,20 @@ first arrow is the game's. When a
 popup window closes with the keyboard in it, the keyboard goes back to its opener, unless the app put it
 somewhere in that frame (`cx.set_accessibility_focus(control)`) or kept it (`cx.keep_accessibility_focus()`).
 
+**A custom control that takes the keyboard on a click** (an emulator screen, a canvas, a game
+field): the canvas gives the focus on the completed tap to the control that took the tap, if it can
+be focused, and clears it for a tap that nothing took. So build it with `.can_be_focused(true)` and
+answer `Handled::Yes` for both `GestureKind::Down` (call `cx.focus()` there) and
+`GestureKind::Tapped`. Taking only the Down gives the focus and loses it again on the same click.
+`cx.focus(Some(id))` from a game loop at start works too. A focused control whose `on_key` returns
+true keeps Tab, Escape and Enter away from the canvas's navigation; leave the function keys to the
+app (return false) so it keeps a way out to its toolbar.
+
+Headless tests of an app with a running game loop: `settle()` and `tap()` panic (the tree never
+settles); step with `frame_after(ms)` and send `ui.pointer(Down / Up)` yourself, Down and Up with
+no frame between for a tap. A font registered with `Ui::font` arrives with `ui.asset(0, bytes)`
+(index in registration order); until then nothing is laid out and keys are dropped.
+
 The Menu key and Shift+F10 (macOS: Shift+F10) open the context menu of the control the keyboard is on,
 as a right click at its center would: the first control up from it with `.on_context_menu(...)`, else
 `Ui::on_context_menu`; `menu.source` is `ContextMenuSource::Keyboard`. A screen reader's "show menu"
@@ -885,7 +899,9 @@ tone.set_volume(0.5);                  // per source; audio.set_volume for every
 
 - A stream plays silence when it runs dry and drops samples beyond its room, so it never grows.
   An emulator or a synth driven by the frame loop tops it up each frame (a `DrawnGame` loop) to a
-  target level, making one step more or less.
+  target level, making one step more or less. Slow down only while the output is pulling (the
+  queue dropped since the last frame): a paused, stalled or null output (`Audio::null` with no
+  `render`) keeps the queue full, and a loop that holds back whenever it is high stops for good.
 - A generator's closure runs where the sound is made (the audio thread; the page's thread in the
   browser): short, no locks, no allocation. Drop its handle to remove it.
 - Pause in the background: `.on_visibility_changed(|app: &mut App, visible, _cx| app.audio.set_paused(!visible))`.
