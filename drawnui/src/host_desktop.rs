@@ -2759,9 +2759,10 @@ impl Desktop {
 
 /// A popup window: frameless, on top, no taskbar entry, not resizable, transparent where nothing
 /// is drawn (round corners), hidden until its first frame (macOS: on screen at once, empty), not
-/// activated when shown. Windows: owned
-/// by the app's window (it stays above it and goes with it). X11: override-redirect (the window
-/// manager does not decorate, move or focus it).
+/// activated when shown. Windows: owned by the app's window, which keeps it above that window and
+/// moves it with it, and not topmost, so a dialog the app opens (a file picker) and other apps'
+/// windows come above it. X11: override-redirect (the window manager does not decorate, move or
+/// focus it).
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 fn popup_attributes(main: &Window) -> WindowAttributes {
     let attributes = WindowAttributes::default()
@@ -2770,8 +2771,9 @@ fn popup_attributes(main: &Window) -> WindowAttributes {
         .with_resizable(false)
         .with_transparent(true)
         .with_visible(false)
-        .with_active(false)
-        .with_window_level(winit::window::WindowLevel::AlwaysOnTop);
+        .with_active(false);
+    #[cfg(not(windows))]
+    let attributes = attributes.with_window_level(winit::window::WindowLevel::AlwaysOnTop);
     #[cfg(windows)]
     let attributes = {
         use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -2779,7 +2781,8 @@ fn popup_attributes(main: &Window) -> WindowAttributes {
         let attributes = attributes.with_skip_taskbar(true);
         match main.window_handle().map(|h| h.as_raw()) {
             Ok(RawWindowHandle::Win32(handle)) => attributes.with_owner_window(handle.hwnd.get()),
-            _ => attributes,
+            // No owner to keep it above the app's window: topmost instead.
+            _ => attributes.with_window_level(winit::window::WindowLevel::AlwaysOnTop),
         }
     };
     #[cfg(target_os = "linux")]
