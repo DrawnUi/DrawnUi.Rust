@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (not released)
+## 0.1.0 (crates.io, 2026-11-21)
 
 Impulse Tracker's model: samples (decoded from WAV, MP3, OGG Vorbis and FLAC once, streamed
 while they play, or made in code, with forward and ping-pong loops) played as notes on up to 64

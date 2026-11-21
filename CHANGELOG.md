@@ -4,7 +4,7 @@ Versions follow semver from 1.0.1, tagged `v<version>`; before it they were `0.1
 `v0.1.0-preview.N`. Each release lists what was added, what behaves differently, and what breaks code
 written for the version before it. Commits in parentheses.
 
-## Unreleased
+## 1.1.0 (crates.io, 2026-11-21)
 
 ### Added
 
@@ -12,14 +12,17 @@ written for the version before it. Commits in parentheses.
   toasts (background, text color, font, weight, size, margins), popups and modals (dim color,
   blur, open and close time) and tab bar, as C# `SkiaShell.ToastBackgroundColor` and the other
   static settings do. `SkiaShell::defaults()` reads them; the `SkiaShell` constants stay the
-  built-in values.
+  built-in values. (f498d25)
+- `drawnui-audio` 0.1.0, the sound add-on: channels that play samples in Impulse Tracker's
+  model, streams, generators and a mixer, on desktop, phones and the browser (its own
+  CHANGELOG).
 
 ### Changed
 
 - Desktop: popup windows (menus, dropdowns, tooltips) show and close at once, as native menus do.
-
+  (8c51c26)
 - Desktop and phones: a `SkiaImage` with an `http(s)` source is downloaded and shown when the
-  `http` feature is on (redirects followed), as assets are.
+  `http` feature is on (redirects followed), as assets are. (ad50f3e)
 
 ## 1.0.2 (crates.io, 2026-11-20)
 

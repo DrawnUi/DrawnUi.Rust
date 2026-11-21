@@ -8,7 +8,6 @@ repository = "https://github.com/DrawnUi/DrawnUi.Rust"
 readme = "README.md"
 keywords = ["drawnui", "audio", "sound", "mixer", "game"]
 categories = ["multimedia::audio", "game-development"]
-publish = false
 include = ["src/**/*", "build.rs", "README.md", "CHANGELOG.md"]
 
 [features]

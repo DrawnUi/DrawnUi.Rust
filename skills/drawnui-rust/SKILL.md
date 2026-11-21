@@ -890,6 +890,10 @@ Sound lives in its own crate next to drawnui, `drawnui-audio`, on Windows, macOS
 Android and the browser, in Impulse Tracker's model: numbered channels play samples as notes. It
 needs nothing from the engine: any app adds it.
 
+```toml
+drawnui-audio = "0.1"
+```
+
 ```rust
 use drawnui_audio::{Audio, Layout, Loop, Note, Sample};
 

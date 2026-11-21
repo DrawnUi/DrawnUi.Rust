@@ -8,7 +8,7 @@ audio side. Everything is mixed with its own volume, then a master volume.
 
 ```toml
 [dependencies]
-drawnui-audio = { git = "https://github.com/DrawnUi/DrawnUi.Rust" }
+drawnui-audio = "0.1"
 ```
 
 ## Open an output
