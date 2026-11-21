@@ -1091,7 +1091,7 @@ toasts a lighter surface here. `PopupOptions::background_color` still overrides 
 
 ## Image effects: one color effect per picture, Recolor for themed art
 
-`SkiaImage` (and `SkiaImageTiles`, `SkiaGif`) take one color effect, `add_effect(SkiaImageEffect::...)`,
+`SkiaImage` (and `SkiaImageTiles`) take one color effect, `add_effect(SkiaImageEffect::...)`,
 whose amount is the property of the same name: `Tint` (`color_tint` + `effect_blend_mode`),
 `Darken` / `Lighten`, `Grayscale`, `Sepia`, `InvertColors`, `Contrast`, `Saturation`,
 `Brightness`, `Gamma`, `TSL`, `HSL`, `Custom` (`paint_color_filter`), `Recolor`; `blur` comes on top.

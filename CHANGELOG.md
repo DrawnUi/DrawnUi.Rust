@@ -4,6 +4,18 @@ Versions follow semver from 1.0.1, tagged `v<version>`; before it they were `0.1
 `v0.1.0-preview.N`. Each release lists what was added, what behaves differently, and what breaks code
 written for the version before it. Commits in parentheses.
 
+## Unreleased
+
+### Added
+
+- `SkiaImageEffect::Recolor`: the picture's light and shade in the colors of `color_tint`,
+  spread by `contrast`, as C# SkiaImageEffects.Recolor. (e199194)
+
+### Changed
+
+- `SkiaImageTiles` draws with the image's effects (color effect, blur), over the whole tiled
+  picture at once. (e199194)
+
 ## 1.1.0 (crates.io, 2026-11-21)
 
 ### Added
