@@ -825,11 +825,22 @@ fn a_toast_slides_up_waits_without_frames_and_leaves() {
     let shown = host.time_ms();
     host.frame();
     let toast = overlays(&host, 3)[0];
-    let frames = trace(&mut host, |h| h.ui.tree.base(toast).unwrap().p.opacity);
+    let slide = std::cell::RefCell::new(Vec::new());
+    let frames = trace(&mut host, |h| {
+        let b = h.ui.tree.base(toast).unwrap();
+        if b.p.opacity > 0.0 {
+            slide.borrow_mut().push((b.p.opacity, b.p.translation_y));
+        }
+        b.p.opacity
+    });
     // Up from its own height and in, 300 ms linear.
     let expected: Vec<f32> = (0..19).map(|i| 16.0 * i as f32 / 300.0).chain([1.0]).collect();
     assert_frames(&frames, &expected);
     let height = host.rect(toast).height();
+    // Its top edge rises with the fade: the slide covers its whole height.
+    for (opacity, y) in slide.into_inner() {
+        assert!((y - height * (1.0 - opacity)).abs() < 0.5, "translation {y} at opacity {opacity}, height {height}");
+    }
     // One line of 16 points plus 24 points around it.
     assert!(height > 60.0 && height < 80.0, "{height}");
     assert_eq!(host.rect(toast).bottom, H);
