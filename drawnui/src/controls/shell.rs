@@ -132,7 +132,7 @@ pub struct PopupOptions {
     pub close_when_background_tapped: bool,
     /// Dims the page behind.
     pub show_overlay: bool,
-    /// The dim color; `None` = `SkiaShell::POPUP_BACKGROUND_COLOR`.
+    /// The dim color; `None` = `ShellDefaults::popup_background_color`.
     pub background_color: Option<Color>,
 }
 
@@ -352,16 +352,90 @@ pub struct SkiaShell {
     on_changed: Option<ChangedHandler>,
 }
 
-impl SkiaShell {
+/// The looks every shell of the app gives its toasts, popups and tab bar, read when one is shown
+/// (C# SkiaShell's static ToastBackgroundColor, PopupBackgroundColor ..., React ShellDefaults).
+/// Change them with `SkiaShell::set_defaults`, before the shell shows what they style.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShellDefaults {
     /// Toast background (C# ToastBackgroundColor).
+    pub toast_background_color: Color,
+    /// Text of `show_toast` (C# ToastTextColor).
+    pub toast_text_color: Color,
+    /// Font alias of `show_toast`'s text; empty: the app's default font (C# ToastTextFont).
+    pub toast_text_font: String,
+    /// Weight of `show_toast`'s text; 0: the font's own (C# ToastTextFontWeight).
+    pub toast_text_font_weight: i32,
+    /// Points (C# ToastTextSize).
+    pub toast_text_size: f32,
+    /// Points around `show_toast`'s text (C# ToastTextMargins).
+    pub toast_text_margins: f32,
+    /// The dim behind popups and modals (C# PopupBackgroundColor).
+    pub popup_background_color: Color,
+    /// Points of blur behind popups and modals (C# PopupsBackgroundBlur).
+    pub popups_background_blur: f32,
+    /// Milliseconds a popup takes to open or close (C# PopupsAnimationSpeed).
+    pub popups_animation_speed: f32,
+    /// Caption and indicator of the selected tab.
+    pub tab_selected_color: Color,
+    /// Caption of the other tabs.
+    pub tab_color: Color,
+}
+
+impl Default for ShellDefaults {
+    fn default() -> Self {
+        Self {
+            toast_background_color: SkiaShell::TOAST_BACKGROUND_COLOR,
+            toast_text_color: SkiaShell::TOAST_TEXT_COLOR,
+            toast_text_font: String::new(),
+            toast_text_font_weight: 0,
+            toast_text_size: SkiaShell::TOAST_TEXT_SIZE,
+            toast_text_margins: SkiaShell::TOAST_TEXT_MARGINS,
+            popup_background_color: SkiaShell::POPUP_BACKGROUND_COLOR,
+            popups_background_blur: SkiaShell::POPUPS_BACKGROUND_BLUR,
+            popups_animation_speed: SkiaShell::POPUPS_ANIMATION_SPEED,
+            tab_selected_color: SkiaShell::TAB_SELECTED_COLOR,
+            tab_color: SkiaShell::TAB_COLOR,
+        }
+    }
+}
+
+thread_local! {
+    /// The UI thread's shell defaults.
+    static DEFAULTS: std::cell::RefCell<ShellDefaults> = std::cell::RefCell::new(ShellDefaults::default());
+}
+
+/// The defaults as they are now.
+fn defaults() -> ShellDefaults {
+    DEFAULTS.with(|d| d.borrow().clone())
+}
+
+impl SkiaShell {
+    /// The looks every shell of the app gives its toasts, popups and tab bar now.
+    pub fn defaults() -> ShellDefaults {
+        defaults()
+    }
+
+    /// Changes the looks every shell of the app gives its toasts, popups and tab bar, from the
+    /// next one shown (C# `SkiaShell.ToastBackgroundColor = ...`). The constants below are the
+    /// built-in values.
+    ///
+    /// ```
+    /// use drawnui::prelude::*;
+    /// SkiaShell::set_defaults(ShellDefaults { toast_background_color: Color::from_rgb(0x2B, 0x30, 0x35), ..SkiaShell::defaults() });
+    /// ```
+    pub fn set_defaults(defaults: ShellDefaults) {
+        DEFAULTS.with(|d| *d.borrow_mut() = defaults);
+    }
+
+    /// Built-in toast background (C# ToastBackgroundColor).
     pub const TOAST_BACKGROUND_COLOR: Color = Color::new(0xCC00_0000);
-    /// Toast text (C# ToastTextColor).
+    /// Built-in toast text (C# ToastTextColor).
     pub const TOAST_TEXT_COLOR: Color = Color::WHITE;
     /// Points.
     pub const TOAST_TEXT_SIZE: f32 = 16.0;
     /// Points around the toast text.
     pub const TOAST_TEXT_MARGINS: f32 = 24.0;
-    /// The dim behind popups and modals (C# PopupBackgroundColor).
+    /// Built-in dim behind popups and modals (C# PopupBackgroundColor).
     pub const POPUP_BACKGROUND_COLOR: Color = Color::new(0x6600_0000);
     /// Points of blur behind popups and modals (C# PopupsBackgroundBlur).
     pub const POPUPS_BACKGROUND_BLUR: f32 = 6.0;
@@ -557,7 +631,7 @@ impl SkiaShell {
                 .height_request(3)
                 .width_request(36)
                 .corner_radius(2)
-                .background_color(Self::TAB_SELECTED_COLOR)
+                .background_color(defaults().tab_selected_color)
                 .horizontal_options(LayoutOptions::Center)
                 .vertical_options(LayoutOptions::End)
                 .input_transparent(true)
@@ -570,7 +644,10 @@ impl SkiaShell {
                 .corner_radius(0)
                 .font_size(13)
                 .font_family(if selected { "FontTextBold" } else { "" })
-                .text_color(if selected { Self::TAB_SELECTED_COLOR } else { Self::TAB_COLOR })
+                .text_color({
+                    let d = defaults();
+                    if selected { d.tab_selected_color } else { d.tab_color }
+                })
                 .accessibility_role(Aria::BUTTON)
                 .accessibility_label(title.as_str());
             self.tab_bar.push((button, indicator_id));
@@ -865,10 +942,13 @@ impl Cx<'_> {
     /// A banner of markdown text at the bottom for `ms` milliseconds; it slides up and fades in,
     /// then down and out. A toast shown before goes at once (C# ShowToast).
     pub fn show_toast(&mut self, shell: impl Into<ControlId>, text: &str, ms: impl IntoProp<f32>) {
+        let d = defaults();
         let label = SkiaRichLabel::new(text)
-            .text_color(SkiaShell::TOAST_TEXT_COLOR)
-            .font_size(SkiaShell::TOAST_TEXT_SIZE)
-            .margin(SkiaShell::TOAST_TEXT_MARGINS)
+            .text_color(d.toast_text_color)
+            .font_family(d.toast_text_font)
+            .font_weight(d.toast_text_font_weight)
+            .font_size(d.toast_text_size)
+            .margin(d.toast_text_margins)
             .fill_x();
         self.show_toast_content(shell, label, ms);
     }
@@ -1492,7 +1572,8 @@ fn paint_tab_bar(tree: &mut Tree, id: ControlId) {
         let on = i == selected;
         if let Some(mut b) = tree.get_mut(button) {
             b.set_font_family(if on { "FontTextBold" } else { "" });
-            b.set_text_color(if on { SkiaShell::TAB_SELECTED_COLOR } else { SkiaShell::TAB_COLOR });
+            let d = defaults();
+            b.set_text_color(if on { d.tab_selected_color } else { d.tab_color });
         }
         set_visible(tree, indicator, on);
     }
@@ -1512,7 +1593,7 @@ fn open_popup(cx: &mut Cx, id: ControlId, state: &mut dyn Any, content: Detached
     // Screen readers and Tab keep to the popup while it shows (drawnui-cross 6av).
     let mut wrapper = Build::new(wrapper).fill().block_gestures_below(true).opacity(if o.animated { 0.1 } else { 1.0 }).internal().accessibility_modal(true);
     if o.show_overlay {
-        let dim = o.background_color.unwrap_or(SkiaShell::POPUP_BACKGROUND_COLOR);
+        let dim = o.background_color.unwrap_or_else(|| defaults().popup_background_color);
         wrapper.push_child(backdrop(dim).internal_tree());
     }
     wrapper.push_child(inner);
@@ -1526,7 +1607,7 @@ fn open_popup(cx: &mut Cx, id: ControlId, state: &mut dyn Any, content: Detached
     }));
     let wrapper = cx.add_child(layer, wrapper);
     let animation = o.animated.then(|| {
-        cx.animate(wrapper, SkiaShell::POPUPS_ANIMATION_SPEED, easing::linear, move |v, cx| {
+        cx.animate(wrapper, defaults().popups_animation_speed, easing::linear, move |v, cx| {
             if let Some(mut c) = cx.any_mut(wrapper) {
                 c.set_opacity(lerp(0.1, 1.0, v));
             }
@@ -1582,7 +1663,7 @@ fn close_popup_now(cx: &mut Cx, id: ControlId, state: &mut dyn Any, wrapper: Con
     if animated && own {
         let opacity = cx.base(wrapper).map_or(1.0, |b| b.p.opacity);
         let scale = cx.base(content).map_or(1.0, |b| b.p.scale_x);
-        let animation = cx.animate(wrapper, SkiaShell::POPUPS_ANIMATION_SPEED, easing::linear, move |v, cx| {
+        let animation = cx.animate(wrapper, defaults().popups_animation_speed, easing::linear, move |v, cx| {
             if let Some(mut c) = cx.any_mut(wrapper) {
                 c.set_opacity(lerp(opacity, 0.0, v));
             }
@@ -1606,7 +1687,7 @@ fn close_popup_now(cx: &mut Cx, id: ControlId, state: &mut dyn Any, wrapper: Con
 
 /// The blurred, dimmed page behind a popup or a modal.
 fn backdrop(color: Color) -> Build<SkiaBackdrop> {
-    SkiaBackdrop::new().blur(SkiaShell::POPUPS_BACKGROUND_BLUR).background_color(color).input_transparent(true)
+    SkiaBackdrop::new().blur(defaults().popups_background_blur).background_color(color).input_transparent(true)
 }
 
 /// Removes a popup, modal or toast and forgets it.
@@ -1638,7 +1719,7 @@ fn push_modal(cx: &mut Cx, id: ControlId, state: &mut dyn Any, content: Detached
         .block_gestures_below(true)
         .internal()
         .children(content);
-    let dim = o.freeze_background.then(|| backdrop(SkiaShell::POPUP_BACKGROUND_COLOR).internal_tree());
+    let dim = o.freeze_background.then(|| backdrop(defaults().popup_background_color).internal_tree());
     // Screen readers and Tab keep to the modal while it shows (drawnui-cross 6av).
     let wrapper = SkiaLayer::new().fill().block_gestures_below(true).internal().accessibility_modal(true);
     let (wrapper_id, drawer_id) = (wrapper.id(), drawer.id());
@@ -1742,7 +1823,7 @@ fn show_toast(cx: &mut Cx, id: ControlId, content: Detached, ms: f32) {
     let Some(layer) = shell(cx.tree, id).and_then(|s| s.parts).map(|p| p.toasts) else { return };
     let toast = SkiaLayer::new()
         .vertical_options(LayoutOptions::End)
-        .background_color(SkiaShell::TOAST_BACKGROUND_COLOR)
+        .background_color(defaults().toast_background_color)
         .block_gestures_below(true)
         .use_cache(CacheType::Operations)
         .opacity(0)

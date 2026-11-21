@@ -98,7 +98,7 @@ pub mod prelude {
     pub use crate::controls::shape::{BevelType, ShapeBuild, ShapeSet, ShapeType, SkiaBevel, SkiaShape};
     pub use crate::controls::shell::{
         ModalOptions, NavigationSource, PopupOptions, ShellArguments, ShellBuild, ShellNavigatedArgs, ShellNavigatingArgs,
-        ShellSet, SkiaShell, build_route, split_route,
+        ShellDefaults, ShellSet, SkiaShell, build_route, split_route,
     };
     pub use crate::controls::sprite::{SkiaSprite, SkiaSpriteSet, SpriteBuild, SpriteSet, SpriteSetBuild, SpriteSetSet};
     #[cfg(feature = "svg")]

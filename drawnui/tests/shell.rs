@@ -999,3 +999,27 @@ fn a_button_under_a_popup_background_shows_no_hand() {
     host.hover(r.center_x() + 1.0, r.center_y());
     assert_eq!(host.ui.cursor(), Cursor::Default, "under the popup's background");
 }
+
+#[test]
+fn the_app_sets_the_looks_of_toasts_and_popups_for_every_shell() {
+    let red = Color::from_rgb(255, 0, 0);
+    SkiaShell::set_defaults(ShellDefaults { toast_background_color: red, toast_text_size: 32.0, popups_animation_speed: 96.0, ..SkiaShell::defaults() });
+    let mut host = pages();
+    let id = host.ui.state.shell;
+    host.ui.tree.cx().show_toast(id, "Saved", 1000);
+    host.frame();
+    let toast = overlays(&host, 3)[0];
+    trace(&mut host, |h| h.ui.tree.base(toast).unwrap().p.opacity);
+    // The toast's corner is the color the app chose; a 32 pt line makes it taller than 16 pt (60 to 80).
+    assert_eq!(host.pixel(2, H as i32 - 2), red);
+    assert!(host.rect(toast).height() > 80.0, "{}", host.rect(toast).height());
+    host.settle();
+    // Popups open in the app's 96 ms: 0.1 -> 1 in 6 frames of 16 ms.
+    host.ui.tree.cx().open_popup(id, card(), PopupOptions::default());
+    host.frame();
+    let wrapper = overlays(&host, 2)[0];
+    let frames = trace(&mut host, |h| h.ui.tree.base(wrapper).unwrap().p.opacity);
+    let expected: Vec<f32> = (0..6).map(|i| 0.1 + 0.9 * (16.0 * i as f32 / 96.0)).chain([1.0]).collect();
+    assert_frames(&frames, &expected);
+    SkiaShell::set_defaults(ShellDefaults::default());
+}

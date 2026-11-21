@@ -6,7 +6,17 @@ written for the version before it. Commits in parentheses.
 
 ## Unreleased
 
+### Added
+
+- `SkiaShell::set_defaults(ShellDefaults { .. })`: the app sets the looks every shell gives its
+  toasts (background, text color, font, weight, size, margins), popups and modals (dim color,
+  blur, open and close time) and tab bar, as C# `SkiaShell.ToastBackgroundColor` and the other
+  static settings do. `SkiaShell::defaults()` reads them; the `SkiaShell` constants stay the
+  built-in values.
+
 ### Changed
+
+- Desktop: popup windows (menus, dropdowns, tooltips) show and close at once, as native menus do.
 
 - Desktop and phones: a `SkiaImage` with an `http(s)` source is downloaded and shown when the
   `http` feature is on (redirects followed), as assets are.

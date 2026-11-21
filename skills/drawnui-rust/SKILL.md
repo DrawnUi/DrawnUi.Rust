@@ -1065,3 +1065,22 @@ out of the tree: `cx.get_mut(its handle)` returns `None` for it. A shared "resty
 function called from the tapped button's handler therefore restyles all the others and silently
 skips the tapped one. Set the tapped control's own look through `me` in its handler (or let a frame
 tick restyle from state afterwards).
+
+## Toast, popup and tab bar looks for the whole app
+
+`SkiaShell` reads its looks from app-wide defaults each time it shows something, as C#'s static
+`SkiaShell.ToastBackgroundColor` and friends. Set them once at startup, before the first toast:
+
+```rust
+SkiaShell::set_defaults(ShellDefaults {
+    toast_background_color: Color::from_rgb(0x2B, 0x30, 0x35), // a surface that shows on a dark page
+    toast_text_font: "FontText".into(),
+    popups_animation_speed: 200.0,
+    ..SkiaShell::defaults()
+});
+```
+
+Fields: toast background, text color, font, weight, size and margins; the dim color, blur and
+open / close time of popups and modals; the tab bar's selected and other captions. The default
+toast is `#CC000000`: on a near-black page its slide up is hard to see, so a dark theme gives
+toasts a lighter surface here. `PopupOptions::background_color` still overrides the dim for one popup.
