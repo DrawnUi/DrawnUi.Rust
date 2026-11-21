@@ -1043,3 +1043,25 @@ window next to the app. The library cannot change that; the app's `main.rs` can:
 Release builds are then a plain Windows app; debug builds keep the console for logs and panic
 messages. A release build no longer shows anything printed (frame-timing lines, warnings, panic
 text): keep the console in tools that report through it (benchmarks).
+
+## Text columns in a label (hex dumps, tables in a mono font)
+
+A `SkiaLabel` folds a run of spaces into one, so columns built with spaces lose their alignment
+(a hex dump's double gap, a disassembly's indent). Put no-break spaces (`'\u{A0}'`) where the
+spacing must hold; with a monospaced font registered by `Ui::font` the columns then line up exactly.
+
+## A loop that must run under SkiaShell pages (emulators, simulations, audio)
+
+The frame loop of a hidden control pauses (`DrawnGame`, animators: C# `IsHiddenInViewTree`), and
+`SkiaShell` hides its root once a page has slid over it. A `DrawnGame` inside the shell's root
+therefore stops while a page shows. When the work must go on (an emulator a debugger page looks
+at), put the `DrawnGame` around the shell (and the app's bar) instead; it draws nothing itself, so
+the pages cost no extra drawing, and the root's own controls repaint only when they mark themselves.
+
+## A control's own handler: change it through `me`
+
+While a handler of a control runs (`on_tapped`, `on_hovered`, `on_key_down` ...), that control is
+out of the tree: `cx.get_mut(its handle)` returns `None` for it. A shared "restyle every button"
+function called from the tapped button's handler therefore restyles all the others and silently
+skips the tapped one. Set the tapped control's own look through `me` in its handler (or let a frame
+tick restyle from state afterwards).
