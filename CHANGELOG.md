@@ -4,6 +4,13 @@ Versions follow semver from 1.0.1, tagged `v<version>`; before it they were `0.1
 `v0.1.0-preview.N`. Each release lists what was added, what behaves differently, and what breaks code
 written for the version before it. Commits in parentheses.
 
+## Unreleased
+
+### Changed
+
+- Desktop and phones: a `SkiaImage` with an `http(s)` source is downloaded and shown when the
+  `http` feature is on (redirects followed), as assets are.
+
 ## 1.0.2 (crates.io, 2026-11-20)
 
 ### Changed

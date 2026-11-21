@@ -675,13 +675,33 @@ macro_rules! warn {
 #[cfg(feature = "http")]
 fn download(id: u32, url: String, proxy: EventLoopProxy<Arrived>) {
     std::thread::spawn(move || {
-        let read = ureq::get(&url).call().and_then(|mut response| response.body_mut().with_config().limit(256 << 20).read_to_vec());
-        let bytes = read.unwrap_or_else(|e| {
+        let bytes = fetch(&url).unwrap_or_else(|e| {
             warn!("asset {url}: {e}");
             Vec::new()
         });
         let _ = proxy.send_event(Arrived::Asset(id, bytes));
     });
+}
+
+/// The bytes at a web address (redirects followed, 256 MB at most), on the calling thread.
+#[cfg(feature = "http")]
+fn fetch(url: &str) -> Result<Vec<u8>, String> {
+    ureq::get(url).call().and_then(|mut response| response.body_mut().with_config().limit(256 << 20).read_to_vec()).map_err(|e| e.to_string())
+}
+
+/// An image source's bytes: a web address is downloaded (feature `http`), anything else is a file
+/// of the app.
+fn read_image_source(path: &str) -> Result<Vec<u8>, String> {
+    let web = path.starts_with("http://") || path.starts_with("https://");
+    #[cfg(feature = "http")]
+    if web {
+        return fetch(path);
+    }
+    #[cfg(not(feature = "http"))]
+    if web {
+        return Err("a web address needs drawnui's \"http\" feature".into());
+    }
+    read_app_file(path).map_err(|e| e.to_string())
 }
 
 /// The threads that read and decode image files, so the frame thread never does: one per spare
@@ -700,7 +720,7 @@ fn image_workers(proxy: EventLoopProxy<Arrived>) -> Sender<ImageRequest> {
                 let Ok(request) = queue.lock().expect("an image worker panicked").recv() else { break };
                 // A source is a URL: what follows `#` is not part of the file name.
                 let path = request.source.split('#').next().unwrap_or_default();
-                let decoded = match read_app_file(path) {
+                let decoded = match read_image_source(path) {
                     Ok(bytes) if request.frames => Images::decode_frames(&bytes),
                     Ok(bytes) => Images::decode(&bytes, request.width, request.height),
                     Err(e) => {
@@ -4559,4 +4579,21 @@ fn summary(values: &mut [f32]) -> String {
     values.sort_by(f32::total_cmp);
     let at = |p: f32| values[((values.len() - 1) as f32 * p) as usize];
     format!("p50 {:.2} p95 {:.2} p99 {:.2} max {:.2}", at(0.5), at(0.95), at(0.99), at(1.0))
+}
+
+#[cfg(all(test, not(any(target_os = "ios", target_os = "android"))))]
+mod image_source_tests {
+    use super::read_image_source;
+
+    /// An image at a web address is downloaded with the "http" feature and reported clearly
+    /// without it; any other source is an app file.
+    #[test]
+    fn an_image_source_is_a_web_address_or_an_app_file() {
+        let web = read_image_source("https://example.invalid/a.png");
+        #[cfg(not(feature = "http"))]
+        assert_eq!(web, Err("a web address needs drawnui's \"http\" feature".to_string()));
+        #[cfg(feature = "http")]
+        assert!(web.is_err(), "no such host");
+        assert!(read_image_source("no-such-file.png").is_err());
+    }
 }
