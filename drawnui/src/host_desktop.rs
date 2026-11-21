@@ -2591,6 +2591,11 @@ impl Desktop {
                         warn!("no popup window could be made");
                         continue;
                     };
+                    // Shown and closed at once, as native menus are: no DWM fade or zoom (Windows).
+                    #[cfg(windows)]
+                    win::no_transitions(&window);
+                    #[cfg(target_os = "macos")]
+                    mac_no_animation(&window);
                     // A tooltip: the mouse goes through it to the app's window.
                     if request.passive {
                         let _ = window.set_cursor_hittest(false);
@@ -2811,6 +2816,19 @@ impl Desktop {
 /// windows come above it. X11: override-redirect (the window manager does not decorate, move or
 /// focus it).
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
+/// macOS: a popup window comes and goes at once, as native menus do (no AppKit window animation).
+#[cfg(target_os = "macos")]
+fn mac_no_animation(window: &Window) {
+    use objc2_app_kit::{NSView, NSWindowAnimationBehavior};
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let Ok(RawWindowHandle::AppKit(handle)) = window.window_handle().map(|h| h.as_raw()) else { return };
+    // SAFETY: winit's view lives as long as the window; called on the main thread (the event loop).
+    let view = unsafe { &*(handle.ns_view.as_ptr() as *const NSView) };
+    if let Some(window) = view.window() {
+        window.setAnimationBehavior(NSWindowAnimationBehavior::None);
+    }
+}
+
 fn popup_attributes(main: &Window) -> WindowAttributes {
     let attributes = WindowAttributes::default()
         .with_title("")
@@ -2926,6 +2944,10 @@ mod win {
     unsafe extern "system" {
         fn SetWindowSubclass(window: isize, proc_: Option<SubclassProc>, id: usize, data: usize) -> i32;
         fn DefSubclassProc(window: isize, msg: u32, wparam: usize, lparam: isize) -> isize;
+    }
+    #[link(name = "dwmapi")]
+    unsafe extern "system" {
+        fn DwmSetWindowAttribute(window: isize, attribute: u32, value: *const std::ffi::c_void, size: u32) -> i32;
     }
     #[link(name = "advapi32")]
     unsafe extern "system" {
@@ -3060,6 +3082,16 @@ mod win {
 
     /// A click on the window never activates it (native menus): the app's window keeps the
     /// keyboard and its title bar stays active.
+    /// No DWM transition when the window is shown or hidden (the fade of a popup window).
+    pub(super) fn no_transitions(window: &winit::window::Window) {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        const DWMWA_TRANSITIONS_FORCEDISABLED: u32 = 3;
+        let Ok(RawWindowHandle::Win32(handle)) = window.window_handle().map(|h| h.as_raw()) else { return };
+        let disabled: i32 = 1;
+        // SAFETY: a live window of this thread; a 4-byte BOOL.
+        unsafe { DwmSetWindowAttribute(handle.hwnd.get(), DWMWA_TRANSITIONS_FORCEDISABLED, (&disabled as *const i32).cast(), 4) };
+    }
+
     pub(super) fn no_activate(window: &winit::window::Window) {
         use raw_window_handle::{HasWindowHandle, RawWindowHandle};
         let Ok(RawWindowHandle::Win32(handle)) = window.window_handle().map(|h| h.as_raw()) else { return };
