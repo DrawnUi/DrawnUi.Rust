@@ -248,7 +248,7 @@ choice_text! {
     SkiaTouchAnimation: [None, Ripple];
     TextTransform: [None, Lowercase, Uppercase, Titlecase];
     SnapToChildrenType: [Disabled, Side, Center];
-    SkiaImageEffect: [None, BlackAndWhite, Pastel, Tint, Darken, Lighten, Grayscale, Sepia, InvertColors, Contrast, Saturation, Brightness, Gamma, TSL, HSL, Custom];
+    SkiaImageEffect: [None, BlackAndWhite, Pastel, Tint, Darken, Lighten, Grayscale, Sepia, InvertColors, Contrast, Saturation, Brightness, Gamma, TSL, HSL, Custom, Recolor];
     ShapeType: [Rectangle, Circle, Ellipse, Arc, Path, Polygon, Line];
     ScrollOrientation: [Vertical, Horizontal, Both, Neither];
     ScrollBarDock: [End, Start];

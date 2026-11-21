@@ -1088,3 +1088,25 @@ Fields: toast background, text color, font, weight, size and margins; the dim co
 open / close time of popups and modals; the tab bar's selected and other captions. The default
 toast is `#CC000000`: on a near-black page its slide up is hard to see, so a dark theme gives
 toasts a lighter surface here. `PopupOptions::background_color` still overrides the dim for one popup.
+
+## Image effects: one color effect per picture, Recolor for themed art
+
+`SkiaImage` (and `SkiaImageTiles`, `SkiaGif`) take one color effect, `add_effect(SkiaImageEffect::...)`,
+whose amount is the property of the same name: `Tint` (`color_tint` + `effect_blend_mode`),
+`Darken` / `Lighten`, `Grayscale`, `Sepia`, `InvertColors`, `Contrast`, `Saturation`,
+`Brightness`, `Gamma`, `TSL`, `HSL`, `Custom` (`paint_color_filter`), `Recolor`; `blur` comes on top.
+
+`Recolor` repaints a picture in one color while keeping its light and shade: each pixel becomes
+`color_tint x ((luma - 0.5) x contrast + 0.5)` (luma = 0.30 R + 0.57 G + 0.13 B, alpha kept). Use it
+to theme gray or single-color art (bricks, icons, tiles) from one asset: one picture, any palette.
+`contrast` (default 1) spreads dark and light apart; a transparent tint shows the picture as it is.
+
+```rust
+SkiaImage::new("brick.png")
+    .add_effect(SkiaImageEffect::Recolor)
+    .color_tint(Color::from_rgb(190, 140, 45))
+    .contrast(1.6)
+```
+
+On `SkiaImageTiles` the effect covers the whole tiled picture at once (one layer), so every tile
+matches.

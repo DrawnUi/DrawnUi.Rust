@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use skia_safe::{
     BlendMode, ClipOp, Color, ColorFilter, Contains, CubicResampler, FilterMode, ISize, Image, ImageFilter, ImageInfo,
-    MipmapMode, Paint, Rect, SamplingOptions, Size, TileMode, color_filters, image_filters, surfaces,
+    MipmapMode, Paint, Rect, SamplingOptions, Size, TileMode, canvas::SaveLayerRec, color_filters, image_filters, surfaces,
 };
 
 use crate::control::{Control, Has, LayoutCx, PaintCx, part_mut};
@@ -93,6 +93,10 @@ pub enum SkiaImageEffect {
     HSL,
     /// `paint_color_filter` as it is.
     Custom,
+    /// The picture's lightness in the colors of `color_tint`: dark parts take a dark shade of the
+    /// tint, light parts a light one; `contrast` spreads them (1 = as they are). A transparent
+    /// tint draws the picture as it is.
+    Recolor,
 }
 
 props!(@table ImageProps, ImageBuild, ImageSet {
@@ -328,6 +332,22 @@ fn color_filter(p: &ImageProps, background: Option<Color>) -> Option<ColorFilter
         SkiaImageEffect::Tint if p.color_tint != Color::TRANSPARENT => {
             return color_filters::blend(p.color_tint, p.effect_blend_mode);
         }
+        // C# SkiaImageEffects.Recolor: luma = 0.30 R + 0.57 G + 0.13 B, each channel
+        // tint x ((luma - 0.5) x contrast + 0.5), alpha kept.
+        SkiaImageEffect::Recolor if p.color_tint != Color::TRANSPARENT => {
+            let c = p.contrast;
+            let row = |tint: u8| {
+                let t = tint as f32 / 255.0;
+                [0.30 * t * c, 0.57 * t * c, 0.13 * t * c, 0.0, 0.5 * (1.0 - c) * t]
+            };
+            let (r, g, b) = (row(p.color_tint.r()), row(p.color_tint.g()), row(p.color_tint.b()));
+            let mut m = [0.0f32; 20];
+            m[..5].copy_from_slice(&r);
+            m[5..10].copy_from_slice(&g);
+            m[10..15].copy_from_slice(&b);
+            m[18] = 1.0;
+            m
+        }
         // TSL blends the background color in; HSL the color at hue `gamma`, full saturation,
         // lightness `brightness`. Both need a background color, as upstream.
         SkiaImageEffect::TSL if background.is_some_and(|c| c != Color::TRANSPARENT) => {
@@ -391,6 +411,21 @@ impl ImageProps {
 }
 
 impl SkiaImage {
+    /// The paint of the effect properties for this paint's background and scale, made again only
+    /// when they changed (`on_props_changed` remakes it for the properties).
+    fn effect_paint(&self, cx: &PaintCx) -> std::cell::Ref<'_, Built> {
+        let background = cx.node(cx.id).and_then(|node| node.base.p.background_color);
+        let stale = {
+            let built = self.paint.borrow();
+            (built.background, built.scale) != (background, cx.scale)
+        };
+        if stale {
+            let paint = self.p.build_paint(background, cx.scale);
+            *self.paint.borrow_mut() = Built { paint, background, scale: cx.scale };
+        }
+        self.paint.borrow()
+    }
+
     #[allow(clippy::new_ret_no_self)]
     pub fn new(source: impl IntoProp<String>) -> Build<SkiaImage> {
         Build::new(SkiaImage::default()).source(source)
@@ -500,16 +535,7 @@ impl Control for SkiaImage {
 
     fn paint(&self, cx: &mut PaintCx) {
         let (Some(image), Some(display)) = (self.image(), self.display_rect(cx.rect, cx.scale)) else { return };
-        let background = cx.node(cx.id).and_then(|node| node.base.p.background_color);
-        let stale = {
-            let built = self.paint.borrow();
-            (built.background, built.scale) != (background, cx.scale)
-        };
-        if stale {
-            let paint = self.p.build_paint(background, cx.scale);
-            *self.paint.borrow_mut() = Built { paint, background, scale: cx.scale };
-        }
-        let built = self.paint.borrow();
+        let built = self.effect_paint(cx);
         let enlarging = display.width() > image.width() as f32 || display.height() > image.height() as f32;
         // What sticks out of the box is cropped (C# ClipSource); a filter spreads past its picture.
         let clip = self.p.blur > 0.0 || self.p.paint_image_filter.get().is_some() || !cx.rect.contains(display);
@@ -661,11 +687,20 @@ impl Control for SkiaImageTiles {
         let tiles_y = ((dest.height() + offset_y.abs()) / th).ceil() as i32;
         let (start_x, start_y) = (dest.left - offset_x, dest.top - offset_y);
         let sampling = SamplingOptions::new(FilterMode::Nearest, MipmapMode::None);
+        // The image's effects (color filter, blur) go over the whole tiled picture once, as C#.
+        let built = self.image.effect_paint(cx);
+        let layered = built.paint.color_filter().is_some() || built.paint.image_filter().is_some();
+        if layered {
+            cx.canvas.save_layer(&SaveLayerRec::default().bounds(&dest).paint(&built.paint));
+        }
         for x in 0..tiles_x {
             for y in 0..tiles_y {
                 let at = (start_x + x as f32 * tw, start_y + y as f32 * th);
                 cx.canvas.draw_image_with_sampling_options(tile, at, sampling, None);
             }
+        }
+        if layered {
+            cx.canvas.restore();
         }
     }
 }
