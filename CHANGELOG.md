@@ -15,6 +15,8 @@ written for the version before it. Commits in parentheses.
 
 - `SkiaImageTiles` draws with the image's effects (color effect, blur), over the whole tiled
   picture at once. (e199194)
+- `SkiaEditor`: text scrolled to the caret stays inside the padding; a line the scroll cuts is
+  clipped at the padded box, not drawn over the padding and the border.
 
 ## 1.1.1 (crates.io, 2026-11-22)
 

@@ -1227,6 +1227,9 @@ impl Control for SkiaEditor {
         frame.inset((stroke / 2.0, stroke / 2.0));
         canvas.save();
         canvas.clip_rrect(frame, ClipOp::Intersect, true);
+        // The text scrolls inside the padding: a line the scroll cuts ends at the padded box, not
+        // over the padding and the border (C#).
+        canvas.clip_rect(inner, ClipOp::Intersect, true);
         cx.paint_children();
         canvas.restore();
         let canvas = cx.canvas;
