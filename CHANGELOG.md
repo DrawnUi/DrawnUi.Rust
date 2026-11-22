@@ -4,6 +4,13 @@ Versions follow semver from 1.0.1, tagged `v<version>`; before it they were `0.1
 `v0.1.0-preview.N`. Each release lists what was added, what behaves differently, and what breaks code
 written for the version before it. Commits in parentheses.
 
+## 1.1.1 (crates.io, 2026-11-22)
+
+### Changed
+
+- Desktop: a popup anchored to a control inside another popup window (a submenu beside its menu
+  line) opens next to that control, wherever the first popup's window was placed.
+
 ## 1.1.0 (crates.io, 2026-11-21)
 
 ### Added
