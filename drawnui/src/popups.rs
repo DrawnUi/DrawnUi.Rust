@@ -62,7 +62,19 @@ impl PopupAnchor {
         match self {
             PopupAnchor::Point(p) => (Rect::from_xywh(p.x * scale, p.y * scale, 0.0, 0.0), true),
             PopupAnchor::Rect(r) => (Rect::new(r.left * scale, r.top * scale, r.right * scale, r.bottom * scale), false),
-            PopupAnchor::Control(id) => (crate::ui::drawn_rect(tree, id).unwrap_or_default(), false),
+            PopupAnchor::Control(id) => {
+                let rect = crate::ui::drawn_rect(tree, id).unwrap_or_default();
+                // A control inside a popup with a window of its own is drawn in that window's
+                // pixels at its own scale: brought to the canvas from the window's corner.
+                let Some((root, (_, own, offset))) = tree.popup_of(id).and_then(|p| Some((p.root, p.window?))) else {
+                    return (rect, false);
+                };
+                let k = scale / own.max(0.01);
+                let origin = crate::ui::drawn_rect(tree, root).unwrap_or_default();
+                let left = offset.x + (rect.left - origin.left) * k;
+                let top = offset.y + (rect.top - origin.top) * k;
+                (Rect::from_xywh(left, top, rect.width() * k, rect.height() * k), false)
+            }
         }
     }
 }

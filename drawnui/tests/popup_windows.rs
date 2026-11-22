@@ -334,3 +334,40 @@ fn a_popup_id_is_the_number_its_window_request_carries() {
     let menu = host.ui.state.menu.unwrap();
     assert_eq!(host.popup_window_requests()[0].id, menu.get());
 }
+
+/// A submenu anchored to a line of a menu that has a window of its own opens beside that line on
+/// the canvas: the line's rect is in the menu window's pixels and scale, brought over from the
+/// window's corner.
+#[test]
+fn a_popup_anchored_to_a_control_in_a_popup_window_opens_beside_it_on_the_canvas() {
+    #[derive(Default)]
+    struct Menus {
+        line: Handle<SkiaShape>,
+    }
+    let ui = Ui::new(Menus::default(), |_| SkiaLayout::new().fill()).background(Color::WHITE);
+    let mut host = Headless::new(ui, 600, 400, 2.0);
+    host.settle();
+    host.popup_windows(true);
+    let mut line = Handle::default();
+    let menu = SkiaLayout::column()
+        .spacing(0.0)
+        .children((SkiaShape::new().width_request(120).height_request(30), SkiaShape::new().width_request(120).height_request(30).assign(&mut line)));
+    host.ui.tree.cx().open_popup_window(menu, Point::new(10.0, 10.0), PopupWindowOptions::default());
+    host.settle();
+    let menu_id = host.popup_window_requests()[0].id;
+    // The host made the menu's window at scale 1.5 (another monitor), its corner at (40, -30)
+    // from the canvas's corner, in the canvas's pixels (scale 2).
+    host.place_popup_window(menu_id, 180.0, 90.0, 1.5, Point::new(40.0, -30.0));
+    host.ui.tree.cx().open_popup_window(SkiaShape::new().width_request(80).height_request(40), line, PopupWindowOptions::default());
+    host.settle();
+    let sub = host.popup_window_requests().into_iter().find(|r| r.id != menu_id).expect("the submenu");
+    // The second line: 30 pt down in the menu, 120 x 30 pt; 45 x 180 window pixels at 1.5, 60 x 240
+    // canvas pixels at 2.
+    let want = Rect::from_xywh(40.0, -30.0 + 60.0, 240.0, 60.0);
+    let close = |a: f32, b: f32| (a - b).abs() < 0.5;
+    assert!(
+        close(sub.anchor.left, want.left) && close(sub.anchor.top, want.top) && close(sub.anchor.width(), want.width()) && close(sub.anchor.height(), want.height()),
+        "{:?}, expected {want:?}",
+        sub.anchor
+    );
+}
