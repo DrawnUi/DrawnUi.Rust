@@ -17,6 +17,8 @@ written for the version before it. Commits in parentheses.
   picture at once. (e199194)
 - `SkiaEditor`: text scrolled to the caret stays inside the padding; a line the scroll cuts is
   clipped at the padded box, not drawn over the padding and the border.
+- `SkiaEditor`: a caret moved from code (`set_cursor_position`, `set_selection`, `select_all`)
+  scrolls into view, as C# does.
 
 ## 1.1.1 (crates.io, 2026-11-22)
 

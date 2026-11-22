@@ -1095,13 +1095,22 @@ impl Control for SkiaEditor {
         self.chars = text.chars().count();
         self.cursor = self.cursor.min(self.chars);
         self.selection = self.selection.min(self.chars - self.cursor);
-        if self.p.text != self.reported {
+        let text_changed = self.p.text != self.reported;
+        if text_changed {
             self.pending |= TEXT_CHANGED;
             self.reveal = true;
         }
         self.update_labels(cx);
         if self.blink_at == 0.0 && self.focused {
             self.caret_on = true;
+        }
+        // The caret moved from code (set_cursor_position, set_selection ...) with the text as it was
+        // laid out: it comes into view now, as C# MoveCursorTo. A new text (the label's lines end
+        // elsewhere) waits for its layout, which brings the caret into view.
+        let laid_out = cx.tree.find::<SkiaLabel>(self.label).is_some_and(|l| l.text_lines().last().map_or(self.chars == 0, |line| line.end() == self.chars));
+        if self.reveal && !text_changed && laid_out {
+            let id = self.id;
+            self.reveal_now(cx.tree, id);
         }
         self.wake(cx.tree);
     }
@@ -1431,16 +1440,21 @@ impl SkiaEditor {
         // The handlers run in this frame's animator tick.
         self.wake(cx.tree);
         if !dirty.contains(Dirty::MEASURE) && self.reveal {
-            let base = cx.base();
-            let (inner, scale) = (Self::inner(base.rect, base.p.padding, base.scale), base.scale);
-            if let (Some(label), Some(label_base)) = (cx.tree.find::<SkiaLabel>(self.label), cx.tree.base(self.label)) {
-                let r = label_base.rect;
-                let size = Size::new(r.right - inner.left, r.bottom - inner.top);
-                self.scroll_to_caret(label, inner, size, scale);
-                self.reveal = false;
-                cx.tree.set_content_offset(cx.id, Point::new(-self.scroll.x, -self.scroll.y));
-            }
+            self.reveal_now(cx.tree, cx.id);
         }
         cx.invalidate(dirty);
+    }
+
+    /// Scrolls the caret into view with the layout as it is (the text unchanged since it).
+    fn reveal_now(&mut self, tree: &mut Tree, id: ControlId) {
+        let Some(base) = tree.base(id).filter(|b| !b.rect.is_empty()) else { return };
+        let (inner, scale) = (Self::inner(base.rect, base.p.padding, base.scale), base.scale);
+        if let (Some(label), Some(label_base)) = (tree.find::<SkiaLabel>(self.label), tree.base(self.label)) {
+            let r = label_base.rect;
+            let size = Size::new(r.right - inner.left, r.bottom - inner.top);
+            self.scroll_to_caret(label, inner, size, scale);
+            self.reveal = false;
+            tree.set_content_offset(id, Point::new(-self.scroll.x, -self.scroll.y));
+        }
     }
 }
