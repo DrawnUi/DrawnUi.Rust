@@ -15,8 +15,13 @@ written for the version before it. Commits in parentheses.
 
 - `SkiaImageTiles` draws with the image's effects (color effect, blur), over the whole tiled
   picture at once. (e199194)
-- Desktop: a popup window anchored to a control inside another popup window (a submenu at its
-  menu line) opens beside that control.
+
+## 1.1.1 (crates.io, 2026-11-22)
+
+### Changed
+
+- Desktop: a popup anchored to a control inside another popup window (a submenu beside its menu
+  line) opens next to that control, wherever the first popup's window was placed. (f6c9bca)
 
 ## 1.1.0 (crates.io, 2026-11-21)
 
