@@ -1110,3 +1110,39 @@ SkiaImage::new("brick.png")
 
 On `SkiaImageTiles` the effect covers the whole tiled picture at once (one layer), so every tile
 matches.
+
+## Several DrawnUI previews on one web page
+
+`DrawnUi.start` runs once per page, so a page with several live previews (cards in a grid, each
+its own effect) gives each one an iframe of a small host page that picks its view from the hash
+(`fx.html#halo`). Download and compile the wasm once in the parent page and hand the compiled
+module to every frame through emscripten's `instantiateWasm`:
+
+```js
+// parent page
+window.appWasm = fetch('app.wasm?v=<hash>').then(r => r.arrayBuffer())
+  .then(async bytes => ({ bytes, module: await WebAssembly.compile(bytes) }));
+// each frame
+const shared = parent !== window && parent.appWasm;
+const options = shared ? { instantiateWasm(imports, done) {
+  shared.then(async ({ module, bytes }) => {
+    try { done(await WebAssembly.instantiate(module, imports), module); }
+    catch (e) { const r = await WebAssembly.instantiate(bytes, imports); done(r.instance, r.module); }
+  });
+  return {};
+} } : {};
+DrawnUi.start({ canvas, create: () => createApp(options), history: false });
+```
+
+Measured with four previews (a 5.6 MB wasm, 2.2 MB compressed): Chromium reuses its HTTP cache
+across the frames, WebKit downloaded the wasm once per frame (11 MB) and drew its first frames
+after 6 to 8 s; with the shared module both engines download it once and every preview draws in
+under 1.2 s from page start. Browsers run no frames in an iframe that is off screen: a preview
+below the fold draws its first frame when it scrolls in, so measure first frames without scrolling.
+Stop the app's frame loop while its frame is off screen (an IntersectionObserver in the frame
+calling an exported function) so hidden previews cost nothing.
+
+A control of your own is a keyboard stop in the browser only when it says it can be used:
+implement `Control::accessibility_can_interact` (return `Some(true)`) next to its role and label.
+The page's overlay then gives it a Tab stop, and Enter or a screen reader's activation reaches it
+as a `Tapped` gesture with no `Down` before it.
