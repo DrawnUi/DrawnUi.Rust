@@ -95,8 +95,13 @@ pub fn key(app: &mut App, event: &KeyEvent, cx: &mut Cx) -> bool {
 /// The layer takes a tap on the page's empty space and can be focused, so the tap takes the focus
 /// away from a focused editor (no tap handler: no hand cursor over the page).
 pub fn scrolling(content: Build<SkiaLayout>) -> Build<SkiaLayout> {
-    // Horizontal drags go to the carousels and horizontal scrolls inside the page.
-    SkiaLayer::new().fill().block_gestures_below(true).can_be_focused(true).children(SkiaScroll::new().fill().ignore_wrong_direction(true).content(content))
+    // Horizontal drags go to the carousels and horizontal scrolls inside the page. A text field the
+    // soft keyboard would cover moves above it (phones).
+    SkiaLayer::new()
+        .fill()
+        .block_gestures_below(true)
+        .can_be_focused(true)
+        .children(SkiaScroll::new().fill().ignore_wrong_direction(true).adapt_to_keyboard_auto(true).adapt_to_keyboard_gap(16).content(content))
 }
 
 /// The content column of the React pages: centered, at most 720 points wide, as wide as its

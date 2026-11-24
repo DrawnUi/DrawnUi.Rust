@@ -564,7 +564,9 @@ impl Desktop {
         // The canvas starts at the window's top (edge to edge), not at the safe area's, which
         // is what `inner_position` reports on iOS (62 points lower on an iPhone 16 Pro).
         let origin = self.window.outer_position().map_or(0.0, |p| p.y as f64);
-        let height = self.window.inner_size().height as f32;
+        // The canvas's height, the whole window (`inner_size` is the safe area's: a closed keyboard
+        // would cover the canvas below it).
+        let height = self.surface_size().height as f32;
         let bottom = if top.is_finite() { (top * scale - origin) as f32 } else { f32::INFINITY };
         self.report_keyboard(bottom.min(height), height);
     }
