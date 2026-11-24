@@ -100,7 +100,7 @@ Please star ⭐ if you like it!
 
 | Crate | What it is | Version |
 |---|---|---|
-| [`drawnui`](https://crates.io/crates/drawnui) | the engine: controls, layouts, caches, gestures, animations, accessibility, the desktop, mobile and browser hosts | 1.1.1 |
+| [`drawnui`](https://crates.io/crates/drawnui) | the engine: controls, layouts, caches, gestures, animations, accessibility, the desktop, mobile and browser hosts | 1.2.0 |
 | [`drawnui-add3d`](https://crates.io/crates/drawnui-add3d) | the 3D add-on: real 3D models in a DrawnUI screen (glTF scenes with skeleton animations, many objects on one game field, shapes made in code); demo at [add3d.drawnui.net](https://add3d.drawnui.net) | 1.0.1 |
 | [`drawnui-audio`](https://crates.io/crates/drawnui-audio) | the sound add-on: channels that play samples in Impulse Tracker's model (volume, panning, loops, pitch), streams, generators and a mixer, on desktop, phones and the browser | 0.1.0 |
 | [`drawnui-skia-safe`](https://crates.io/crates/drawnui-skia-safe) | Skia for Rust: rust-skia's skia-safe plus SkMesh; drawnui re-exports it as `drawnui::skia` | 0.153.7 |
@@ -181,7 +181,24 @@ Per platform:
   android-activity = { git = "https://github.com/DrawnUi/android-activity", rev = "d45520c015edc340c16770c2266d711327ce01f1" }
   ```
 - **iOS:** [`dev/ios`](dev/ios) builds an `.app` bundle for the simulator, or a signed one for a
-  device.
+  device. Apps built with the iOS 27 SDK must adopt the scene lifecycle: the app's `Info.plist`
+  names drawnui's scene delegate (the scripts write it):
+  ```xml
+  <key>UIApplicationSceneManifest</key>
+  <dict>
+      <key>UIApplicationSupportsMultipleScenes</key><false/>
+      <key>UISceneConfigurations</key>
+      <dict>
+          <key>UIWindowSceneSessionRoleApplication</key>
+          <array>
+              <dict>
+                  <key>UISceneConfigurationName</key><string>Default Configuration</string>
+                  <key>UISceneDelegateClassName</key><string>DrawnUiSceneDelegate</string>
+              </dict>
+          </array>
+      </dict>
+  </dict>
+  ```
 - **Hot reload in the browser** (feature `hot-reload`): the app is built as an emscripten side module
   and swapped into the running engine with its state. Link that module with `-Bsymbolic`, so it runs
   its own code and not the previous module's; see [`hotreload.md`](hotreload.md).

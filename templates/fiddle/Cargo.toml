@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 # The engine; Skia comes with it, prebuilt for your platform, used as drawnui::skia.
-drawnui = "1.0"
+drawnui = "1.2"
 
 [build-dependencies]
 embed-resource = "3"

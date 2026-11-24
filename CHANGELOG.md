@@ -4,10 +4,13 @@ Versions follow semver from 1.0.1, tagged `v<version>`; before it they were `0.1
 `v0.1.0-preview.N`. Each release lists what was added, what behaves differently, and what breaks code
 written for the version before it. Commits in parentheses.
 
-## Unreleased
+## 1.2.0 (crates.io, 2026-11-24)
 
 ### Added
 
+- iOS: the scene lifecycle (UIScene), which apps built with the iOS 27 SDK must adopt to start. An
+  iOS app's Info.plist names drawnui's scene delegate in its `UIApplicationSceneManifest` (see the
+  iOS section of the README); the iOS scripts write it. (e7ae9d2)
 - `SkiaImageEffect::Recolor`: the picture's light and shade in the colors of `color_tint`,
   spread by `contrast`, as C# SkiaImageEffects.Recolor. (e199194)
 
@@ -19,6 +22,8 @@ written for the version before it. Commits in parentheses.
   clipped at the padded box, not drawn over the padding and the border.
 - `SkiaEditor`: a caret moved from code (`set_cursor_position`, `set_selection`, `select_all`)
   scrolls into view, as C# does.
+- iOS: a scroll with `adapt_to_keyboard_auto` moves a field above the soft keyboard measured
+  against the whole canvas; a closed keyboard covers nothing. (a019840)
 
 ## 1.1.1 (crates.io, 2026-11-22)
 

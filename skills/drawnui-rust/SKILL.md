@@ -1146,3 +1146,36 @@ A control of your own is a keyboard stop in the browser only when it says it can
 implement `Control::accessibility_can_interact` (return `Some(true)`) next to its role and label.
 The page's overlay then gives it a Tab stop, and Enter or a screen reader's activation reaches it
 as a `Tapped` gesture with no `Down` before it.
+
+## iOS app: the scene lifecycle (iOS 27 SDK)
+
+An iOS app linked with the iOS 27 SDK (Xcode 27) stops at launch (SIGTRAP in
+`_UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption`) unless it adopts the scene
+lifecycle, whatever iOS version the device runs: the SDK it is built with decides. drawnui 1.2 and
+newer has the scene delegate; the app's `Info.plist` names it:
+
+```xml
+<key>UIApplicationSceneManifest</key>
+<dict>
+    <key>UIApplicationSupportsMultipleScenes</key><false/>
+    <key>UISceneConfigurations</key>
+    <dict>
+        <key>UIWindowSceneSessionRoleApplication</key>
+        <array>
+            <dict>
+                <key>UISceneConfigurationName</key><string>Default Configuration</string>
+                <key>UISceneDelegateClassName</key><string>DrawnUiSceneDelegate</string>
+            </dict>
+        </array>
+    </dict>
+</dict>
+```
+
+The repository's iOS scripts (`dev/ios`, `templates/fiddle/ios`) write it. Never name the delegate
+with an older drawnui: the class is missing and the window never reaches a scene (a black screen).
+Everything else stays as it was: safe area, keyboard, rotation, background and foreground events,
+VoiceOver.
+
+A field the soft keyboard would cover moves above it only inside a scroll that asks for it:
+`SkiaScroll::new().adapt_to_keyboard_auto(true).adapt_to_keyboard_gap(16)` (off by default, as C#
+`AdaptToKeyboardAuto`). Give it to the page scroll of every screen with text fields.
