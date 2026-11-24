@@ -273,6 +273,9 @@ pub fn run(title: &str, size: (f64, f64), make: fn() -> Box<dyn App>) {
     // iOS and Android make windows only once the app runs: the window comes with the first `resumed`.
     #[cfg(any(target_os = "ios", target_os = "android"))]
     {
+        // iOS: the scene delegate the app's Info.plist names, known before UIKit looks for it.
+        #[cfg(target_os = "ios")]
+        crate::ios_scene::register();
         let mut launch = ios::Launch { attributes: Some(attributes), make, proxy: event_loop.create_proxy(), desktop: None };
         event_loop.run_app(&mut launch).expect("event loop failed");
     }
@@ -4296,8 +4299,13 @@ mod ios {
                 (Some(desktop), _) => desktop.resumed(event_loop),
                 (None, Some(attributes)) => {
                     let app = (self.make)();
+                    // iOS: the window goes into the app's scene (the scene lifecycle, ios_scene).
                     #[cfg(target_os = "ios")]
-                    let (window, presenter) = Presenter::new(event_loop.create_window(attributes).expect("no window"), app.background());
+                    let (window, presenter) = {
+                        let window = event_loop.create_window(attributes).expect("no window");
+                        crate::ios_scene::adopt(&window);
+                        Presenter::new(window, app.background())
+                    };
                     #[cfg(target_os = "android")]
                     let (window, presenter) = Presenter::new_active(event_loop, attributes, app.gpu_backend());
                     self.desktop = Some(Desktop::new(window, presenter, app, self.proxy.clone()));
