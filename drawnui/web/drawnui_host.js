@@ -798,6 +798,7 @@ window.DrawnUi = {
 .drawnui-a11y-node{position:absolute;margin:0;padding:0;border:0;background:transparent;color:transparent;overflow:hidden;white-space:nowrap;pointer-events:none;font:inherit;user-select:none;-webkit-user-select:none}
 .drawnui-a11y-node:focus{outline:none}
 .drawnui-a11y-node:focus-visible{outline:3px solid rgba(13,110,253,.85);outline-offset:1px;border-radius:3px}
+.drawnui-a11y-overlay[data-ring="0"] .drawnui-a11y-node:focus-visible{outline:none}
 .drawnui-a11y-node::selection,.drawnui-a11y-node *::selection{background:transparent;color:transparent}
 .drawnui-a11y-text{overflow:visible}
 .drawnui-a11y-text>span{position:absolute;white-space:pre;color:transparent;user-select:none;-webkit-user-select:none;pointer-events:none;line-height:1;font-kerning:none;font-feature-settings:"kern" 0,"liga" 0,"calt" 0;text-rendering:geometricPrecision}
@@ -808,6 +809,10 @@ window.DrawnUi = {
     const overlay = document.createElement("div");
     overlay.className = "drawnui-a11y-overlay";
     canvas.insertAdjacentElement("afterend", overlay);
+    // The outline of the node with the page focus shows as the engine's ring does: once the
+    // keyboard is used. A focus the engine moves without a ring (a menu opened by a click) draws
+    // none, until the next key.
+    document.addEventListener("keydown", () => { overlay.dataset.ring = "1"; }, true);
     // The browser scrolls an overflow:hidden box to show a focused child: it stays on the canvas.
     overlay.addEventListener("scroll", () => {
       overlay.scrollTop = 0;
@@ -1035,10 +1040,14 @@ window.DrawnUi = {
             openTextInput(area, area && previous === textNode);
             break;
           }
-          case "f":
-            // An arrow in a group moved the keyboard: the page focus follows.
-            a11yNodes.get(rest)?.focus({ preventScroll: true });
+          case "f": {
+            // The engine moved the keyboard (an arrow in a group, a popup that opened): the page
+            // focus follows, with an outline only when the engine draws its ring.
+            const [id, ring] = rest.split(" ");
+            overlay.dataset.ring = ring === "0" ? "0" : "1";
+            a11yNodes.get(id)?.focus({ preventScroll: true });
             break;
+          }
           case "p":
             if (navigator.clipboard) navigator.clipboard.writeText(rest).catch((e) => console.error("drawnui clipboard", e));
             break;

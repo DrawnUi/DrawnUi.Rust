@@ -481,8 +481,8 @@ pub extern "C" fn dui_poll_output(s: *mut WebState) -> *const c_char {
             }
         }
         Some(out)
-    } else if let Some(id) = host.keyboard_moved.take() {
-        Some(format!("f {id}"))
+    } else if let Some((id, ring)) = host.keyboard_moved.take() {
+        Some(format!("f {id} {}", ring as u8))
     } else {
         None
     };

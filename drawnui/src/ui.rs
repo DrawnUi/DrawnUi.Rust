@@ -4245,7 +4245,7 @@ impl<S: 'static> App for Ui<S> {
             frame.host.text_input_hint = self.focused().and_then(|f| self.tree.find::<crate::controls::editor::SkiaEditor>(f)).map_or("", |e| e.return_key_hint());
         }
         if let Some(id) = self.keyboard_moved.take() {
-            frame.host.keyboard_moved = Some(id);
+            frame.host.keyboard_moved = Some((id, self.focus_ring));
         }
         if std::mem::take(&mut self.accessibility_changed) {
             frame.host.set_accessibility(self.tree.accessibility.clone());

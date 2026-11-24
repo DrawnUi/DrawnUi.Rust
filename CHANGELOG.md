@@ -4,6 +4,13 @@ Versions follow semver from 1.0.1, tagged `v<version>`; before it they were `0.1
 `v0.1.0-preview.N`. Each release lists what was added, what behaves differently, and what breaks code
 written for the version before it. Commits in parentheses.
 
+## Unreleased
+
+### Changed
+
+- Browser: a menu or popup opened with the mouse or a finger shows no keyboard focus outline on its
+  first line; the outline shows once the keyboard is used, as the engine's own focus ring does.
+
 ## 1.2.0 (crates.io, 2026-11-24)
 
 ### Added

@@ -181,9 +181,10 @@ pub struct Host {
     pub(crate) text_input_reshow: bool,
     /// The label of a soft keyboard's return key for that control (DOM `enterkeyhint`).
     pub(crate) text_input_hint: &'static str,
-    /// The engine moved the keyboard to this node (an arrow in a group): an overlay host moves its
-    /// focus there.
-    pub(crate) keyboard_moved: Option<u32>,
+    /// The engine moved the keyboard to this node (an arrow in a group, a popup that opened), and
+    /// whether it draws its ring there (no ring after a click or a touch): an overlay host moves its
+    /// focus there and shows its outline only with the ring.
+    pub(crate) keyboard_moved: Option<(u32, bool)>,
     /// Text for the system clipboard.
     clipboard: Option<String>,
     /// The app wants the clipboard's text as a `KeyKind::Char`.
