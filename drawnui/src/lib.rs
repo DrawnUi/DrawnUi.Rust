@@ -116,6 +116,8 @@ pub mod prelude {
 mod host_access;
 #[cfg(not(target_os = "emscripten"))]
 mod host_desktop;
+#[cfg(target_os = "ios")]
+mod ios_scene;
 #[cfg(target_os = "emscripten")]
 mod host_web;
 #[cfg(feature = "hot-reload")]

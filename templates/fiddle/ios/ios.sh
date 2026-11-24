@@ -53,7 +53,9 @@ else
     cargo build --target "$target"
 fi
 
-out="$root/target/$target/$profile"
+# Where cargo put it: a CARGO_TARGET_DIR or a target-dir in a cargo config moves it from ./target.
+target_dir=$(cd "$root" && cargo metadata --format-version 1 --no-deps | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')
+out="$target_dir/$target/$profile"
 app="$out/$crate.app"
 rm -rf "$app"
 mkdir -p "$app"
@@ -99,6 +101,22 @@ cat > "$app/Info.plist" <<PLIST
     <key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
     <key>UILaunchScreen</key><dict><key>UIColorName</key><string>LaunchBackground</string></dict>
     <key>UIRequiresFullScreen</key><true/>
+    <!-- The scene lifecycle, which apps linked with the iOS 27 SDK must adopt: drawnui's scene
+         delegate puts the app's window in the scene. -->
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key><false/>
+        <key>UISceneConfigurations</key>
+        <dict>
+            <key>UIWindowSceneSessionRoleApplication</key>
+            <array>
+                <dict>
+                    <key>UISceneConfigurationName</key><string>Default Configuration</string>
+                    <key>UISceneDelegateClassName</key><string>DrawnUiSceneDelegate</string>
+                </dict>
+            </array>
+        </dict>
+    </dict>
     <!-- ProMotion: up to 120 Hz. -->
     <key>CADisableMinimumFrameDurationOnPhone</key><true/>
     <key>UISupportedInterfaceOrientations</key>
