@@ -147,10 +147,12 @@ fn the_fps_label_counts_frames_the_waker_asked_for() {
         assert!(!host.ui.needs_frame(), "every frame came from the waker");
     }
     assert_eq!(text(&host), "FPS 28.6");
-    // A pause: the next frame alone measures nothing, the last value stays.
+    // The waker's frames come 35 ms apart: none asks for the next, yet the screen is not still.
+    // A pause of 2 s: the screen was still, the next frame shows 0 (Nick: "still screens should
+    // show 0 fps").
     waker.invalidate(preview, Dirty::DRAW);
     host.frame_after(2000.0);
-    assert_eq!(text(&host), "FPS 28.6");
+    assert_eq!(text(&host), "FPS 00.0");
 }
 
 type Moves = std::rc::Rc<std::cell::RefCell<Vec<(u32, String)>>>;
