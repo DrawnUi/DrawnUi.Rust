@@ -4,17 +4,17 @@ Versions follow semver from 1.0.1, tagged `v<version>`; before it they were `0.1
 `v0.1.0-preview.N`. Each release lists what was added, what behaves differently, and what breaks code
 written for the version before it. Commits in parentheses.
 
-## Unreleased
+## 1.3.0 (crates.io, 2026-11-27)
 
 ### Added
 
-- `SkiaLabelFps::force_refresh` (`set_force_refresh` at run time): keeps the canvas drawing every
-  frame, so the label measures the rate the screen can reach, as C# ForceRefresh.
+- `SkiaLabelFps::force_refresh` (`set_force_refresh` at run time) keeps the canvas drawing every
+  frame, so the label measures the rate the screen can reach, as C# ForceRefresh. (d1fcbd2)
 
 ### Changed
 
 - `SkiaLabelFps` shows `FPS 00.0` (C# format `00.0`) until anything drew a rate; on a still screen
-  it keeps its last value, as C#. It asks for no frames of its own.
+  it keeps its last value, as C#. It asks for no frames of its own. (569df6c)
 
 ## 1.2.1 (crates.io, 2026-11-25)
 
