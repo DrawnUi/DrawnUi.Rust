@@ -1,8 +1,8 @@
 //! SkiaLabelFps (DrawnUI SkiaLabelFps, React SkiaLabelFps): a label showing the canvas FPS, above
 //! its siblings and input-transparent. The engine writes the value only on frames that something
-//! else asked for (an animation, a scroll), so the label never keeps the canvas drawing; once the
-//! screen is still it shows 00.0 (one frame wakes for that). `force_refresh` keeps the canvas
-//! drawing every frame, as C# ForceRefresh does. Not ported: Format, MonoForDigits.
+//! else asked for (an animation, a scroll), so the label never asks for a frame by itself: a still
+//! screen keeps what it showed last, as C# (00.0 until anything drew a rate). `force_refresh`
+//! keeps the canvas drawing every frame, as C# ForceRefresh does. Not ported: Format, MonoForDigits.
 
 use std::any::Any;
 
@@ -56,7 +56,8 @@ impl SkiaLabelFps {
 
 impl Build<SkiaLabelFps> {
     /// Keeps the canvas drawing every frame, so the label measures the rate the screen can reach
-    /// (C# ForceRefresh). Off (the default), a still screen draws nothing and shows 00.0.
+    /// (C# ForceRefresh). Off (the default), a still screen draws nothing and the label keeps its
+    /// last value.
     pub fn force_refresh(mut self, on: bool) -> Self {
         self.control_mut().force_refresh = on;
         self

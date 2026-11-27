@@ -500,20 +500,12 @@ struct Fps {
     value: f32,
     /// The value the SkiaLabelFps labels show.
     shown: f32,
-    /// A SkiaLabelFps was in the tree at the last new value.
-    labels: bool,
-    /// The frames stopped with a rate on the labels: when they show 0 (a still screen draws at
-    /// 0 frames per second), one frame that wakes for it.
-    still_at: Option<f64>,
 }
 
 impl Fps {
     /// A frame further than this from the previous one, which did not ask for it, follows a pause:
     /// slower than 10 frames per second is not a frame rate.
     const PAUSE_MS: f64 = 100.0;
-
-    /// A still screen shows 0, this long after the last frame (the half second a value is counted over).
-    const STILL_MS: f64 = 500.0;
 
     /// Counts the frame; the value changes every half second of frames in a row.
     fn measure(&mut self, time_ms: f64) {
@@ -929,7 +921,7 @@ impl<S: 'static> Ui<S> {
         // React OnFrameEnd: a frame inside the interval brings one more frame when it has passed.
         let accessibility = (self.accessibility_on && self.accessibility_stale).then(|| self.accessibility_built_ms + ACCESSIBILITY_INTERVAL_MS);
         let leave = self.left_all_at.filter(|_| self.tree.popups.iter().any(|p| p.options.close_on_pointer_leave));
-        [animators::next_wake(&self.tree), self.recognizer.long_press_due(), accessibility, leave.map(|at| at + crate::popups::LEAVE_GRACE_MS), self.tooltip_due(), self.fps.still_at]
+        [animators::next_wake(&self.tree), self.recognizer.long_press_due(), accessibility, leave.map(|at| at + crate::popups::LEAVE_GRACE_MS), self.tooltip_due()]
             .into_iter()
             .flatten()
             .filter(|t| *t > self.tree.time_ms)
@@ -2420,17 +2412,10 @@ impl<S: 'static> Ui<S> {
     /// A new FPS value goes into every SkiaLabelFps before the layout of the frame, so setting it
     /// asks for no frame of its own.
     fn update_fps_labels(&mut self) {
-        // The screen stayed still since the last frame: the labels show 0.
-        if let Some(at) = self.fps.still_at.take()
-            && self.tree.time_ms >= at - 1.0
-        {
-            self.fps.value = 0.0;
-        }
         if self.fps.value == self.fps.shown {
             return;
         }
         self.fps.shown = self.fps.value;
-        self.fps.labels = false;
         // ponytail: a scan of the tree per new value (at most two a second while animating), with
         // no allocation unless a label is there; keep a list of the labels if a tree gets large.
         let mut text = None;
@@ -2438,7 +2423,6 @@ impl<S: 'static> Ui<S> {
             let Some(id) = self.tree.nodes[index].as_ref().map(|n| n.id) else { continue };
             if let Some(mut label) = self.tree.find_mut::<SkiaLabelFps>(id) {
                 label.set_text(text.get_or_insert_with(|| SkiaLabelFps::text(self.fps.value)).clone());
-                self.fps.labels = true;
             }
         }
     }
@@ -2608,10 +2592,6 @@ impl<S: 'static> Ui<S> {
         self.hover_after_frame(time_ms);
         idle_gpu(&mut self.tree, gpu, height, started.elapsed().as_secs_f32() * 1000.0);
         self.fps.chained = self.needs_frame();
-        // The frames stop with a rate shown: the labels show 0 once the screen has been still.
-        if !self.fps.chained && self.fps.labels && self.fps.shown > 0.0 {
-            self.fps.still_at = Some(time_ms + Fps::STILL_MS);
-        }
         // The focused control may have moved: the host's keyboard follows it.
         self.update_text_input();
         if self.accessibility_on {

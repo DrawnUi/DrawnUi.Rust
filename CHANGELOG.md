@@ -13,8 +13,8 @@ written for the version before it. Commits in parentheses.
 
 ### Changed
 
-- `SkiaLabelFps` on a still screen shows `FPS 00.0`: half a second after the last frame, one frame
-  wakes for it. The label still asks for no frames of its own.
+- `SkiaLabelFps` shows `FPS 00.0` (C# format `00.0`) until anything drew a rate; on a still screen
+  it keeps its last value, as C#. It asks for no frames of its own.
 
 ## 1.2.1 (crates.io, 2026-11-25)
 
