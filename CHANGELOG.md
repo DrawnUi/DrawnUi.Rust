@@ -4,6 +4,13 @@ Versions follow semver from 1.0.1, tagged `v<version>`; before it they were `0.1
 `v0.1.0-preview.N`. Each release lists what was added, what behaves differently, and what breaks code
 written for the version before it. Commits in parentheses.
 
+## Unreleased
+
+### Changed
+
+- macOS: an app run without a bundle shows its own icon (`icon.ico`, next to the exe or in the
+  working folder) in the Dock and Cmd+Tab. (c5941c1, a6cd4c9)
+
 ## 1.3.0 (crates.io, 2026-11-27)
 
 ### Added

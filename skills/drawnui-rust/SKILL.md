@@ -325,6 +325,14 @@ fn main() {
  Web: a `favicon.ico` next to `index.html` and
 `<link rel="icon" href="favicon.ico" />`.
 
+Linux and macOS read `icon.ico` itself at run time, next to the exe first, then in the working
+folder: copy it next to the exe in `build.rs` for those targets
+(`if target == "linux" || target == "macos" { fs::copy("icon.ico", exe_folder.join("icon.ico")) }`,
+`exe_folder` as in "Assets next to the exe"). Linux (X11) shows it on the window. macOS shows it
+in the Dock and Cmd+Tab for an app run without a bundle (`cargo run`, a bare executable); an app
+bundle keeps the icon its `Info.plist` names. Without a bundle the Dock shows the executable's
+file name: name the binary as the app (`[[bin]] name = "MyApp"`) or ship a `.app` bundle.
+
 ## Assets next to the exe
 
 The desktop host reads a relative path (`assets/...`) next to the exe first, then from the
