@@ -3,7 +3,8 @@
 $PublicMarkers = @(
     'C:\\Dev\\', 'C:/Dev/', 'C:\\Users', 'C:/Users', 'scratchpad', 'localhost:9222', 'connectOverCDP',
     'wrangler', 'CLOUDFLARE', 'cloudflare pages', 'npm_[A-Za-z0-9]{20,}', '_authToken', 'dev@drawnui\.net',
-    'taublast', 'gmail', 'bypass 2FA', 'granular token', 'PROGRESS\.md', 'DEVELOPMENT\.md', 'gh run watch'
+    # The account name, except the public DrawnCPC repository (Nick, 2026-11-28: link it as a sample).
+    'taublast(?!/DrawnCPC)', 'gmail', 'bypass 2FA', 'granular token', 'PROGRESS\.md', 'DEVELOPMENT\.md', 'gh run watch'
 )
 
 function Assert-Public([string]$Text, [string]$Label) {

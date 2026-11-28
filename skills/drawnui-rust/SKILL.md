@@ -6,7 +6,17 @@ description: Building apps with DrawnUI for Rust (the `drawnui` crate, Skia via 
 # DrawnUI for Rust: building an app
 
 Load `drawnui` too for engine semantics (layouts, caching, gestures): the Rust engine keeps the
-same public contract as DrawnUI for .NET and React. Porting an existing DrawnUI .NET app or control
+same public contract as DrawnUI for .NET and React.
+
+A full app to read for patterns: [DrawnCPC](https://github.com/taublast/DrawnCPC) (live at
+https://cpc.drawnui.net), an Amstrad CPC emulator. It shows a desktop menu bar with keyboard
+navigation, popup windows, settings that persist on desktop and web, tool screens (debugger, hex
+editor, selectable text), an on-screen keyboard with a phone layout, sound through drawnui-audio, a
+web build with stamped file addresses and a CORS helper, and accessibility throughout. Porting an existing DrawnUI .NET app or control
+(C# or XAML) to Rust: load `drawnui-port-net-to-rust` as well, for the workflow and the C# to Rust
+mapping. Porting an existing DrawnUI .NET app or control
+(C# or XAML) to Rust: load `drawnui-port-net-to-rust` as well, for the workflow and the C# to Rust
+mapping. Porting an existing DrawnUI .NET app or control
 (C# or XAML) to Rust: load `drawnui-port-net-to-rust` as well, for the workflow and the C# to Rust
 mapping.
 

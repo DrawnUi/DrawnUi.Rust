@@ -9,6 +9,8 @@ to fight: the same pixels everywhere, from a few lines of fluent Rust.
 
 - **Try it in your browser:** https://hellorust.drawnui.net (the DrawnUI Hello app)
 - **Play a game made with it:** https://run.drawnui.net (Dungeon Run, a 3D runner drawn with SkMesh)
+- **Full app built with it:** https://cpc.drawnui.net (DrawnCPC, Amstrad CPC 6128 emulator with a catalogue of CPC
+  games, demos and music), source at https://github.com/taublast/DrawnCPC
 - **Build with AI:** a ready AI skill teaches your coding agent DrawnUI for Rust, see [AI skills](#ai-skills)
 - Crate: [`drawnui`](https://crates.io/crates/drawnui) · API docs: https://docs.rs/drawnui
 - Release notes: [`CHANGELOG.md`](CHANGELOG.md) · Accessibility: [`ACCESSIBILITY.md`](ACCESSIBILITY.md)
