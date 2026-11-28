@@ -328,8 +328,6 @@ impl Desktop {
         exe_icon(&window);
         #[cfg(target_os = "linux")]
         file_icon(&window);
-        #[cfg(target_os = "macos")]
-        dock_icon();
         let gpu = presenter.gpu();
         #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
         let pacing = Pacing::new(&window);
@@ -1077,7 +1075,8 @@ fn file_icon(window: &Window) {
 
 /// macOS: the Dock and Cmd+Tab icon from the app's `icon.ico`, next to the exe or in the working
 /// folder, as on Linux, for an app run as a bare executable (`cargo run`). An app bundle keeps the
-/// icon its Info.plist names.
+/// icon its Info.plist names. Set at the first `resumed`: the Dock makes the app's tile when the
+/// app becomes a regular app at launch and ignores an icon set before that.
 #[cfg(target_os = "macos")]
 fn dock_icon() {
     use objc2::AllocAnyThread;
@@ -2143,6 +2142,12 @@ impl ApplicationHandler<Arrived> for Desktop {
     /// The first one makes the screen-reader adapter and shows the window; later ones bring the
     /// app back to the foreground (iOS): frames again.
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        // macOS: the Dock icon once the app is a regular app (winit makes it one at launch, after
+        // the window was made); an icon set before that the Dock throws away.
+        #[cfg(target_os = "macos")]
+        if !self.suspended {
+            dock_icon();
+        }
         // Android: AccessKit injects into GameActivity's surface view (TalkBack).
         if self.access.is_none() && self.window.is_visible() != Some(true) {
             self.access = Some(accesskit_winit::Adapter::with_event_loop_proxy(event_loop, &self.window, self.proxy.clone()));
