@@ -7,11 +7,11 @@ one hardware-accelerated canvas: layouts, smooth lists, animations, shaders, 3D 
 screen readers, on Windows, macOS, Linux, iOS, Android and in the browser. No garbage collector, no native widgets
 to fight: the same pixels everywhere, from a few lines of fluent Rust.
 
-- **Try it in your browser:** https://hellorust.drawnui.net (the DrawnUI Hello app)
-- **Play a game made with it:** https://run.drawnui.net (Dungeon Run, a 3D runner drawn with SkMesh)
-- **Full app built with it:** https://cpc.drawnui.net (DrawnCPC, Amstrad CPC 6128 emulator with a catalogue of CPC
+- **Try it in your browser:** https://hellorust.drawnui.net (DrawnUI Hello app)
+- **Game made with it:** https://run.drawnui.net (Dungeon Run, 3D runner drawn with SkMesh)
+- **Full app built with it:** https://cpc.drawnui.net (DrawnCPC, Amstrad CPC 6128 emulator with catalogue of CPC
   games, demos and music), source at https://github.com/taublast/DrawnCPC
-- **Build with AI:** a ready AI skill teaches your coding agent DrawnUI for Rust, see [AI skills](#ai-skills)
+- **Build with AI:** ready AI skill teaches your coding agent DrawnUI for Rust, see [AI skills](#ai-skills)
 - Crate: [`drawnui`](https://crates.io/crates/drawnui) · API docs: https://docs.rs/drawnui
 - Release notes: [`CHANGELOG.md`](CHANGELOG.md) · Accessibility: [`ACCESSIBILITY.md`](ACCESSIBILITY.md)
   · What it shares with DrawnUI for .NET: [`PARITY.md`](PARITY.md)
@@ -47,10 +47,10 @@ DrawnUI is MIT licensed in every language and on every platform: desktop, mobile
 
 ## Why DrawnUI for Rust
 
-- **A complete UI engine, ready to use.** Rendering, layouts, gestures, a full set of UI controls
+- **Complete UI engine, ready to use.** Rendering, layouts, gestures, a full set of UI controls
   and the building blocks to make your own: everything you need to create pixel-perfect apps, out
   of the box.
-- **The same pixels everywhere.** Every control is drawn by Skia, so your app looks the same on a
+- **Same pixels everywhere.** Every control is drawn by Skia, so your app looks the same on a
   phone, a desktop and a web page. No native widgets to fight.
 - **Smooth by design.** No garbage collector, so there are no collection pauses in the middle of a
   scroll or an animation. Caches keep finished parts of the screen as pictures or GPU textures and
@@ -62,7 +62,7 @@ DrawnUI is MIT licensed in every language and on every platform: desktop, mobile
   state, handle a tap in one line.
 - **Accessible.** Screen readers on every platform, keyboard navigation with a focus ring, values a
   screen reader reads and changes.
-- **AI-ready.** A ready-made AI skill teaches Claude Code, Codex, Cursor and other coding agents to
+- **AI-ready.** Ready-made AI skill teaches Claude Code, Codex, Cursor and other coding agents to
   build DrawnUI apps the right way, from the first `cargo new` to the browser and Android builds.
 - **Nothing to set up.** Add one dependency. Skia comes prebuilt for your platform.
 
@@ -74,14 +74,14 @@ DrawnUI is MIT licensed in every language and on every platform: desktop, mobile
 | macOS | Metal, paced by the display | Apple silicon, Intel |
 | Linux | OpenGL, X11 and Wayland | x64, ARM64 |
 | iOS | Metal, 120 Hz on ProMotion screens | devices, simulator (Apple silicon and Intel) |
-| Android | Vulkan, with OpenGL ES as the fallback | arm64, armv7, x86_64, x86 |
+| Android | Vulkan, OpenGL ES as fallback | arm64, armv7, x86_64, x86 |
 | Browser | WebGL2 (`wasm32-unknown-emscripten`) | all browsers with WebGL2 |
 
 ## What you get, all drawn on one canvas
 
 - **Layouts:** absolute, column, row, wrap, masonry and grids; layers with any alignment, z-index, clipping.
 - **Lists that stay smooth:** recycled and virtualized templated lists, items of different heights, load more.
-- **Controls:** labels and rich text (right-to-left and complex scripts, emoji), buttons, an editor with IME,
+- **Controls:** labels and rich text (right-to-left and complex scripts, emoji), buttons, editor with IME,
   toggles, switch, checkbox, radio buttons, slider, progress, scroll with pull to refresh.
 - **Navigation:** shell with pages, tabs, popups, modals and toasts, carousels and drawer.
 - **Animations:** value, range, spring, ping-pong and ripple animators, Lottie, GIF and sprites.
@@ -102,11 +102,11 @@ Please star ⭐ if you like it!
 
 | Crate | What it is | Version |
 |---|---|---|
-| [`drawnui`](https://crates.io/crates/drawnui) | the engine: controls, layouts, caches, gestures, animations, accessibility, the desktop, mobile and browser hosts | 1.3.0 |
-| [`drawnui-add3d`](https://crates.io/crates/drawnui-add3d) | the 3D add-on: real 3D models in a DrawnUI screen (glTF scenes with skeleton animations, many objects on one game field, shapes made in code); demo at [add3d.drawnui.net](https://add3d.drawnui.net) | 1.0.1 |
-| [`drawnui-audio`](https://crates.io/crates/drawnui-audio) | the sound add-on: channels that play samples in Impulse Tracker's model (volume, panning, loops, pitch), streams, generators and a mixer, on desktop, phones and the browser | 0.1.0 |
+| [`drawnui`](https://crates.io/crates/drawnui) | engine: controls, layouts, caches, gestures, animations, accessibility, desktop, mobile and browser hosts | 1.3.0 |
+| [`drawnui-add3d`](https://crates.io/crates/drawnui-add3d) | 3D add-on: real 3D models in DrawnUI screens (glTF scenes with skeleton animations, many objects on one game field, shapes made in code); demo at [add3d.drawnui.net](https://add3d.drawnui.net) | 1.0.1 |
+| [`drawnui-audio`](https://crates.io/crates/drawnui-audio) | sound add-on: channels that play samples in Impulse Tracker's model (volume, panning, loops, pitch), streams, generators and mixer, on desktop, phones and browser | 0.1.0 |
 | [`drawnui-skia-safe`](https://crates.io/crates/drawnui-skia-safe) | Skia for Rust: rust-skia's skia-safe plus SkMesh; drawnui re-exports it as `drawnui::skia` | 0.153.7 |
-| [`drawnui-skia-bindings`](https://crates.io/crates/drawnui-skia-bindings) | the native Skia under drawnui-skia-safe, downloaded prebuilt from [DrawnUi/rust-skia](https://github.com/DrawnUi/rust-skia/releases) | 0.153.7 |
+| [`drawnui-skia-bindings`](https://crates.io/crates/drawnui-skia-bindings) | native Skia under drawnui-skia-safe, downloaded prebuilt from [DrawnUi/rust-skia](https://github.com/DrawnUi/rust-skia/releases) | 0.153.7 |
 
 An app depends on `drawnui` only; the Skia crates come with it. Use Skia's API through
 `drawnui::skia` (the same as `skia_safe`, SkMesh included) and do not add skia-safe or skia-bindings
@@ -114,7 +114,7 @@ to an app: a program links one Skia.
 
 ## Getting started
 
-**The fastest way:** copy [`templates/app`](templates/app), rename `myapp`, build. It is an empty
+**Fastest way:** copy [`templates/app`](templates/app), rename `myapp`, build. It is an empty
 app with an icon, assets, a web page and build scripts for the desktop, the browser and Android.
 
 Or by hand, in a new project (`cargo new myapp`): `cargo add drawnui`, or in `Cargo.toml`:
@@ -225,7 +225,7 @@ build with its link flags and web page, Android, icons, accessibility.
   DrawnUI for Rust (properties, callbacks, layouts, models, animations, timers) and the rules that differ.
 - **For any LLM:** https://hellorust.drawnui.net/llms.txt and
   https://hellorust.drawnui.net/llms-full.txt (every skill in one file).
-- **The DrawnUI framework skill** (controls, layouts, caching across all DrawnUI engines):
+- **DrawnUI framework skill** (controls, layouts, caching across all DrawnUI engines):
   https://drawnui.net/llms.txt
 
 ## Benchmarks
@@ -295,11 +295,11 @@ library to it: [`solved-win.md`](solved-win.md), [`solved-wasm.md`](solved-wasm.
 
 ## Repository layout
 
-- `drawnui/`: the engine crate; `drawnui/web/drawnui_host.js` is the browser host.
-- `examples/hello/`: a counter. `examples/hellorust/`: the DrawnUI Hello app.
+- `drawnui/`: engine crate; `drawnui/web/drawnui_host.js` is the browser host.
+- `examples/hello/`: counter. `examples/hellorust/`: DrawnUI Hello app.
   `examples/bench/`: the benchmark scene. `examples/images/`: a photo feed. `examples/dungeon/`:
   Dungeon Run. `examples/popups/`: a right-click menu and a dropdown in popup windows.
-- `templates/app/`: the starter app.
+- `templates/app/`: starter app.
 - `dev/`: build, release and platform scripts.
 
 ## License
