@@ -93,10 +93,10 @@ objc2-core-foundation = { version = "0.3.2", default-features = false, features 
 objc2-metal = { version = "0.3.2", default-features = false, features = ["std", "MTLDevice", "MTLCommandBuffer", "MTLCommandQueue", "MTLDrawable", "MTLPixelFormat"] }
 objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "objc2-metal", "CALayer", "CAMetalLayer", "CADisplayLink", "CAFrameRateRange"] }
 # The display link's run loop (macOS 14+, iOS).
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSRunLoop", "NSString", "NSObject", "NSDate", "NSTimer"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSRunLoop", "NSString", "NSObject", "NSDate", "NSTimer", "NSBundle", "NSData"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-quartz-core", "NSView", "NSResponder", "NSWindow", "NSScreen", "NSPasteboard"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-quartz-core", "NSView", "NSResponder", "NSWindow", "NSScreen", "NSPasteboard", "NSApplication", "NSImage"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "objc2-quartz-core", "UIView", "UIResponder", "UIScreen", "UIGeometry", "UIColor", "UIWindow", "UIPasteboard", "UIScene", "UIWindowScene", "UISceneOptions", "UISceneSession"] }

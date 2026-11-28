@@ -328,6 +328,8 @@ impl Desktop {
         exe_icon(&window);
         #[cfg(target_os = "linux")]
         file_icon(&window);
+        #[cfg(target_os = "macos")]
+        dock_icon();
         let gpu = presenter.gpu();
         #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
         let pacing = Pacing::new(&window);
@@ -1071,6 +1073,23 @@ fn file_icon(window: &Window) {
     if image.read_pixels(&info, &mut rgba, width as usize * 4, (0, 0), skia::image::CachingHint::Disallow) {
         window.set_window_icon(winit::window::Icon::from_rgba(rgba, width as u32, height as u32).ok());
     }
+}
+
+/// macOS: the Dock and Cmd+Tab icon from the app's `icon.ico`, next to the exe or in the working
+/// folder, as on Linux, for an app run as a bare executable (`cargo run`). An app bundle keeps the
+/// icon its Info.plist names.
+#[cfg(target_os = "macos")]
+fn dock_icon() {
+    use objc2::AllocAnyThread;
+    use objc2_app_kit::{NSApplication, NSImage};
+    use objc2_foundation::{MainThreadMarker, NSBundle, NSData};
+    if NSBundle::mainBundle().bundleIdentifier().is_some() {
+        return;
+    }
+    let (Ok(bytes), Some(mtm)) = (read_app_file("icon.ico"), MainThreadMarker::new()) else { return };
+    let Some(image) = NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(&bytes)) else { return };
+    // SAFETY: an image the app owns, set on the main thread.
+    unsafe { NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image)) };
 }
 
 /// Reads a file of the app. A relative path is the app's: next to the exe first, as .NET reads
