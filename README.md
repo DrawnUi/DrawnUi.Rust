@@ -102,7 +102,7 @@ Please star ⭐ if you like it!
 
 | Crate | What it is | Version |
 |---|---|---|
-| [`drawnui`](https://crates.io/crates/drawnui) | engine: controls, layouts, caches, gestures, animations, accessibility, desktop, mobile and browser hosts | 1.3.0 |
+| [`drawnui`](https://crates.io/crates/drawnui) | engine: controls, layouts, caches, gestures, animations, accessibility, desktop, mobile and browser hosts | 1.3.1 |
 | [`drawnui-add3d`](https://crates.io/crates/drawnui-add3d) | 3D add-on: real 3D models in DrawnUI screens (glTF scenes with skeleton animations, many objects on one game field, shapes made in code); demo at [add3d.drawnui.net](https://add3d.drawnui.net) | 1.0.1 |
 | [`drawnui-audio`](https://crates.io/crates/drawnui-audio) | sound add-on: channels that play samples in Impulse Tracker's model (volume, panning, loops, pitch), streams, generators and mixer, on desktop, phones and browser | 0.1.0 |
 | [`drawnui-skia-safe`](https://crates.io/crates/drawnui-skia-safe) | Skia for Rust: rust-skia's skia-safe plus SkMesh; drawnui re-exports it as `drawnui::skia` | 0.153.7 |
